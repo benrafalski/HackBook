@@ -88,6 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <ul class="dropdown-menu bg-dark text-light" aria-labelledby="binDropdown">
                   <li><a class="dropdown-item text-light" href="pages/binary/binaries.html">Binaries</a></li>
                   <li><a class="dropdown-item text-light" href="pages/binary/rop.html">ROP</a></li>
+                  <li><a class="dropdown-item text-light" href="pages/binary/stack.html">Stack</a></li>
                 </ul>
               </li>
 
