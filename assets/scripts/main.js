@@ -91,6 +91,22 @@ document.addEventListener("DOMContentLoaded", () => {
                   <li><a class="dropdown-item text-light" href="pages/binary/stack.html">Stack</a></li>
                 </ul>
               </li>
+              <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" id="netDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  Networking
+                </a>
+                <ul class="dropdown-menu bg-dark text-light" aria-labelledby="netDropdown">
+                  <li><a class="dropdown-item text-light" href="pages/network/dhcp.html">DHCP:67/68</a></li>
+                </ul>
+              </li>
+              <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" id="archDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  Architecture
+                </a>
+                <ul class="dropdown-menu bg-dark text-light" aria-labelledby="archDropdown">
+                  <li><a class="dropdown-item text-light" href="pages/arch/x86-os-internals.html">x86 OS Internals</a></li>
+                </ul>
+              </li>
 
             </ul>
 
