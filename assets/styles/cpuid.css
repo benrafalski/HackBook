@@ -1,0 +1,262 @@
+.cpuid-container {
+--gap: 0.4rem;
+--bit-size: 46px;
+--radius: 10px;
+/* Remove any positioning that might interfere with the main content area */
+max-width: 100%;
+margin: 0 auto;
+}
+.cpuid-container * {
+box-sizing: border-box;
+}
+
+.cpuid-panel {
+background: #11161c;
+border: 1px solid #1c2531;
+box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+padding: 1rem;
+border-radius: 16px;
+margin-block: 1rem;
+/* Ensure it doesn't overflow the content area */
+max-width: 100%;
+overflow-x: auto;
+}
+.cpuid-panel h4 {
+font-size: 1.05rem;
+margin: 0 0 0.6rem;
+color: #cffbec;
+}
+
+.cpuid-inputs {
+display: grid;
+gap: 0.6rem;
+grid-template-columns: 1fr;
+}
+@media (min-width: 750px) {
+.cpuid-inputs {
+    grid-template-columns: 1fr 1fr;
+}
+}
+
+.cpuid-field {
+display: grid;
+gap: 0.35rem;
+}
+.cpuid-field input {
+background: #0e1318;
+border: 1px solid #2a3543;
+color: #e8eef6;
+padding: 0.6rem 0.7rem;
+border-radius: 12px;
+font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+font-size: 0.95rem;
+width: 100%;
+}
+.cpuid-hint {
+font-size: 0.85rem;
+opacity: 0.8;
+}
+
+.cpuid-legend {
+display: flex;
+gap: 0.75rem;
+align-items: center;
+flex-wrap: wrap;
+margin-top: 0.5rem;
+}
+.cpuid-pill {
+padding: 0.25rem 0.5rem;
+border-radius: 999px;
+font-size: 0.8rem;
+border: 1px solid #2a3543;
+}
+.cpuid-pill.is-set {
+background: #15351c;
+border-color: #275c32;
+color: #b7f5c1;
+}
+.cpuid-pill.is-clear {
+background: #31191b;
+border-color: #5a2a2f;
+color: #ffc0c7;
+}
+
+.cpuid-reg {
+display: grid;
+gap: var(--gap);
+grid-template-columns: repeat(32, minmax(30px, 1fr));
+overflow-x: auto;
+padding-bottom: 0.5rem;
+/* Ensure proper scrolling within the content area */
+max-width: 100%;
+}
+
+.cpuid-bit {
+position: relative;
+min-width: var(--bit-size);
+min-height: var(--bit-size);
+background: #0e1318;
+border: 1px solid #243040;
+border-radius: var(--radius);
+display: grid;
+place-items: center;
+text-align: center;
+padding: 0.2rem;
+cursor: default;
+transition: transform 0.06s ease;
+}
+.cpuid-bit:hover {
+transform: translateY(-1px);
+}
+.cpuid-bit .idx {
+position: absolute;
+top: 4px;
+left: 6px;
+font-size: 0.68rem;
+color: #93a6bf;
+opacity: 0.85;
+}
+.cpuid-bit .name {
+font-size: 0.78rem;
+font-weight: 600;
+letter-spacing: 0.01em;
+color: #cffbec;
+}
+
+.cpuid-bit.set {
+background: #16301d;
+border-color: #2b5e3b;
+box-shadow: inset 0 0 0 1px rgba(103, 232, 121, 0.15);
+}
+.cpuid-bit.set .name {
+color: #b9f6c3;
+}
+
+.cpuid-bit.clear {
+background: #1a0f12;
+border-color: #4a2830;
+box-shadow: inset 0 0 0 1px rgba(244, 114, 182, 0.07);
+}
+.cpuid-bit.clear .name {
+color: #ffc1cb;
+opacity: 0.9;
+}
+
+.cpuid-rowtitle {
+margin: 0.25rem 0 0.6rem;
+color: #9db5d3;
+font-weight: 700;
+letter-spacing: 0.02em;
+}
+.cpuid-note {
+font-size: 0.85rem;
+color: #a9bad1;
+margin-bottom: 1rem;
+}
+.cpuid-kbd {
+font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+font-size: 0.82rem;
+background: #0e1318;
+padding: 0.15rem 0.35rem;
+border-radius: 6px;
+border: 1px solid #2a3543;
+}
+
+/* Version/Processor info styles */
+.version-info,
+.processor-info {
+display: grid;
+gap: 0.75rem;
+grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.version-field,
+.proc-field {
+display: flex;
+justify-content: space-between;
+align-items: center;
+padding: 0.5rem;
+background: #0e1318;
+border: 1px solid #243040;
+border-radius: 8px;
+}
+
+.version-field label,
+.proc-field label {
+font-weight: 600;
+color: #9db5d3;
+}
+
+.version-value,
+.proc-value {
+font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+color: #cffbec;
+font-weight: 500;
+}
+
+.eax-layout {
+display: grid;
+gap: 0.5rem;
+grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.bit-group {
+background: #0e1318;
+border: 1px solid #243040;
+border-radius: 8px;
+padding: 0.5rem;
+text-align: center;
+}
+
+.bit-label {
+font-size: 0.75rem;
+color: #9db5d3;
+margin-bottom: 0.25rem;
+}
+
+.bit-value {
+font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+font-size: 0.9rem;
+color: #cffbec;
+font-weight: 600;
+letter-spacing: 0.1em;
+}
+
+.cpuid-select {
+  background: #0e1318;
+  border: 1px solid #2a3543;
+  color: #e8eef6;
+  padding: 0.6rem 0.7rem;
+  border-radius: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  width: 100%;
+  cursor: pointer;
+}
+
+.cpuid-select:focus {
+  outline: none;
+  border-color: #4a90e2;
+}
+
+.cpuid-select option {
+  background: #0e1318;
+  color: #e8eef6;
+  padding: 0.5rem;
+}
+
+.cpuid-custom-input {
+  margin-top: 0.5rem;
+  display: none;
+}
+
+.cpuid-custom-input input {
+  background: #0e1318;
+  border: 1px solid #2a3543;
+  color: #e8eef6;
+  padding: 0.6rem 0.7rem;
+  border-radius: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  width: 100%;
+}
