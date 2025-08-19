@@ -405,6 +405,111 @@ const INTEL_PROCESSORS = {
         year: "2024"
         },
     },
+    0xa7: {
+    // Model 167
+        0x1: {
+        name: "Rocket Lake",
+        product: "11th Gen Core",
+        type: "Client",
+        stepping: "RKL B0",
+        process: "14nm+++",
+        year: "2021"
+        },
+    },
+    0x97: {
+    // Model 151
+        0x0: {
+        name: "Alder Lake-S",
+        product: "12th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "ADL-S A0",
+        process: "Intel 7 (7nm)",
+        year: "2021"
+        },
+        0x1: {
+        name: "Alder Lake-S",
+        product: "12th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "ADL-S B0",
+        process: "Intel 7 (7nm)",
+        year: "2021"
+        },
+        0x2: {
+        name: "Alder Lake-S/HX",
+        product: "12th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "ADL-S/HX C0",
+        process: "Intel 7 (7nm)",
+        year: "2021"
+        },
+        0x3: {
+        name: "Alder Lake-P/H",
+        product: "12th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "ADL-P/H",
+        process: "Intel 7 (7nm)",
+        year: "2021"
+        },
+        0x4: {
+        name: "Alder Lake-U",
+        product: "12th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "ADL-U G0",
+        process: "Intel 7 (7nm)",
+        year: "2021"
+        },
+        0x5: {
+        name: "Alder Lake-S",
+        product: "12th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "ADL-S H0",
+        process: "Intel 7 (7nm)",
+        year: "2021"
+        },
+    },
+    0x9a: {
+    // Model 155
+        0x0: {
+        name: "Alder Lake",
+        product: "12th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "ADL-S J0",
+        process: "Intel 7 (7nm)",
+        year: "2021"
+        },
+        0x1: {
+        name: "Alder Lake",
+        product: "12th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "ADL-S Q0",
+        process: "Intel 7 (7nm)",
+        year: "2021"
+        },
+        0x2: {
+        name: "Alder Lake",
+        product: "12th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "ADL-S K0",
+        process: "Intel 7 (7nm)",
+        year: "2021"
+        },
+        0x3: {
+        name: "Alder Lake",
+        product: "12th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "ADL-S L0",
+        process: "Intel 7 (7nm)",
+        year: "2021"
+        },
+        0x4: {
+        name: "Alder Lake",
+        product: "12th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "ADL-S R0",
+        process: "Intel 7 (7nm)",
+        year: "2021"
+        },
+    },
 },
 };
 
@@ -655,12 +760,64 @@ function generateCPUIDOptions() {
     }
   }
   
-//   Sort by CPUID value
-  options.sort((a, b) => {
-    const aVal = parseInt(a.value, 16);
-    const bVal = parseInt(b.value, 16);
-    return aVal - bVal;
-  });
+    //   Sort by CPUID value
+    options.sort((a, b) => {
+        // Extract generation numbers and processor types
+        const extractGenInfo = (product) => {
+            const coreMatch = product.match(/(\d+)(?:st|nd|rd|th)\s+Gen\s+Core/i);
+            const xeonMatch = product.match(/(\d+)(?:st|nd|rd|th)\s+Gen\s+Xeon/i);
+            
+            if (coreMatch) {
+                return { type: 'core', gen: parseInt(coreMatch[1]) };
+            } else if (xeonMatch) {
+                return { type: 'xeon', gen: parseInt(xeonMatch[1]) };
+            }
+            return { type: 'other', gen: 999 }; // Unknown products go last
+        };
+        
+        const aInfo = extractGenInfo(a.data.product);
+        const bInfo = extractGenInfo(b.data.product);
+        
+        // Core processors come before Xeon
+        if (aInfo.type !== bInfo.type) {
+            if (aInfo.type === 'core' && bInfo.type === 'xeon') return -1;
+            if (aInfo.type === 'xeon' && bInfo.type === 'core') return 1;
+            if (aInfo.type === 'other') return 1;
+            if (bInfo.type === 'other') return -1;
+        }
+        
+        // Sort by generation number within same type
+        if (aInfo.gen !== bInfo.gen) {
+            return aInfo.gen - bInfo.gen;
+        }
+        
+        // Handle mixed generation products like "7/8th Gen Core" 
+        // Extract the first generation from mixed products for sorting
+        const getFirstGen = (product) => {
+            const mixedMatch = product.match(/(\d+)\/\d+(?:st|nd|rd|th)\s+Gen/i);
+            if (mixedMatch) return parseInt(mixedMatch[1]);
+            return aInfo.gen; // Use regular gen if not mixed
+        };
+        
+        const aFirstGen = getFirstGen(a.data.product);
+        const bFirstGen = getFirstGen(b.data.product);
+        
+        if (aFirstGen !== bFirstGen) {
+            return aFirstGen - bFirstGen;
+        }
+        
+        // Within same first generation, single gen comes before mixed
+        const aMixed = a.data.product.includes('/');
+        const bMixed = b.data.product.includes('/');
+        
+        if (aMixed !== bMixed) {
+            return aMixed ? 1 : -1; // Single gen (false) comes before mixed (true)
+        }        
+        // If same product, sort by name
+        return a.data.name.localeCompare(b.data.name);
+    });
+
+  console.log(options)
   
   return options;
 }
