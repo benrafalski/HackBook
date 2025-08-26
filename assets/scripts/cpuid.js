@@ -108,6 +108,7 @@ const INTEL_PROCESSORS = {
 // https://fossies.org/linux/cpuid/cpuid.c
 // https://en.wikichip.org/wiki/intel/cpuid
 6: {
+    // kaby, coffee, whiskey, comet lake
     0x8e: {
     // Model 142
         0x9: {
@@ -151,6 +152,7 @@ const INTEL_PROCESSORS = {
         year: "2018"
         },
     },
+    // kaby, coffee lake
     0x9e: {
     // Model 158
         0x9: {
@@ -194,6 +196,7 @@ const INTEL_PROCESSORS = {
         year: "2018"
         },
     },
+    // cannon lake
     0x66: {
     // Model 102
         0x0: {
@@ -229,6 +232,7 @@ const INTEL_PROCESSORS = {
         year: "2018"
         },
     },
+    // ice lake core
     0x7d: {
     // Model 125
         0x0: {
@@ -256,6 +260,7 @@ const INTEL_PROCESSORS = {
         year: "2019"
         },
     },
+    // tiger lake
     0x8c: {
     // Model 125
         0x0: {
@@ -302,6 +307,7 @@ const INTEL_PROCESSORS = {
         year: "2020"
         },
     },
+    // sapphire rapids
     0x8f: {
     // Model 143
         0x3: {
@@ -353,6 +359,7 @@ const INTEL_PROCESSORS = {
         year: "2023"
         },
     },
+    // emerald rapids
     0xcf: {
     // Model 207
         0x1: {
@@ -372,6 +379,7 @@ const INTEL_PROCESSORS = {
         year: "2023"
         },
     },
+    // granite rapids
     0xad: {
     // Model 173
         0x1: {
@@ -383,17 +391,18 @@ const INTEL_PROCESSORS = {
         year: "2023"
         },
     },
-    0xad: {
-    // Model 173
+    0xae: {
+    // Model 174
         0x1: {
         name: "Granite Rapids",
         product: "6th Gen Xeon",
         type: "Server",
-        stepping: "GNR B0/H0",
+        stepping: "GNR",
         process: "Intel 3 (3nm)",
         year: "2023"
         },
     },
+    // sierra forest
     0xaf: {
     // Model 175
         0x3: {
@@ -405,6 +414,7 @@ const INTEL_PROCESSORS = {
         year: "2024"
         },
     },
+    // rocket lake
     0xa7: {
     // Model 167
         0x1: {
@@ -416,6 +426,7 @@ const INTEL_PROCESSORS = {
         year: "2021"
         },
     },
+    // alder lake
     0x97: {
     // Model 151
         0x0: {
@@ -508,6 +519,75 @@ const INTEL_PROCESSORS = {
         stepping: "ADL-S R0",
         process: "Intel 7 (7nm)",
         year: "2021"
+        },
+    },
+    // raptor lake
+    0xb7: {
+    // Model 183
+        0x0: {
+        name: "Raptor Lake-S/HX",
+        product: "13/14th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "RPL A0",
+        process: "Intel 7 (7nm)",
+        year: "2022"
+        },
+        0x1: {
+        name: "Raptor Lake-S/HX",
+        product: " Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "RPL B0",
+        process: "Intel 7 (7nm)",
+        year: "2022"
+        },
+    },
+    0xba: {
+    // Model 186
+        0x2: {
+        name: "Raptor Lake-H/U/P",
+        product: "13/14th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "RPL J0",
+        process: "Intel 7 (7nm)",
+        year: "2022"
+        },
+        0x3: {
+        name: "Raptor Lake-P",
+        product: "13/14th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "RPL Q0",
+        process: "Intel 7 (7nm)",
+        year: "2022"
+        },
+    },
+    0xbe: {
+    // Model 190
+        0x0: {
+        name: "Alder Lake-N",
+        product: "12th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "ADL A0/N0",
+        process: "Intel 7 (7nm)",
+        year: "2021"
+        },
+    },
+    0xbf: {
+    // Model 191
+        0x2: {
+        name: "Raptor Lake-S/HX",
+        product: "13/14th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "RPL C0",
+        process: "Intel 7 (7nm)",
+        year: "2022"
+        },
+        0x5: {
+        name: "Raptor Lake-S/HX/P",
+        product: "13/14th Gen Core",
+        type: "Hybrid/Atom",
+        stepping: "RPL H0",
+        process: "Intel 7 (7nm)",
+        year: "2022"
         },
     },
 },
