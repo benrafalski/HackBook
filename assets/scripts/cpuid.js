@@ -108,488 +108,626 @@ const INTEL_PROCESSORS = {
 // https://fossies.org/linux/cpuid/cpuid.c
 // https://en.wikichip.org/wiki/intel/cpuid
 6: {
-    // kaby, coffee, whiskey, comet lake
-    0x8e: {
-    // Model 142
-        0x9: {
-        name: "Kaby Lake",
-        product: "7th Gen Core",
-        type: "Client",
-        stepping: "KBL H0",
-        process: "14nm+",
-        year: "2016"
-        },
-        0xa: {
-        name: "Kaby Lake / Coffee Lake",
-        product: "7/8th Gen Core",
-        type: "Client",
-        stepping: "KBL Y0 / CFL D0",
-        process: "14nm+/14nm++",
-        year: "2016/18"
-        },
-        0xb: {
-        name: "Whiskey Lake-U",
-        product: "8th Gen Core",
-        type: "Client",
-        stepping: "WHL-U W0",
-        process: "14nm+",
-        year: "2018"
-        },
-        0xc: {
-        name: "Comet Lake-U",
-        product: "10th Gen Core",
-        type: "Client",
-        stepping: "CML-U V1",
-        process: "14nm+",
-        year: "2019"
-        },
-        0xd: {
-        name: "Whiskey Lake-U",
-        product: "8th Gen Core",
-        type: "Client",
-        stepping: "WHL-U V0",
-        process: "14nm+",
-        year: "2018"
-        },
+    // ===== SERVER =====
+    // P6 (Pentium)
+    0xa : {
+        uarch: "P6 Pentium III",
+        steppings :{
+            0x0: {
+                core: "n/a",
+                product: "Intel Pentium III Xeon",
+                type: "Big Core (Server)",
+                stepping: "Cascades A0",
+                process: ".18um",
+                year: "1995"
+            },
+            0x1: {
+                core: "n/a",
+                product: "Intel Pentium III Xeon",
+                type: "Big Core (Server)",
+                stepping: "Cascades A1",
+                process: ".18um",
+                year: "1995"
+            },
+            0x4: {
+                core: "n/a",
+                product: "Intel Pentium III Xeon",
+                type: "Big Core (Server)",
+                stepping: "Cascades A1",
+                process: ".18um",
+                year: "1995"
+            },
+        }
     },
-    // kaby, coffee lake
-    0x9e: {
-    // Model 158
-        0x9: {
-        name: "Kaby Lake-H",
-        product: "7th Gen Core",
-        type: "Client",
-        stepping: "KBL-H B0",
-        process: "14nm+",
-        year: "2016"
-        },
-        0xa: {
-        name: "Coffee Lake",
-        product: "8th Gen Core",
-        type: "Client",
-        stepping: "CFL U0",
-        process: "14nm++",
-        year: "2018"
-        },
-        0xb: {
-        name: "Coffee Lake",
-        product: "8th Gen Core",
-        type: "Client",
-        stepping: "CFL B0",
-        process: "14nm++",
-        year: "2018"
-        },
-        0xc: {
-        name: "Coffee Lake",
-        product: "8th Gen Core",
-        type: "Client",
-        stepping: "CFL P0",
-        process: "14nm++",
-        year: "2018"
-        },
-        0xd: {
-        name: "Coffee Lake",
-        product: "8th Gen Core",
-        type: "Client",
-        stepping: "CFL R0",
-        process: "14nm++",
-        year: "2018"
-        },
+    // Penryn - Yorkfield/Wolfdale/Harpertown
+    0x17 : {
+        uarch: "Penryn",
+        steppings :{
+            0x6: {
+                core: "Yorkfield/Wolfdale/Harpertown",
+                product: "Intel Xeon",
+                type: "Big Core (Server)",
+                stepping: "Yorkfield C0/Wolfdale C0/Harpertown C0",
+                process: "45nm",
+                year: "2007"
+            },
+            0x7: {
+                core: "Yorkfield",
+                product: "Intel Xeon",
+                type: "Big Core (Server)",
+                stepping: "Yorkfield C1",
+                process: "45nm",
+                year: "2007"
+            },
+            0xa: {
+                core: "Yorkfield",
+                product: "Intel Xeon",
+                type: "Big Core (Server)",
+                stepping: "Yorkfield E0/R0",
+                process: "45nm",
+                year: "2007"
+            },
+        }
     },
-    // cannon lake
-    0x66: {
-    // Model 102
-        0x0: {
-        name: "Cannon Lake",
-        product: "8th Gen Core",
-        type: "Client",
-        stepping: "CNL A0",
-        process: "10nm",
-        year: "2018"
-        },
-        0x1: {
-        name: "Cannon Lake",
-        product: "8th Gen Core",
-        type: "Client",
-        stepping: "CNL B0",
-        process: "10nm",
-        year: "2018"
-        },
-        0x2: {
-        name: "Cannon Lake",
-        product: "8th Gen Core",
-        type: "Client",
-        stepping: "CNL C0",
-        process: "10nm",
-        year: "2018"
-        },
-        0x3: {
-        name: "Cannon Lake",
-        product: "8th Gen Core",
-        type: "Client",
-        stepping: "CNL D0",
-        process: "10nm",
-        year: "2018"
-        },
+    // Penryn - Dunnington
+    0x1d : {
+        uarch: "Penryn",
+        steppings :{
+            0x1: {
+                core: "Dunnington",
+                product: "Intel Xeon",
+                type: "Big Core (Server)",
+                stepping: "Dunnington A1",
+                process: "45nm",
+                year: "2007"
+            },
+        }
     },
-    // ice lake core
-    0x7d: {
-    // Model 125
-        0x0: {
-        name: "Ice Lake-U/Y",
-        product: "10th Gen Core",
-        type: "Client",
-        stepping: "ICX-U/Y A0",
-        process: "10nm+",
-        year: "2019"
-        },
-        0x1: {
-        name: "Ice Lake-U/Y",
-        product: "10th Gen Core",
-        type: "Client",
-        stepping: "ICX-U/Y B0",
-        process: "10nm+",
-        year: "2019"
-        },
-        0x5: {
-        name: "Ice Lake-U/Y",
-        product: "10th Gen Core",
-        type: "Client",
-        stepping: "ICX-U/Y D1",
-        process: "10nm+",
-        year: "2019"
-        },
+    // Nehalem - Bloomfield/Gainestown
+    0x1a : {
+        uarch: "Nehalem",
+        steppings :{
+            0x4: {
+                core: "Bloomfield",
+                product: "Intel Xeon",
+                type: "Big Core (Client P-cores)",
+                stepping: "Bloomfield C0",
+                process: "45nm",
+                year: "2008"
+            },
+            0x5: {
+                core: "Bloomfield/Gainestown",
+                product: "Intel Xeon",
+                type: "Big Core (Server)",
+                stepping: "Bloomfield/Gainestown D0",
+                process: "45nm",
+                year: "2008"
+            },
+        }
     },
-    // tiger lake
-    0x8c: {
-    // Model 125
-        0x0: {
-        name: "Tiger Lake-U",
-        product: "11th Gen Core",
-        type: "Client",
-        stepping: "TGL-U A0",
-        process: "10nm++",
-        year: "2020"
-        },
-        0x1: {
-        name: "Tiger Lake-U",
-        product: "11th Gen Core",
-        type: "Client",
-        stepping: "TGL-U B0/B1",
-        process: "10nm++",
-        year: "2020"
-        },
-        0x2: {
-        name: "Tiger Lake-U",
-        product: "11th Gen Core",
-        type: "Client",
-        stepping: "TGL-U C0",
-        process: "10nm++",
-        year: "2020"
-        },
+    // Nehalem - Jasper Forest/Lynnfield
+    0x1e : {
+        uarch: "Nehalem",
+        steppings :{
+            0x4: {
+                core: "Jasper Forest",
+                product: "Intel Xeon",
+                type: "Big Core (Server)",
+                stepping: "JF B0",
+                process: "45nm",
+                year: "2008"
+            },
+            0x5: {
+                core: "Lynnfield/",
+                product: "Intel Xeon",
+                type: "Big Core (Server)",
+                stepping: "LFD B1",
+                process: "45nm",
+                year: "2008"
+            },
+        }
     },
-    0x8d: {
-    // Model 126
-        0x0: {
-        name: "Tiger Lake-H",
-        product: "11th Gen Core",
-        type: "Client",
-        stepping: "TGL-H P0",
-        process: "10nm++",
-        year: "2020"
-        },
-        0x1: {
-        name: "Tiger Lake-H",
-        product: "11th Gen Core",
-        type: "Client",
-        stepping: "TGL-H R0",
-        process: "10nm++",
-        year: "2020"
-        },
+    // Nehalem
+    0x2e : {
+        uarch: "Nehalem",
+        steppings :{
+            0x6: {
+                core: "Beckton",
+                product: "Intel Xeon",
+                type: "Big Core (Server)",
+                stepping: "Beckton A0",
+                process: "45nm",
+                year: "2008"
+            },
+        }
     },
-    // sapphire rapids
-    0x8f: {
-    // Model 143
-        0x3: {
-        name: "Sapphire Rapids",
-        product: "4th Gen Xeon",
-        type: "Server",
-        stepping: "SPR D",
-        process: "Intel 7 (7nm)",
-        year: "2023"
-        },
-        0x4: {
-        name: "Sapphire Rapids",
-        product: "4th Gen Xeon",
-        type: "Server",
-        stepping: "SPR E0",
-        process: "Intel 7 (7nm)",
-        year: "2023"
-        },
-        0x5: {
-        name: "Sapphire Rapids",
-        product: "4th Gen Xeon",
-        type: "Server",
-        stepping: "SPR E2",
-        process: "Intel 7 (7nm)",
-        year: "2023"
-        },
-        0x6: {
-        name: "Sapphire Rapids",
-        product: "4th Gen Xeon",
-        type: "Server",
-        stepping: "SPR E3",
-        process: "Intel 7 (7nm)",
-        year: "2023"
-        },
-        0x7: {
-        name: "Sapphire Rapids",
-        product: "4th Gen Xeon",
-        type: "Server",
-        stepping: "SPR E4/S2",
-        process: "Intel 7 (7nm)",
-        year: "2023"
-        },
-        0x8: {
-        name: "Sapphire Rapids",
-        product: "4th Gen Xeon",
-        type: "Server",
-        stepping: "SPR E5/B3/S3",
-        process: "Intel 7 (7nm)",
-        year: "2023"
-        },
-    },
-    // emerald rapids
-    0xcf: {
-    // Model 207
-        0x1: {
-        name: "Emerald Rapids",
-        product: "5th Gen Xeon",
-        type: "Server",
-        stepping: "EMR A0",
-        process: "Intel 7 (7nm)",
-        year: "2023"
-        },
-        0x2: {
-        name: "Emerald Rapids",
-        product: "5th Gen Xeon",
-        type: "Server",
-        stepping: "EMR A1/R1",
-        process: "Intel 7 (7nm)",
-        year: "2023"
-        },
-    },
-    // granite rapids
-    0xad: {
-    // Model 173
-        0x1: {
-        name: "Granite Rapids",
-        product: "6th Gen Xeon",
-        type: "Server",
-        stepping: "GNR B0/H0",
-        process: "Intel 4 (4nm)",
-        year: "2023"
-        },
-    },
-    0xae: {
-    // Model 174
-        0x1: {
-        name: "Granite Rapids",
-        product: "6th Gen Xeon",
-        type: "Server",
-        stepping: "GNR",
-        process: "Intel 3 (3nm)",
-        year: "2023"
-        },
-    },
-    // sierra forest
-    0xaf: {
-    // Model 175
-        0x3: {
-        name: "Sierra Forest",
-        product: "6th Gen Xeon",
-        type: "Server",
-        stepping: "SRF C0",
-        process: "Intel 3 (3nm)",
-        year: "2024"
-        },
-    },
-    // rocket lake
-    0xa7: {
-    // Model 167
-        0x1: {
-        name: "Rocket Lake",
-        product: "11th Gen Core",
-        type: "Client",
-        stepping: "RKL B0",
-        process: "14nm+++",
-        year: "2021"
-        },
-    },
-    // alder lake
-    0x97: {
-    // Model 151
-        0x0: {
-        name: "Alder Lake-S",
-        product: "12th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "ADL-S A0",
-        process: "Intel 7 (7nm)",
-        year: "2021"
-        },
-        0x1: {
-        name: "Alder Lake-S",
-        product: "12th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "ADL-S B0",
-        process: "Intel 7 (7nm)",
-        year: "2021"
-        },
-        0x2: {
-        name: "Alder Lake-S/HX",
-        product: "12th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "ADL-S/HX C0",
-        process: "Intel 7 (7nm)",
-        year: "2021"
-        },
-        0x3: {
-        name: "Alder Lake-P/H",
-        product: "12th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "ADL-P/H",
-        process: "Intel 7 (7nm)",
-        year: "2021"
-        },
-        0x4: {
-        name: "Alder Lake-U",
-        product: "12th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "ADL-U G0",
-        process: "Intel 7 (7nm)",
-        year: "2021"
-        },
-        0x5: {
-        name: "Alder Lake-S",
-        product: "12th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "ADL-S H0",
-        process: "Intel 7 (7nm)",
-        year: "2021"
-        },
-    },
-    0x9a: {
-    // Model 155
-        0x0: {
-        name: "Alder Lake",
-        product: "12th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "ADL-S J0",
-        process: "Intel 7 (7nm)",
-        year: "2021"
-        },
-        0x1: {
-        name: "Alder Lake",
-        product: "12th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "ADL-S Q0",
-        process: "Intel 7 (7nm)",
-        year: "2021"
-        },
-        0x2: {
-        name: "Alder Lake",
-        product: "12th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "ADL-S K0",
-        process: "Intel 7 (7nm)",
-        year: "2021"
-        },
-        0x3: {
-        name: "Alder Lake",
-        product: "12th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "ADL-S L0",
-        process: "Intel 7 (7nm)",
-        year: "2021"
-        },
-        0x4: {
-        name: "Alder Lake",
-        product: "12th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "ADL-S R0",
-        process: "Intel 7 (7nm)",
-        year: "2021"
-        },
-    },
-    // raptor lake
-    0xb7: {
-    // Model 183
-        0x0: {
-        name: "Raptor Lake-S/HX",
-        product: "13/14th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "RPL A0",
-        process: "Intel 7 (7nm)",
-        year: "2022"
-        },
-        0x1: {
-        name: "Raptor Lake-S/HX",
-        product: " Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "RPL B0",
-        process: "Intel 7 (7nm)",
-        year: "2022"
-        },
-    },
-    0xba: {
-    // Model 186
-        0x2: {
-        name: "Raptor Lake-H/U/P",
-        product: "13/14th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "RPL J0",
-        process: "Intel 7 (7nm)",
-        year: "2022"
-        },
-        0x3: {
-        name: "Raptor Lake-P",
-        product: "13/14th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "RPL Q0",
-        process: "Intel 7 (7nm)",
-        year: "2022"
-        },
-    },
-    0xbe: {
-    // Model 190
-        0x0: {
-        name: "Alder Lake-N",
-        product: "12th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "ADL A0/N0",
-        process: "Intel 7 (7nm)",
-        year: "2021"
-        },
-    },
-    0xbf: {
-    // Model 191
-        0x2: {
-        name: "Raptor Lake-S/HX",
-        product: "13/14th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "RPL C0",
-        process: "Intel 7 (7nm)",
-        year: "2022"
-        },
-        0x5: {
-        name: "Raptor Lake-S/HX/P",
-        product: "13/14th Gen Core",
-        type: "Hybrid/Atom",
-        stepping: "RPL H0",
-        process: "Intel 7 (7nm)",
-        year: "2022"
-        },
-    },
+
+
+
+
+
+    // // kaby, coffee, whiskey, comet lake
+    // 0x8e: {
+    // // Model 142
+    //     0x9: {
+    //     name: "Kaby Lake",
+    //     product: "7th Gen Core",
+    //     type: "Client",
+    //     stepping: "KBL H0",
+    //     process: "14nm+",
+    //     year: "2016"
+    //     },
+    //     0xa: {
+    //     name: "Kaby Lake / Coffee Lake",
+    //     product: "7/8th Gen Core",
+    //     type: "Client",
+    //     stepping: "KBL Y0 / CFL D0",
+    //     process: "14nm+/14nm++",
+    //     year: "2016/18"
+    //     },
+    //     0xb: {
+    //     name: "Whiskey Lake-U",
+    //     product: "8th Gen Core",
+    //     type: "Client",
+    //     stepping: "WHL-U W0",
+    //     process: "14nm+",
+    //     year: "2018"
+    //     },
+    //     0xc: {
+    //     name: "Comet Lake-U",
+    //     product: "10th Gen Core",
+    //     type: "Client",
+    //     stepping: "CML-U V1",
+    //     process: "14nm+",
+    //     year: "2019"
+    //     },
+    //     0xd: {
+    //     name: "Whiskey Lake-U",
+    //     product: "8th Gen Core",
+    //     type: "Client",
+    //     stepping: "WHL-U V0",
+    //     process: "14nm+",
+    //     year: "2018"
+    //     },
+    // },
+    // // kaby, coffee lake
+    // 0x9e: {
+    // // Model 158
+    //     0x9: {
+    //     name: "Kaby Lake-H",
+    //     product: "7th Gen Core",
+    //     type: "Client",
+    //     stepping: "KBL-H B0",
+    //     process: "14nm+",
+    //     year: "2016"
+    //     },
+    //     0xa: {
+    //     name: "Coffee Lake",
+    //     product: "8th Gen Core",
+    //     type: "Client",
+    //     stepping: "CFL U0",
+    //     process: "14nm++",
+    //     year: "2018"
+    //     },
+    //     0xb: {
+    //     name: "Coffee Lake",
+    //     product: "8th Gen Core",
+    //     type: "Client",
+    //     stepping: "CFL B0",
+    //     process: "14nm++",
+    //     year: "2018"
+    //     },
+    //     0xc: {
+    //     name: "Coffee Lake",
+    //     product: "8th Gen Core",
+    //     type: "Client",
+    //     stepping: "CFL P0",
+    //     process: "14nm++",
+    //     year: "2018"
+    //     },
+    //     0xd: {
+    //     name: "Coffee Lake",
+    //     product: "8th Gen Core",
+    //     type: "Client",
+    //     stepping: "CFL R0",
+    //     process: "14nm++",
+    //     year: "2018"
+    //     },
+    // },
+    // // cannon lake
+    // 0x66: {
+    // // Model 102
+    //     0x0: {
+    //     name: "Cannon Lake",
+    //     product: "8th Gen Core",
+    //     type: "Client",
+    //     stepping: "CNL A0",
+    //     process: "10nm",
+    //     year: "2018"
+    //     },
+    //     0x1: {
+    //     name: "Cannon Lake",
+    //     product: "8th Gen Core",
+    //     type: "Client",
+    //     stepping: "CNL B0",
+    //     process: "10nm",
+    //     year: "2018"
+    //     },
+    //     0x2: {
+    //     name: "Cannon Lake",
+    //     product: "8th Gen Core",
+    //     type: "Client",
+    //     stepping: "CNL C0",
+    //     process: "10nm",
+    //     year: "2018"
+    //     },
+    //     0x3: {
+    //     name: "Cannon Lake",
+    //     product: "8th Gen Core",
+    //     type: "Client",
+    //     stepping: "CNL D0",
+    //     process: "10nm",
+    //     year: "2018"
+    //     },
+    // },
+    // // ice lake core
+    // 0x7d: {
+    // // Model 125
+    //     0x0: {
+    //     name: "Ice Lake-U/Y",
+    //     product: "10th Gen Core",
+    //     type: "Client",
+    //     stepping: "ICX-U/Y A0",
+    //     process: "10nm+",
+    //     year: "2019"
+    //     },
+    //     0x1: {
+    //     name: "Ice Lake-U/Y",
+    //     product: "10th Gen Core",
+    //     type: "Client",
+    //     stepping: "ICX-U/Y B0",
+    //     process: "10nm+",
+    //     year: "2019"
+    //     },
+    //     0x5: {
+    //     name: "Ice Lake-U/Y",
+    //     product: "10th Gen Core",
+    //     type: "Client",
+    //     stepping: "ICX-U/Y D1",
+    //     process: "10nm+",
+    //     year: "2019"
+    //     },
+    // },
+    // // tiger lake
+    // 0x8c: {
+    // // Model 125
+    //     0x0: {
+    //     name: "Tiger Lake-U",
+    //     product: "11th Gen Core",
+    //     type: "Client",
+    //     stepping: "TGL-U A0",
+    //     process: "10nm++",
+    //     year: "2020"
+    //     },
+    //     0x1: {
+    //     name: "Tiger Lake-U",
+    //     product: "11th Gen Core",
+    //     type: "Client",
+    //     stepping: "TGL-U B0/B1",
+    //     process: "10nm++",
+    //     year: "2020"
+    //     },
+    //     0x2: {
+    //     name: "Tiger Lake-U",
+    //     product: "11th Gen Core",
+    //     type: "Client",
+    //     stepping: "TGL-U C0",
+    //     process: "10nm++",
+    //     year: "2020"
+    //     },
+    // },
+    // 0x8d: {
+    // // Model 126
+    //     0x0: {
+    //     name: "Tiger Lake-H",
+    //     product: "11th Gen Core",
+    //     type: "Client",
+    //     stepping: "TGL-H P0",
+    //     process: "10nm++",
+    //     year: "2020"
+    //     },
+    //     0x1: {
+    //     name: "Tiger Lake-H",
+    //     product: "11th Gen Core",
+    //     type: "Client",
+    //     stepping: "TGL-H R0",
+    //     process: "10nm++",
+    //     year: "2020"
+    //     },
+    // },
+    // // sapphire rapids
+    // 0x8f: {
+    // // Model 143
+    //     0x3: {
+    //     name: "Sapphire Rapids",
+    //     product: "4th Gen Xeon",
+    //     type: "Server",
+    //     stepping: "SPR D",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2023"
+    //     },
+    //     0x4: {
+    //     name: "Sapphire Rapids",
+    //     product: "4th Gen Xeon",
+    //     type: "Server",
+    //     stepping: "SPR E0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2023"
+    //     },
+    //     0x5: {
+    //     name: "Sapphire Rapids",
+    //     product: "4th Gen Xeon",
+    //     type: "Server",
+    //     stepping: "SPR E2",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2023"
+    //     },
+    //     0x6: {
+    //     name: "Sapphire Rapids",
+    //     product: "4th Gen Xeon",
+    //     type: "Server",
+    //     stepping: "SPR E3",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2023"
+    //     },
+    //     0x7: {
+    //     name: "Sapphire Rapids",
+    //     product: "4th Gen Xeon",
+    //     type: "Server",
+    //     stepping: "SPR E4/S2",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2023"
+    //     },
+    //     0x8: {
+    //     name: "Sapphire Rapids",
+    //     product: "4th Gen Xeon",
+    //     type: "Server",
+    //     stepping: "SPR E5/B3/S3",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2023"
+    //     },
+    // },
+    // // emerald rapids
+    // 0xcf: {
+    // // Model 207
+    //     0x1: {
+    //     name: "Emerald Rapids",
+    //     product: "5th Gen Xeon",
+    //     type: "Server",
+    //     stepping: "EMR A0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2023"
+    //     },
+    //     0x2: {
+    //     name: "Emerald Rapids",
+    //     product: "5th Gen Xeon",
+    //     type: "Server",
+    //     stepping: "EMR A1/R1",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2023"
+    //     },
+    // },
+    // // granite rapids
+    // 0xad: {
+    // // Model 173
+    //     0x1: {
+    //     name: "Granite Rapids",
+    //     product: "6th Gen Xeon",
+    //     type: "Server",
+    //     stepping: "GNR B0/H0",
+    //     process: "Intel 4 (4nm)",
+    //     year: "2023"
+    //     },
+    // },
+    // 0xae: {
+    // // Model 174
+    //     0x1: {
+    //     name: "Granite Rapids",
+    //     product: "6th Gen Xeon",
+    //     type: "Server",
+    //     stepping: "GNR",
+    //     process: "Intel 3 (3nm)",
+    //     year: "2023"
+    //     },
+    // },
+    // // sierra forest
+    // 0xaf: {
+    // // Model 175
+    //     0x3: {
+    //     name: "Sierra Forest",
+    //     product: "6th Gen Xeon",
+    //     type: "Server",
+    //     stepping: "SRF C0",
+    //     process: "Intel 3 (3nm)",
+    //     year: "2024"
+    //     },
+    // },
+    // // rocket lake
+    // 0xa7: {
+    // // Model 167
+    //     0x1: {
+    //     name: "Rocket Lake",
+    //     product: "11th Gen Core",
+    //     type: "Client",
+    //     stepping: "RKL B0",
+    //     process: "14nm+++",
+    //     year: "2021"
+    //     },
+    // },
+    // // alder lake
+    // 0x97: {
+    // // Model 151
+    //     0x0: {
+    //     name: "Alder Lake-S",
+    //     product: "12th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "ADL-S A0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2021"
+    //     },
+    //     0x1: {
+    //     name: "Alder Lake-S",
+    //     product: "12th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "ADL-S B0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2021"
+    //     },
+    //     0x2: {
+    //     name: "Alder Lake-S/HX",
+    //     product: "12th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "ADL-S/HX C0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2021"
+    //     },
+    //     0x3: {
+    //     name: "Alder Lake-P/H",
+    //     product: "12th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "ADL-P/H",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2021"
+    //     },
+    //     0x4: {
+    //     name: "Alder Lake-U",
+    //     product: "12th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "ADL-U G0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2021"
+    //     },
+    //     0x5: {
+    //     name: "Alder Lake-S",
+    //     product: "12th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "ADL-S H0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2021"
+    //     },
+    // },
+    // 0x9a: {
+    // // Model 155
+    //     0x0: {
+    //     name: "Alder Lake",
+    //     product: "12th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "ADL-S J0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2021"
+    //     },
+    //     0x1: {
+    //     name: "Alder Lake",
+    //     product: "12th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "ADL-S Q0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2021"
+    //     },
+    //     0x2: {
+    //     name: "Alder Lake",
+    //     product: "12th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "ADL-S K0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2021"
+    //     },
+    //     0x3: {
+    //     name: "Alder Lake",
+    //     product: "12th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "ADL-S L0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2021"
+    //     },
+    //     0x4: {
+    //     name: "Alder Lake",
+    //     product: "12th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "ADL-S R0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2021"
+    //     },
+    // },
+    // // raptor lake
+    // 0xb7: {
+    // // Model 183
+    //     0x0: {
+    //     name: "Raptor Lake-S/HX",
+    //     product: "13/14th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "RPL A0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2022"
+    //     },
+    //     0x1: {
+    //     name: "Raptor Lake-S/HX",
+    //     product: " Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "RPL B0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2022"
+    //     },
+    // },
+    // 0xba: {
+    // // Model 186
+    //     0x2: {
+    //     name: "Raptor Lake-H/U/P",
+    //     product: "13/14th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "RPL J0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2022"
+    //     },
+    //     0x3: {
+    //     name: "Raptor Lake-P",
+    //     product: "13/14th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "RPL Q0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2022"
+    //     },
+    // },
+    // 0xbe: {
+    // // Model 190
+    //     0x0: {
+    //     name: "Alder Lake-N",
+    //     product: "12th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "ADL A0/N0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2021"
+    //     },
+    // },
+    // 0xbf: {
+    // // Model 191
+    //     0x2: {
+    //     name: "Raptor Lake-S/HX",
+    //     product: "13/14th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "RPL C0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2022"
+    //     },
+    //     0x5: {
+    //     name: "Raptor Lake-S/HX/P",
+    //     product: "13/14th Gen Core",
+    //     type: "Hybrid/Atom",
+    //     stepping: "RPL H0",
+    //     process: "Intel 7 (7nm)",
+    //     year: "2022"
+    //     },
+    // },
 },
 };
 
@@ -629,39 +767,45 @@ function lookupProcessor(family, model, stepping) {
 const familyData = INTEL_PROCESSORS[family];
 if (!familyData) {
     return {
-    name: "Unknown",
-    product: "Unknown",
-    type: "Unknown",
-    steppingName: "Unknown",
+        uarch: "Unknown",
+        core: "Unknown",
+        product: "Unknown",
+        type: "Unknown",
+        steppingName: "Unknown",
+        process: "Unknown",
+        year: "Unknown",
     };
 }
 
 const modelData = familyData[model];
 if (!modelData) {
     return {
-    name: "Unknown",
-    product: "Unknown",
-    type: "Unknown",
-    steppingName: "Unknown",
-    process: "Unknown",
-    year: "Unknown",
+        uarch: "Unknown",
+        core: "Unknown",
+        product: "Unknown",
+        type: "Unknown",
+        steppingName: "Unknown",
+        process: "Unknown",
+        year: "Unknown",
     };
 }
 
-const steppingData = modelData[stepping];
+const steppingData = modelData.steppings[stepping];
 if (!steppingData) {
     return {
-    name: "Unknown",
-    product: "Unknown",
-    type: "Unknown",
-    steppingName: "Unknown",
-    process: "Unknown",
-    year: "Unknown",
+        uarch: modelData.uarch,
+        core: "Unknown",
+        product: "Unknown",
+        type: "Unknown",
+        steppingName: "Unknown",
+        process: "Unknown",
+        year: "Unknown",
     };
 }
 
 return {
-    name: steppingData.name,
+    uarch: modelData.uarch,
+    core: steppingData.core,
     product: steppingData.product,
     type: steppingData.type,
     steppingName: steppingData.stepping,
@@ -701,7 +845,8 @@ document.getElementById("stepping").textContent = `0x${decoded.stepping
     .toUpperCase()} (${decoded.stepping})`;
 
 // Update processor info
-document.getElementById("codename").textContent = processor.name;
+document.getElementById("uarch").textContent = processor.uarch;
+document.getElementById("core").textContent = processor.core;
 document.getElementById("product").textContent = processor.product;
 document.getElementById("productType").textContent = processor.type;
 document.getElementById("steppingName").textContent = processor.steppingName;
@@ -799,12 +944,11 @@ function generateCPUIDOptions() {
   
   for (const [family, familyData] of Object.entries(INTEL_PROCESSORS)) {
     for (const [model, modelData] of Object.entries(familyData)) {
-      for (const [stepping, steppingData] of Object.entries(modelData)) {
+      for (const [stepping, steppingData] of Object.entries(modelData.steppings)) {
         // Calculate the CPUID value
         const familyInt = parseInt(family);
         const modelInt = parseInt(model);
         const steppingInt = parseInt(stepping);
-        
         let cpuidValue = 0;
         
         // Set stepping (bits 3:0)
@@ -825,11 +969,11 @@ function generateCPUIDOptions() {
         }
         
         // Type is usually 0 for client processors
-        const type = steppingData.type === "Server" ? 1 : 0;
+        const type = steppingData.type.toLowerCase().includes("server") ? 1 : 0;
         cpuidValue |= (type << 12);
         
         const cpuidHex = `0x${cpuidValue.toString(16).toUpperCase()}`;
-        const displayName = `${cpuidHex} - ${steppingData.name} (${steppingData.product})`;
+        const displayName = `${cpuidHex} - ${steppingData.core} (${steppingData.product})`;
         
         options.push({
           value: cpuidHex,
@@ -894,7 +1038,7 @@ function generateCPUIDOptions() {
             return aMixed ? 1 : -1; // Single gen (false) comes before mixed (true)
         }        
         // If same product, sort by name
-        return a.data.name.localeCompare(b.data.name);
+        return a.data.core.localeCompare(b.data.core);
     });
 
   console.log(options)
