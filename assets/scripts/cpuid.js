@@ -109,33 +109,34 @@ const INTEL_PROCESSORS = {
 // https://en.wikichip.org/wiki/intel/cpuid
 6: {
     // ===== SERVER =====
+    // https://en.wikichip.org/wiki/intel/xeon#Xeon_Timeline
     // P6 (Pentium)
     0xa : {
-        uarch: "P6 Pentium III",
+        uarch: "P6",
         steppings :{
             0x0: {
-                core: "n/a",
-                product: "Intel Pentium III Xeon",
+                core: "Cascades",
+                product: "Pentium III Xeon",
                 type: "Big Core (Server)",
                 stepping: "Cascades A0",
-                process: ".18um",
-                year: "1995"
+                process: "180nm (P858)",
+                year: "1999"
             },
             0x1: {
-                core: "n/a",
-                product: "Intel Pentium III Xeon",
+                core: "Cascades",
+                product: "Pentium III Xeon",
                 type: "Big Core (Server)",
                 stepping: "Cascades A1",
-                process: ".18um",
-                year: "1995"
+                process: "180nm (P858)",
+                year: "1999"
             },
             0x4: {
-                core: "n/a",
-                product: "Intel Pentium III Xeon",
+                core: "Cascades",
+                product: "Pentium III Xeon",
                 type: "Big Core (Server)",
                 stepping: "Cascades A1",
-                process: ".18um",
-                year: "1995"
+                process: "180nm (P858)",
+                year: "1999"
             },
         }
     },
@@ -145,27 +146,27 @@ const INTEL_PROCESSORS = {
         steppings :{
             0x6: {
                 core: "Yorkfield/Wolfdale/Harpertown",
-                product: "Intel Xeon",
+                product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "Yorkfield C0/Wolfdale C0/Harpertown C0",
-                process: "45nm",
-                year: "2007"
+                process: "45nm (P1266/P1269)",
+                year: "2007-2008"
             },
             0x7: {
                 core: "Yorkfield",
-                product: "Intel Xeon",
+                product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "Yorkfield C1",
-                process: "45nm",
-                year: "2007"
+                process: "45nm (P1266/P1269)",
+                year: "2008"
             },
             0xa: {
                 core: "Yorkfield",
-                product: "Intel Xeon",
+                product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "Yorkfield E0/R0",
-                process: "45nm",
-                year: "2007"
+                process: "45nm (P1266/P1269)",
+                year: "2008"
             },
         }
     },
@@ -175,11 +176,11 @@ const INTEL_PROCESSORS = {
         steppings :{
             0x1: {
                 core: "Dunnington",
-                product: "Intel Xeon",
+                product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "Dunnington A1",
-                process: "45nm",
-                year: "2007"
+                process: "45nm (P1266/P1269)",
+                year: "2008"
             },
         }
     },
@@ -189,19 +190,19 @@ const INTEL_PROCESSORS = {
         steppings :{
             0x4: {
                 core: "Bloomfield",
-                product: "Intel Xeon",
+                product: "Xeon",
                 type: "Big Core (Client P-cores)",
                 stepping: "Bloomfield C0",
-                process: "45nm",
-                year: "2008"
+                process: "45nm (P1266/P1269)",
+                year: "2009"
             },
             0x5: {
                 core: "Bloomfield/Gainestown",
-                product: "Intel Xeon",
+                product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "Bloomfield/Gainestown D0",
-                process: "45nm",
-                year: "2008"
+                process: "45nm (P1266/P1269)",
+                year: "2009"
             },
         }
     },
@@ -211,23 +212,23 @@ const INTEL_PROCESSORS = {
         steppings :{
             0x4: {
                 core: "Jasper Forest",
-                product: "Intel Xeon",
+                product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "JF B0",
-                process: "45nm",
-                year: "2008"
+                process: "45nm (P1266/P1269)",
+                year: "2010"
             },
             0x5: {
-                core: "Lynnfield/",
-                product: "Intel Xeon",
+                core: "Lynnfield",
+                product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "LFD B1",
-                process: "45nm",
-                year: "2008"
+                process: "45nm (P1266/P1269)",
+                year: "2009"
             },
         }
     },
-    // Nehalem
+    // Nehalem - Beckton
     0x2e : {
         uarch: "Nehalem",
         steppings :{
@@ -237,7 +238,65 @@ const INTEL_PROCESSORS = {
                 type: "Big Core (Server)",
                 stepping: "Beckton A0",
                 process: "45nm",
-                year: "2008"
+                year: "2010"
+            },
+        }
+    },
+    // Westmere - Clarkdale
+    0x25 : {
+        uarch: "Westmere",
+        steppings :{
+            0x2: {
+                core: "Clarkdale",
+                product: "Xeon",
+                type: "Big Core (Server)",
+                stepping: "Clarkdale C2",
+                process: "32nm (P1268/P1269)",
+                year: "2010"
+            },
+        }
+    },
+    // Westmere - Westmere-EP
+    0x2c : {
+        uarch: "Westmere",
+        steppings :{
+            0x0: {
+                core: "Westmere-EP",
+                product: "Xeon",
+                type: "Big Core (Server)",
+                stepping: "WSM-EP A0",
+                process: "32nm (P1268/P1269)",
+                year: "2010"
+            },
+            0x1: {
+                core: "Westmere-EP",
+                product: "Xeon",
+                type: "Big Core (Server)",
+                stepping: "WSM-EP B0",
+                process: "32nm (P1268/P1269)",
+                year: "2010"
+            },
+            0x2: {
+                core: "Westmere-EP",
+                product: "Xeon",
+                type: "Big Core (Server)",
+                stepping: "WSM-EP B1",
+                process: "32nm (P1268/P1269)",
+                year: "2010"
+            },
+        }
+    },
+    // Westmere - Westmere-EX
+    0x2f : {
+        uarch: "Westmere",
+        steppings :{
+            0x2: {
+                core: "Westmere-EX",
+                product: "Xeon",
+                type: "Big Core (Server)",
+                stepping: "WSM-EX A2",
+                process: "32nm (P1268/P1269)",
+                year: "2011"
             },
         }
     },
