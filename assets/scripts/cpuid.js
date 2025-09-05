@@ -113,13 +113,14 @@ const INTEL_PROCESSORS = {
     // P6 (Pentium)
     0xa : {
         uarch: "P6",
+        node: "180nm",
+        process: "P858",
         steppings :{
             0x0: {
                 core: "Cascades",
                 product: "Pentium III Xeon",
                 type: "Big Core (Server)",
                 stepping: "Cascades A0",
-                process: "180nm (P858)",
                 year: "1999"
             },
             0x1: {
@@ -127,7 +128,6 @@ const INTEL_PROCESSORS = {
                 product: "Pentium III Xeon",
                 type: "Big Core (Server)",
                 stepping: "Cascades A1",
-                process: "180nm (P858)",
                 year: "1999"
             },
             0x4: {
@@ -135,7 +135,6 @@ const INTEL_PROCESSORS = {
                 product: "Pentium III Xeon",
                 type: "Big Core (Server)",
                 stepping: "Cascades A1",
-                process: "180nm (P858)",
                 year: "1999"
             },
         }
@@ -143,13 +142,14 @@ const INTEL_PROCESSORS = {
     // Penryn - Yorkfield/Wolfdale/Harpertown
     0x17 : {
         uarch: "Penryn",
+        node: "45nm",
+        process: "P1266/P1269",
         steppings :{
             0x6: {
                 core: "Yorkfield/Wolfdale/Harpertown",
                 product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "Yorkfield C0/Wolfdale C0/Harpertown C0",
-                process: "45nm (P1266/P1269)",
                 year: "2007-2008"
             },
             0x7: {
@@ -157,7 +157,6 @@ const INTEL_PROCESSORS = {
                 product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "Yorkfield C1",
-                process: "45nm (P1266/P1269)",
                 year: "2008"
             },
             0xa: {
@@ -165,7 +164,6 @@ const INTEL_PROCESSORS = {
                 product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "Yorkfield E0/R0",
-                process: "45nm (P1266/P1269)",
                 year: "2008"
             },
         }
@@ -173,13 +171,14 @@ const INTEL_PROCESSORS = {
     // Penryn - Dunnington
     0x1d : {
         uarch: "Penryn",
+        node: "45nm",
+        process: "P1266/P1269",
         steppings :{
             0x1: {
                 core: "Dunnington",
                 product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "Dunnington A1",
-                process: "45nm (P1266/P1269)",
                 year: "2008"
             },
         }
@@ -187,13 +186,14 @@ const INTEL_PROCESSORS = {
     // Nehalem - Bloomfield/Gainestown
     0x1a : {
         uarch: "Nehalem",
+        node: "45nm",
+        process: "P1266/P1269",
         steppings :{
             0x4: {
                 core: "Bloomfield",
                 product: "Xeon",
                 type: "Big Core (Client P-cores)",
                 stepping: "Bloomfield C0",
-                process: "45nm (P1266/P1269)",
                 year: "2009"
             },
             0x5: {
@@ -201,7 +201,6 @@ const INTEL_PROCESSORS = {
                 product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "Bloomfield/Gainestown D0",
-                process: "45nm (P1266/P1269)",
                 year: "2009"
             },
         }
@@ -209,13 +208,14 @@ const INTEL_PROCESSORS = {
     // Nehalem - Jasper Forest/Lynnfield
     0x1e : {
         uarch: "Nehalem",
+        node: "45nm",
+        process: "P1266/P1269",
         steppings :{
             0x4: {
                 core: "Jasper Forest",
                 product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "JF B0",
-                process: "45nm (P1266/P1269)",
                 year: "2010"
             },
             0x5: {
@@ -223,7 +223,6 @@ const INTEL_PROCESSORS = {
                 product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "LFD B1",
-                process: "45nm (P1266/P1269)",
                 year: "2009"
             },
         }
@@ -231,13 +230,14 @@ const INTEL_PROCESSORS = {
     // Nehalem - Beckton
     0x2e : {
         uarch: "Nehalem",
+        node: "45nm",
+        process: "P1266/P1269",
         steppings :{
             0x6: {
                 core: "Beckton",
-                product: "Intel Xeon",
+                product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "Beckton A0",
-                process: "45nm",
                 year: "2010"
             },
         }
@@ -245,13 +245,14 @@ const INTEL_PROCESSORS = {
     // Westmere - Clarkdale
     0x25 : {
         uarch: "Westmere",
+        node: "32nm",
+        process: "P1268/P1269",
         steppings :{
             0x2: {
                 core: "Clarkdale",
                 product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "Clarkdale C2",
-                process: "32nm (P1268/P1269)",
                 year: "2010"
             },
         }
@@ -259,13 +260,14 @@ const INTEL_PROCESSORS = {
     // Westmere - Westmere-EP
     0x2c : {
         uarch: "Westmere",
+        node: "32nm",
+        process: "P1268/P1269",
         steppings :{
             0x0: {
                 core: "Westmere-EP",
                 product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "WSM-EP A0",
-                process: "32nm (P1268/P1269)",
                 year: "2010"
             },
             0x1: {
@@ -273,7 +275,6 @@ const INTEL_PROCESSORS = {
                 product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "WSM-EP B0",
-                process: "32nm (P1268/P1269)",
                 year: "2010"
             },
             0x2: {
@@ -281,7 +282,6 @@ const INTEL_PROCESSORS = {
                 product: "Xeon",
                 type: "Big Core (Server)",
                 stepping: "WSM-EP B1",
-                process: "32nm (P1268/P1269)",
                 year: "2010"
             },
         }
@@ -289,14 +289,52 @@ const INTEL_PROCESSORS = {
     // Westmere - Westmere-EX
     0x2f : {
         uarch: "Westmere",
+        node: "32nm",
+        process: "P1268/P1269",
         steppings :{
             0x2: {
                 core: "Westmere-EX",
-                product: "Xeon",
+                product: "Xeon E7",
                 type: "Big Core (Server)",
                 stepping: "WSM-EX A2",
-                process: "32nm (P1268/P1269)",
                 year: "2011"
+            },
+        }
+    },
+    // Sandy Bridge - Sandy Bridge
+    0x2a : {
+        uarch: "Sandy Bridge",
+        node: "32nm",
+        process: "P1268/P1269",
+        steppings :{
+            0x7: {
+                core: "Sandy Bridge",
+                product: "Xeon E3",
+                type: "Big Core (Server)",
+                stepping: "SNB D2/J1/Q0",
+                year: "May 2011"
+            },
+        }
+    },
+    // Sandy Bridge - Sandy Bridge-E
+    0x2d : {
+        uarch: "Sandy Bridge",
+        node: "32nm",
+        process: "P1268/P1269",
+        steppings :{
+            0x6: {
+                core: "Sandy Bridge-E",
+                product: "Xeon E5",
+                type: "Big Core (Server)",
+                stepping: "SNB-E C1/M0",
+                year: "Mar 2012"
+            },
+            0x7: {
+                core: "Sandy Bridge-E",
+                product: "Xeon E5",
+                type: "Big Core (Server)",
+                stepping: "SNB-E C2/M1",
+                year: "May 2012"
             },
         }
     },
@@ -831,6 +869,7 @@ if (!familyData) {
         product: "Unknown",
         type: "Unknown",
         steppingName: "Unknown",
+        node: "Unknown",
         process: "Unknown",
         year: "Unknown",
     };
@@ -844,6 +883,7 @@ if (!modelData) {
         product: "Unknown",
         type: "Unknown",
         steppingName: "Unknown",
+        node: "Unknown",
         process: "Unknown",
         year: "Unknown",
     };
@@ -857,7 +897,8 @@ if (!steppingData) {
         product: "Unknown",
         type: "Unknown",
         steppingName: "Unknown",
-        process: "Unknown",
+        node: modelData.node,
+        process: modelData.process,
         year: "Unknown",
     };
 }
@@ -868,7 +909,8 @@ return {
     product: steppingData.product,
     type: steppingData.type,
     steppingName: steppingData.stepping,
-    process: steppingData.process,
+    node: modelData.node,
+        process: modelData.process,
     year: steppingData.year,
 };
 }
@@ -909,6 +951,7 @@ document.getElementById("core").textContent = processor.core;
 document.getElementById("product").textContent = processor.product;
 document.getElementById("productType").textContent = processor.type;
 document.getElementById("steppingName").textContent = processor.steppingName;
+document.getElementById("node").textContent = processor.node;
 document.getElementById("process").textContent = processor.process;
 document.getElementById("year").textContent = processor.year;
 
