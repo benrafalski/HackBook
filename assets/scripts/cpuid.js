@@ -338,6 +338,94 @@ const INTEL_PROCESSORS = {
             },
         }
     },
+    // Ivy Bridge - Ivy Bridge
+    0x3a : {
+        uarch: "Ivy Bridge",
+        node: "22nm",
+        process: "P1270/P1271",
+        steppings :{
+            0x6: {
+                core: "Ivy Bridge",
+                product: "Xeon E3",
+                type: "Big Core (Server)",
+                stepping: "IVB E1/N0/L1",
+                year: "May 2012"
+            },
+        }
+    },
+    // Ivy Bridge - Ivy Bridge-EP/EX
+    0x3e : {
+        uarch: "Ivy Bridge",
+        node: "22nm",
+        process: "P1270/P1271",
+        steppings :{
+            0x4: {
+                core: "Ivy Bridge-EP",
+                product: "Xeon E5",
+                type: "Big Core (Server)",
+                stepping: "IVB-EP C1/M1/S1",
+                year: "Sep 2013"
+            },
+            0x7: {
+                core: "Ivy Bridge-EX",
+                product: "Xeon E5",
+                type: "Big Core (Server)",
+                stepping: "IVB-EX D1",
+                year: "Feb 2014"
+            },
+        }
+    },
+    // Haswell - Haswell
+    0x3c : {
+        uarch: "Haswell",
+        node: "22nm",
+        process: "P1270/P1271",
+        steppings :{
+            0x1: {
+                core: "Haswell",
+                product: "Xeon E3",
+                type: "Big Core (Server)",
+                stepping: "HSW A0",
+                year: "June 2013"
+            },
+            0x2: {
+                core: "Haswell B0",
+                product: "Xeon E3",
+                type: "Big Core (Server)",
+                stepping: "HSW B0",
+                year: "June 2013"
+            },
+            0x3: {
+                core: "Haswell C0",
+                product: "Xeon E3",
+                type: "Big Core (Server)",
+                stepping: "HSW C0",
+                year: "June 2013"
+            },
+        }
+    },
+    // Haswell - Haswell-EP
+    0x3f : {
+        uarch: "Ivy Bridge",
+        node: "22nm",
+        process: "P1270/P1271",
+        steppings :{
+            0x2: {
+                core: "Haswell-EP",
+                product: "Xeon E5",
+                type: "Big Core (Server)",
+                stepping: "HSW-EP C1/M1/R2",
+                year: "Sep 2014"
+            },
+            0x4: {
+                core: "Haswell-EP",
+                product: "Xeon E7",
+                type: "Big Core (Server)",
+                stepping: "HSW-EP E0",
+                year: "May 2015"
+            },
+        }
+    },
 
 
 
