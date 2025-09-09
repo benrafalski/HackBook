@@ -55,9 +55,6 @@
     <script src="assets\scripts\cpuid.js"></script>
     <link rel="stylesheet" href="assets\styles\styles.css" />
     <link rel="stylesheet" href="assets\styles\cpuid.css" />
-
-
-
   </head>
   <body>
     <!-- Main Content -->
@@ -77,132 +74,205 @@
       </ul>
 
       <h3 id="cpuid-eax-1">CPUID.EAX=0x1</h3>
-      <!-- CPUID Feature Flags Diagram -->
 
+      <!-- Tab Navigation -->
+      <div class="cpuid-tabs">
+        <button class="cpuid-tab-btn active" data-tab="decoder">
+          EAX Decoder
+        </button>
+        <button class="cpuid-tab-btn" data-tab="database">
+          Processor Database
+        </button>
+      </div>
+
+      <!-- Decoder Tab Content -->
+      <div class="cpuid-tab-content" id="decoder-tab">
+        <div class="cpuid-container">
+          <h4>EAX - Version Information (Type, Family, Model, Stepping)</h4>
+          <p class="cpuid-note">
+            Enter the value returned in <span class="cpuid-kbd">EAX</span> after
+            executing <span class="cpuid-kbd">CPUID</span> with
+            <span class="cpuid-kbd">EAX=0x1</span>. This will decode the
+            processor family, model, stepping, and identify the Intel codename
+            and product.
+          </p>
+
+          <div class="cpuid-panel cpuid-inputs">
+            <div class="cpuid-field">
+              <label for="eaxIn"
+                >EAX value (select from known processors)</label
+              >
+              <select id="eaxIn" class="cpuid-select">
+                <option value="">Select a processor...</option>
+              </select>
+              <div class="cpuid-hint">
+                Select from known Intel processors or choose "Custom..." to
+                enter your own value
+              </div>
+            </div>
+          </div>
+
+          <div class="cpuid-panel">
+            <div class="cpuid-rowtitle">Version Information Breakdown</div>
+            <div class="version-info">
+              <div class="version-field">
+                <label>Extended Family:</label>
+                <span id="extFamily" class="version-value">0x0</span>
+              </div>
+              <div class="version-field">
+                <label>Extended Model:</label>
+                <span id="extModel" class="version-value">0x0</span>
+              </div>
+              <div class="version-field">
+                <label>Type:</label>
+                <span id="procType" class="version-value">0x0</span>
+              </div>
+              <div class="version-field">
+                <label>Family:</label>
+                <span id="family" class="version-value">0x0</span>
+              </div>
+              <div class="version-field">
+                <label>Model:</label>
+                <span id="model" class="version-value">0x0</span>
+              </div>
+              <div class="version-field">
+                <label>Stepping:</label>
+                <span id="stepping" class="version-value">0x0</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cpuid-panel">
+            <div class="cpuid-rowtitle">Processor Identification</div>
+            <div class="processor-info">
+              <div class="proc-field">
+                <label>uArch:</label>
+                <span id="uarch" class="proc-value">Unknown</span>
+              </div>
+              <div class="proc-field">
+                <label>Core:</label>
+                <span id="core" class="proc-value">Unknown</span>
+              </div>
+              <div class="proc-field">
+                <label>Intel Product:</label>
+                <span id="product" class="proc-value">Unknown</span>
+              </div>
+              <div class="proc-field">
+                <label>Product Type:</label>
+                <span id="productType" class="proc-value">Unknown</span>
+              </div>
+              <div class="proc-field">
+                <label>Stepping Name:</label>
+                <span id="steppingName" class="proc-value">Unknown</span>
+              </div>
+              <div class="proc-field">
+                <label>Node:</label>
+                <span id="node" class="proc-value">Unknown</span>
+              </div>
+              <div class="proc-field">
+                <label>Process:</label>
+                <span id="process" class="proc-value">Unknown</span>
+              </div>
+              <div class="proc-field">
+                <label>Year Released:</label>
+                <span id="year" class="proc-value">Unknown</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cpuid-panel">
+            <div class="cpuid-rowtitle">EAX Bit Layout</div>
+            <div class="eax-layout">
+              <div class="bit-group">
+                <div class="bit-label">Extended Family (27:20)</div>
+                <div class="bit-value" id="extFamilyBits">00000000</div>
+              </div>
+              <div class="bit-group">
+                <div class="bit-label">Extended Model (19:16)</div>
+                <div class="bit-value" id="extModelBits">0000</div>
+              </div>
+              <div class="bit-group">
+                <div class="bit-label">Reserved (15:14)</div>
+                <div class="bit-value" id="reservedBits">00</div>
+              </div>
+              <div class="bit-group">
+                <div class="bit-label">Type (13:12)</div>
+                <div class="bit-value" id="typeBits">00</div>
+              </div>
+              <div class="bit-group">
+                <div class="bit-label">Family (11:8)</div>
+                <div class="bit-value" id="familyBits">0000</div>
+              </div>
+              <div class="bit-group">
+                <div class="bit-label">Model (7:4)</div>
+                <div class="bit-value" id="modelBits">0000</div>
+              </div>
+              <div class="bit-group">
+                <div class="bit-label">Stepping (3:0)</div>
+                <div class="bit-value" id="steppingBits">0000</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Database Tab Content -->
+      <div class="cpuid-tab-content hidden" id="database-tab">
+        <div class="cpuid-container">
+          <h4>Intel Processor Database</h4>
+          <p class="cpuid-note">
+            Complete database of Intel processors with their CPUID values and
+            specifications. Click on any CPUID value to load it into the
+            decoder.
+          </p>
+
+          <div class="cpuid-panel">
+            <div class="database-controls">
+              <input
+                type="text"
+                id="searchInput"
+                placeholder="Search processors..."
+                class="cpuid-search"
+              />
+              <select id="filterArch" class="cpuid-filter">
+                <option value="">All Architectures</option>
+              </select>
+              <select id="filterType" class="cpuid-filter">
+                <option value="">All Types</option>
+                <option value="server">Server</option>
+                <option value="client">Client</option>
+                <option value="hybrid">Hybrid/Atom</option>
+              </select>
+            </div>
+
+            <div class="table-container">
+              <table class="processor-table">
+                <thead>
+                  <tr>
+                    <th>CPUID</th>
+                    <th>Architecture</th>
+                    <th>Core</th>
+                    <th>Product</th>
+                    <th>Type</th>
+                    <th>Stepping</th>
+                    <th>Node</th>
+                    <th>Process</th>
+                    <th>Year</th>
+                  </tr>
+                </thead>
+                <tbody id="processorTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ECX and EDX Feature Flags - Always Visible -->
       <div class="cpuid-container">
-        <h4>EAX - Version Information (Type, Family, Model, Stepping)</h4>
+        <h4>ECX & EDX Feature Flags</h4>
         <p class="cpuid-note">
-          Enter the value returned in <span class="cpuid-kbd">EAX</span> after
-          executing <span class="cpuid-kbd">CPUID</span> with
-          <span class="cpuid-kbd">EAX=0x1</span>. This will decode the processor
-          family, model, stepping, and identify the Intel codename and product.
-        </p>
-
-        <div class="cpuid-panel cpuid-inputs">
-          <div class="cpuid-field">
-            <label for="eaxIn">EAX value (select from known processors)</label>
-            <select id="eaxIn" class="cpuid-select">
-              <option value="">Select a processor...</option>
-            </select>
-            <div class="cpuid-hint">
-              Select from known Intel processors or choose "Custom..." to enter your own value
-            </div>
-          </div>
-        </div>
-
-        <div class="cpuid-panel">
-          <div class="cpuid-rowtitle">Version Information Breakdown</div>
-          <div class="version-info">
-            <div class="version-field">
-              <label>Extended Family:</label>
-              <span id="extFamily" class="version-value">0x0</span>
-            </div>
-            <div class="version-field">
-              <label>Extended Model:</label>
-              <span id="extModel" class="version-value">0x0</span>
-            </div>
-            <div class="version-field">
-              <label>Type:</label>
-              <span id="procType" class="version-value">0x0</span>
-            </div>
-            <div class="version-field">
-              <label>Family:</label>
-              <span id="family" class="version-value">0x0</span>
-            </div>
-            <div class="version-field">
-              <label>Model:</label>
-              <span id="model" class="version-value">0x0</span>
-            </div>
-            <div class="version-field">
-              <label>Stepping:</label>
-              <span id="stepping" class="version-value">0x0</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="cpuid-panel">
-          <div class="cpuid-rowtitle">Processor Identification</div>
-          <div class="processor-info">
-            <div class="proc-field">
-              <label>uArch:</label>
-              <span id="uarch" class="proc-value">Unknown</span>
-            </div>
-            <div class="proc-field">
-              <label>Core:</label>
-              <span id="core" class="proc-value">Unknown</span>
-            </div>
-            <div class="proc-field">
-              <label>Intel Product:</label>
-              <span id="product" class="proc-value">Unknown</span>
-            </div>
-            <div class="proc-field">
-              <label>Product Type:</label>
-              <span id="productType" class="proc-value">Unknown</span>
-            </div>
-            <div class="proc-field">
-              <label>Stepping Name:</label>
-              <span id="steppingName" class="proc-value">Unknown</span>
-            </div>
-            <div class="proc-field">
-              <label>Node:</label>
-              <span id="node" class="proc-value">Unknown</span>
-            </div>
-            <div class="proc-field">
-              <label>Process:</label>
-              <span id="process" class="proc-value">Unknown</span>
-            </div>
-            <div class="proc-field">
-              <label>Year Released:</label>
-              <span id="year" class="proc-value">Unknown</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="cpuid-panel">
-          <div class="cpuid-rowtitle">EAX Bit Layout</div>
-          <div class="eax-layout">
-            <div class="bit-group">
-              <div class="bit-label">Extended Family (27:20)</div>
-              <div class="bit-value" id="extFamilyBits">00000000</div>
-            </div>
-            <div class="bit-group">
-              <div class="bit-label">Extended Model (19:16)</div>
-              <div class="bit-value" id="extModelBits">0000</div>
-            </div>
-            <div class="bit-group">
-              <div class="bit-label">Reserved (15:14)</div>
-              <div class="bit-value" id="reservedBits">00</div>
-            </div>
-            <div class="bit-group">
-              <div class="bit-label">Type (13:12)</div>
-              <div class="bit-value" id="typeBits">00</div>
-            </div>
-            <div class="bit-group">
-              <div class="bit-label">Family (11:8)</div>
-              <div class="bit-value" id="familyBits">0000</div>
-            </div>
-            <div class="bit-group">
-              <div class="bit-label">Model (7:4)</div>
-              <div class="bit-value" id="modelBits">0000</div>
-            </div>
-            <div class="bit-group">
-              <div class="bit-label">Stepping (3:0)</div>
-              <div class="bit-value" id="steppingBits">0000</div>
-            </div>
-          </div>
-        </div>
-        <p class="cpuid-note">
-          Enter the values you read from <span class="cpuid-kbd">ECX</span> and
+          Enter the values you read from
+          <span class="cpuid-kbd">ECX</span> and
           <span class="cpuid-kbd">EDX</span> after executing
           <span class="cpuid-kbd">CPUID</span> with
           <span class="cpuid-kbd">EAX=0x1</span>. The diagram highlights set
@@ -263,26 +333,6 @@
       </div>
 
       <script></script>
-
-      <hr />
-
-      <hr />
-      <h2>Processor Execution Modes</h2>
-      <hr />
-      <h2>Model Specific Registers (MSRs)</h2>
-      <hr />
-      <h2>Privilege Rings</h2>
-      <hr />
-      <h2>Segmentation</h2>
-      <hr />
-      <h2>Interrupts</h2>
-      <hr />
-      <h2>System Calls</h2>
-      <hr />
-      <h2>Read the TimeStamp Counter (RDTSC)</h2>
-      <hr />
-      <h2>Paging</h2>
-      <hr />
     </div>
   </body>
 </html>

@@ -1,6 +1,6 @@
 // --- Feature maps for CPUID EAX=0x1 ---
 const CPUID_FEATURES = {
-ecx: {
+  ecx: {
     31: ["HYPERVISOR", "Hypervisor present (running under a VMM)"],
     30: ["RDRAND", "RDRAND instruction"],
     29: ["F16C", "16-bit FP conversions (F16C)"],
@@ -33,8 +33,8 @@ ecx: {
     2: ["DTES64", "64-bit debug store (trace)"],
     1: ["PCLMULQDQ", "Carryless multiply (CLMUL)"],
     0: ["SSE3", "Streaming SIMD Extensions 3"],
-},
-edx: {
+  },
+  edx: {
     31: ["PBE", "Pending Break Enable"],
     30: ["IA64", "IA-64 capability (Itanium indicator)"],
     29: ["TM", "Thermal Monitor"],
@@ -67,369 +67,546 @@ edx: {
     2: ["DE", "Debugging Extensions"],
     1: ["VME", "Virtual 8086 Mode Enhancements"],
     0: ["FPU", "x87 FPU on chip"],
-},
+  },
 };
 
 function parseVal(str) {
-if (!str) return 0 >>> 0;
-const s = str.trim().toLowerCase();
-try {
+  if (!str) return 0 >>> 0;
+  const s = str.trim().toLowerCase();
+  try {
     if (s.startsWith("0x")) return Number.parseInt(s, 16) >>> 0;
     if (s.startsWith("0b")) return Number.parseInt(s.slice(2), 2) >>> 0;
     if (/^[0-9]+$/.test(s)) return Number.parseInt(s, 10) >>> 0;
     return 0 >>> 0;
-} catch {
+  } catch {
     return 0 >>> 0;
-}
+  }
 }
 
 function bitSet(val, bit) {
-return ((val >>> bit) & 1) === 1;
+  return ((val >>> bit) & 1) === 1;
 }
 
 function makeBitEl(bit, type, val) {
-const [name, desc] = CPUID_FEATURES[type][bit] || ["RES", "Reserved"];
-const el = document.createElement("div");
-el.className = "cpuid-bit " + (bitSet(val, bit) ? "set" : "clear");
-el.title = `bit ${bit}: ${name}\n${desc}`;
-el.innerHTML = `<span class="idx">${bit}</span><span class="name">${name}</span>`;
-return el;
+  const [name, desc] = CPUID_FEATURES[type][bit] || ["RES", "Reserved"];
+  const el = document.createElement("div");
+  el.className = "cpuid-bit " + (bitSet(val, bit) ? "set" : "clear");
+  el.title = `bit ${bit}: ${name}\n${desc}`;
+  el.innerHTML = `<span class="idx">${bit}</span><span class="name">${name}</span>`;
+  return el;
 }
 
 function render(type, val) {
-const host = document.getElementById(type);
-host.innerHTML = "";
-for (let bit = 31; bit >= 0; bit--)
+  const host = document.getElementById(type);
+  host.innerHTML = "";
+  for (let bit = 31; bit >= 0; bit--)
     host.appendChild(makeBitEl(bit, type, val));
 }
 // Intel processor database
 const INTEL_PROCESSORS = {
-// Family 6 processors
-// https://fossies.org/linux/cpuid/cpuid.c
-// https://en.wikichip.org/wiki/intel/cpuid
-6: {
+  // Family 6 processors
+  // https://fossies.org/linux/cpuid/cpuid.c
+  // https://en.wikichip.org/wiki/intel/cpuid
+  6: {
     // ===== SERVER =====
     // https://en.wikichip.org/wiki/intel/xeon#Xeon_Timeline
     // P6 (Pentium)
-    0xa : {
-        uarch: "P6",
-        node: "180nm",
-        process: "P858",
-        steppings :{
-            0x0: {
-                core: "Cascades",
-                product: "Pentium III Xeon",
-                type: "Big Core (Server)",
-                stepping: "Cascades A0",
-                year: "1999"
-            },
-            0x1: {
-                core: "Cascades",
-                product: "Pentium III Xeon",
-                type: "Big Core (Server)",
-                stepping: "Cascades A1",
-                year: "1999"
-            },
-            0x4: {
-                core: "Cascades",
-                product: "Pentium III Xeon",
-                type: "Big Core (Server)",
-                stepping: "Cascades A1",
-                year: "1999"
-            },
-        }
+    0xa: {
+      uarch: "P6",
+      node: "180nm",
+      process: "P858",
+      steppings: {
+        0x0: {
+          core: "Cascades",
+          product: "Pentium III Xeon",
+          type: "Big Core (Server)",
+          stepping: "Cascades A0",
+          year: "Oct 1999",
+        },
+        0x1: {
+          core: "Cascades",
+          product: "Pentium III Xeon",
+          type: "Big Core (Server)",
+          stepping: "Cascades A1",
+          year: "Oct 1999",
+        },
+        0x4: {
+          core: "Cascades",
+          product: "Pentium III Xeon",
+          type: "Big Core (Server)",
+          stepping: "Cascades A1",
+          year: "Oct 1999",
+        },
+      },
     },
     // Penryn - Yorkfield/Wolfdale/Harpertown
-    0x17 : {
-        uarch: "Penryn",
-        node: "45nm",
-        process: "P1266/P1269",
-        steppings :{
-            0x6: {
-                core: "Yorkfield/Wolfdale/Harpertown",
-                product: "Xeon",
-                type: "Big Core (Server)",
-                stepping: "Yorkfield C0/Wolfdale C0/Harpertown C0",
-                year: "2007-2008"
-            },
-            0x7: {
-                core: "Yorkfield",
-                product: "Xeon",
-                type: "Big Core (Server)",
-                stepping: "Yorkfield C1",
-                year: "2008"
-            },
-            0xa: {
-                core: "Yorkfield",
-                product: "Xeon",
-                type: "Big Core (Server)",
-                stepping: "Yorkfield E0/R0",
-                year: "2008"
-            },
-        }
+    0x17: {
+      uarch: "Penryn",
+      node: "45nm",
+      process: "P1266/P1269",
+      steppings: {
+        0x6: {
+          core: "Yorkfield/Wolfdale/Harpertown",
+          product: "Xeon",
+          type: "Big Core (Server)",
+          stepping: "Yorkfield C0/Wolfdale C0/Harpertown C0",
+          year: "Nov 2007",
+        },
+        0x7: {
+          core: "Yorkfield",
+          product: "Xeon",
+          type: "Big Core (Server)",
+          stepping: "Yorkfield C1",
+          year: "Mar 2008",
+        },
+        0xa: {
+          core: "Yorkfield",
+          product: "Xeon",
+          type: "Big Core (Server)",
+          stepping: "Yorkfield E0/R0",
+          year: "Aug 2008",
+        },
+      },
     },
     // Penryn - Dunnington
-    0x1d : {
-        uarch: "Penryn",
-        node: "45nm",
-        process: "P1266/P1269",
-        steppings :{
-            0x1: {
-                core: "Dunnington",
-                product: "Xeon",
-                type: "Big Core (Server)",
-                stepping: "Dunnington A1",
-                year: "2008"
-            },
-        }
+    0x1d: {
+      uarch: "Penryn",
+      node: "45nm",
+      process: "P1266/P1269",
+      steppings: {
+        0x1: {
+          core: "Dunnington",
+          product: "Xeon",
+          type: "Big Core (Server)",
+          stepping: "Dunnington A1",
+          year: "Sep 2008",
+        },
+      },
     },
     // Nehalem - Bloomfield/Gainestown
-    0x1a : {
-        uarch: "Nehalem",
-        node: "45nm",
-        process: "P1266/P1269",
-        steppings :{
-            0x4: {
-                core: "Bloomfield",
-                product: "Xeon",
-                type: "Big Core (Client P-cores)",
-                stepping: "Bloomfield C0",
-                year: "2009"
-            },
-            0x5: {
-                core: "Bloomfield/Gainestown",
-                product: "Xeon",
-                type: "Big Core (Server)",
-                stepping: "Bloomfield/Gainestown D0",
-                year: "2009"
-            },
-        }
+    0x1a: {
+      uarch: "Nehalem",
+      node: "45nm",
+      process: "P1266/P1269",
+      steppings: {
+        0x4: {
+          core: "Bloomfield",
+          product: "Xeon",
+          type: "Big Core (Client P-cores)",
+          stepping: "Bloomfield C0",
+          year: "Nov 2008",
+        },
+        0x5: {
+          core: "Bloomfield/Gainestown",
+          product: "Xeon",
+          type: "Big Core (Server)",
+          stepping: "Bloomfield/Gainestown D0",
+          year: "Nov 2008",
+        },
+      },
     },
     // Nehalem - Jasper Forest/Lynnfield
-    0x1e : {
-        uarch: "Nehalem",
-        node: "45nm",
-        process: "P1266/P1269",
-        steppings :{
-            0x4: {
-                core: "Jasper Forest",
-                product: "Xeon",
-                type: "Big Core (Server)",
-                stepping: "JF B0",
-                year: "2010"
-            },
-            0x5: {
-                core: "Lynnfield",
-                product: "Xeon",
-                type: "Big Core (Server)",
-                stepping: "LFD B1",
-                year: "2009"
-            },
-        }
+    0x1e: {
+      uarch: "Nehalem",
+      node: "45nm",
+      process: "P1266/P1269",
+      steppings: {
+        0x4: {
+          core: "Jasper Forest",
+          product: "Xeon",
+          type: "Big Core (Server)",
+          stepping: "JF B0",
+          year: "Feb 2010",
+        },
+        0x5: {
+          core: "Lynnfield",
+          product: "Xeon",
+          type: "Big Core (Server)",
+          stepping: "LFD B1",
+          year: "Sep 2009",
+        },
+      },
     },
     // Nehalem - Beckton
-    0x2e : {
-        uarch: "Nehalem",
-        node: "45nm",
-        process: "P1266/P1269",
-        steppings :{
-            0x6: {
-                core: "Beckton",
-                product: "Xeon",
-                type: "Big Core (Server)",
-                stepping: "Beckton A0",
-                year: "2010"
-            },
-        }
+    0x2e: {
+      uarch: "Nehalem",
+      node: "45nm",
+      process: "P1266/P1269",
+      steppings: {
+        0x6: {
+          core: "Beckton",
+          product: "Xeon",
+          type: "Big Core (Server)",
+          stepping: "Beckton A0",
+          year: "Mar 2010",
+        },
+      },
     },
     // Westmere - Clarkdale
-    0x25 : {
-        uarch: "Westmere",
-        node: "32nm",
-        process: "P1268/P1269",
-        steppings :{
-            0x2: {
-                core: "Clarkdale",
-                product: "Xeon",
-                type: "Big Core (Server)",
-                stepping: "Clarkdale C2",
-                year: "2010"
-            },
-        }
+    0x25: {
+      uarch: "Westmere",
+      node: "32nm",
+      process: "P1268/P1269",
+      steppings: {
+        0x2: {
+          core: "Clarkdale",
+          product: "Xeon",
+          type: "Big Core (Server)",
+          stepping: "Clarkdale C2",
+          year: "Mar 2010",
+        },
+      },
     },
     // Westmere - Westmere-EP
-    0x2c : {
-        uarch: "Westmere",
-        node: "32nm",
-        process: "P1268/P1269",
-        steppings :{
-            0x0: {
-                core: "Westmere-EP",
-                product: "Xeon",
-                type: "Big Core (Server)",
-                stepping: "WSM-EP A0",
-                year: "2010"
-            },
-            0x1: {
-                core: "Westmere-EP",
-                product: "Xeon",
-                type: "Big Core (Server)",
-                stepping: "WSM-EP B0",
-                year: "2010"
-            },
-            0x2: {
-                core: "Westmere-EP",
-                product: "Xeon",
-                type: "Big Core (Server)",
-                stepping: "WSM-EP B1",
-                year: "2010"
-            },
-        }
+    0x2c: {
+      uarch: "Westmere",
+      node: "32nm",
+      process: "P1268/P1269",
+      steppings: {
+        0x0: {
+          core: "Westmere-EP",
+          product: "Xeon",
+          type: "Big Core (Server)",
+          stepping: "WSM-EP A0",
+          year: "Mar 2010",
+        },
+        0x1: {
+          core: "Westmere-EP",
+          product: "Xeon",
+          type: "Big Core (Server)",
+          stepping: "WSM-EP B0",
+          year: "Mar 2010",
+        },
+        0x2: {
+          core: "Westmere-EP",
+          product: "Xeon",
+          type: "Big Core (Server)",
+          stepping: "WSM-EP B1",
+          year: "Mar 2010",
+        },
+      },
     },
     // Westmere - Westmere-EX
-    0x2f : {
-        uarch: "Westmere",
-        node: "32nm",
-        process: "P1268/P1269",
-        steppings :{
-            0x2: {
-                core: "Westmere-EX",
-                product: "Xeon E7",
-                type: "Big Core (Server)",
-                stepping: "WSM-EX A2",
-                year: "2011"
-            },
-        }
+    0x2f: {
+      uarch: "Westmere",
+      node: "32nm",
+      process: "P1268/P1269",
+      steppings: {
+        0x2: {
+          core: "Westmere-EX",
+          product: "Xeon E7",
+          type: "Big Core (Server)",
+          stepping: "WSM-EX A2",
+          year: "Apr 2011",
+        },
+      },
     },
     // Sandy Bridge - Sandy Bridge
-    0x2a : {
-        uarch: "Sandy Bridge",
-        node: "32nm",
-        process: "P1268/P1269",
-        steppings :{
-            0x7: {
-                core: "Sandy Bridge",
-                product: "Xeon E3",
-                type: "Big Core (Server)",
-                stepping: "SNB D2/J1/Q0",
-                year: "May 2011"
-            },
-        }
+    0x2a: {
+      uarch: "Sandy Bridge",
+      node: "32nm",
+      process: "P1268/P1269",
+      steppings: {
+        0x7: {
+          core: "Sandy Bridge",
+          product: "Xeon E3 v1",
+          type: "Big Core (Server)",
+          stepping: "SNB D2/J1/Q0",
+          year: "May 2011",
+        },
+      },
     },
     // Sandy Bridge - Sandy Bridge-E
-    0x2d : {
-        uarch: "Sandy Bridge",
-        node: "32nm",
-        process: "P1268/P1269",
-        steppings :{
-            0x6: {
-                core: "Sandy Bridge-E",
-                product: "Xeon E5",
-                type: "Big Core (Server)",
-                stepping: "SNB-E C1/M0",
-                year: "Mar 2012"
-            },
-            0x7: {
-                core: "Sandy Bridge-E",
-                product: "Xeon E5",
-                type: "Big Core (Server)",
-                stepping: "SNB-E C2/M1",
-                year: "May 2012"
-            },
-        }
+    0x2d: {
+      uarch: "Sandy Bridge",
+      node: "32nm",
+      process: "P1268/P1269",
+      steppings: {
+        0x6: {
+          core: "Sandy Bridge-E",
+          product: "Xeon E5",
+          type: "Big Core (Server)",
+          stepping: "SNB-E C1/M0",
+          year: "Mar 2012",
+        },
+        0x7: {
+          core: "Sandy Bridge-E",
+          product: "Xeon E5",
+          type: "Big Core (Server)",
+          stepping: "SNB-E C2/M1",
+          year: "May 2012",
+        },
+      },
     },
     // Ivy Bridge - Ivy Bridge
-    0x3a : {
-        uarch: "Ivy Bridge",
-        node: "22nm",
-        process: "P1270/P1271",
-        steppings :{
-            0x6: {
-                core: "Ivy Bridge",
-                product: "Xeon E3",
-                type: "Big Core (Server)",
-                stepping: "IVB E1/N0/L1",
-                year: "May 2012"
-            },
-        }
+    0x3a: {
+      uarch: "Ivy Bridge",
+      node: "22nm",
+      process: "P1270/P1271",
+      steppings: {
+        0x6: {
+          core: "Ivy Bridge",
+          product: "Xeon E3 v2",
+          type: "Big Core (Server)",
+          stepping: "IVB E1/N0/L1",
+          year: "May 2012",
+        },
+      },
     },
     // Ivy Bridge - Ivy Bridge-EP/EX
-    0x3e : {
-        uarch: "Ivy Bridge",
-        node: "22nm",
-        process: "P1270/P1271",
-        steppings :{
-            0x4: {
-                core: "Ivy Bridge-EP",
-                product: "Xeon E5",
-                type: "Big Core (Server)",
-                stepping: "IVB-EP C1/M1/S1",
-                year: "Sep 2013"
-            },
-            0x7: {
-                core: "Ivy Bridge-EX",
-                product: "Xeon E5",
-                type: "Big Core (Server)",
-                stepping: "IVB-EX D1",
-                year: "Feb 2014"
-            },
-        }
+    0x3e: {
+      uarch: "Ivy Bridge",
+      node: "22nm",
+      process: "P1270/P1271",
+      steppings: {
+        0x4: {
+          core: "Ivy Bridge-EP",
+          product: "Xeon E5 v2",
+          type: "Big Core (Server)",
+          stepping: "IVB-EP C1/M1/S1",
+          year: "Sep 2013",
+        },
+        0x7: {
+          core: "Ivy Bridge-EX",
+          product: "Xeon E5 v2",
+          type: "Big Core (Server)",
+          stepping: "IVB-EX D1",
+          year: "Feb 2014",
+        },
+      },
     },
     // Haswell - Haswell
-    0x3c : {
-        uarch: "Haswell",
-        node: "22nm",
-        process: "P1270/P1271",
-        steppings :{
-            0x1: {
-                core: "Haswell",
-                product: "Xeon E3",
-                type: "Big Core (Server)",
-                stepping: "HSW A0",
-                year: "June 2013"
-            },
-            0x2: {
-                core: "Haswell B0",
-                product: "Xeon E3",
-                type: "Big Core (Server)",
-                stepping: "HSW B0",
-                year: "June 2013"
-            },
-            0x3: {
-                core: "Haswell C0",
-                product: "Xeon E3",
-                type: "Big Core (Server)",
-                stepping: "HSW C0",
-                year: "June 2013"
-            },
-        }
+    0x3c: {
+      uarch: "Haswell",
+      node: "22nm",
+      process: "P1270/P1271",
+      steppings: {
+        0x1: {
+          core: "Haswell",
+          product: "Xeon E3 v3",
+          type: "Big Core (Server)",
+          stepping: "HSW A0",
+          year: "June 2013",
+        },
+        0x2: {
+          core: "Haswell B0",
+          product: "Xeon E3 v3",
+          type: "Big Core (Server)",
+          stepping: "HSW B0",
+          year: "June 2013",
+        },
+        0x3: {
+          core: "Haswell C0",
+          product: "Xeon E3 v3",
+          type: "Big Core (Server)",
+          stepping: "HSW C0",
+          year: "June 2013",
+        },
+      },
     },
     // Haswell - Haswell-EP
-    0x3f : {
-        uarch: "Ivy Bridge",
-        node: "22nm",
-        process: "P1270/P1271",
-        steppings :{
-            0x2: {
-                core: "Haswell-EP",
-                product: "Xeon E5",
-                type: "Big Core (Server)",
-                stepping: "HSW-EP C1/M1/R2",
-                year: "Sep 2014"
-            },
-            0x4: {
-                core: "Haswell-EP",
-                product: "Xeon E7",
-                type: "Big Core (Server)",
-                stepping: "HSW-EP E0",
-                year: "May 2015"
-            },
-        }
+    0x3f: {
+      uarch: "Haswell",
+      node: "22nm",
+      process: "P1270/P1271",
+      steppings: {
+        0x2: {
+          core: "Haswell-EP",
+          product: "Xeon E5 v3",
+          type: "Big Core (Server)",
+          stepping: "HSW-EP C1/M1/R2",
+          year: "Sep 2014",
+        },
+        0x4: {
+          core: "Haswell-EP",
+          product: "Xeon E7 v3",
+          type: "Big Core (Server)",
+          stepping: "HSW-EP E0",
+          year: "May 2015",
+        },
+      },
     },
-
-
-
-
+    // Broadwell - Broadwell
+    0x47: {
+      uarch: "Broadwell",
+      node: "14nm",
+      process: "P1272/P1273",
+      steppings: {
+        0x1: {
+          core: "Broadwell",
+          product: "Xeon E3 v4",
+          type: "Big Core (Server)",
+          stepping: "BDW E0/G0",
+          year: "June 2015",
+        },
+      },
+    },
+    // Broadwell - Broadwell-EX
+    0x4f: {
+      uarch: "Broadwell",
+      node: "14nm",
+      process: "P1272/P1273",
+      steppings: {
+        0x1: {
+          core: "Broadwell-EX",
+          product: "Xeon E5 v4",
+          type: "Big Core (Server)",
+          stepping: "BDW-EX B0",
+          year: "June 2016",
+        },
+      },
+    },
+    // Broadwell - Broadwell-DE
+    0x56: {
+      uarch: "Broadwell",
+      node: "14nm",
+      process: "P1272/P1273",
+      steppings: {
+        0x1: {
+          core: "Broadwell-DE",
+          product: "Xeon D",
+          type: "Big Core (Server)",
+          stepping: "BDW-DE U0",
+          year: "Mar 2015",
+        },
+        0x2: {
+          core: "Broadwell-DE",
+          product: "Xeon D",
+          type: "Big Core (Server)",
+          stepping: "BDW-DE V1",
+          year: "Mar 2015",
+        },
+        0x3: {
+          core: "Broadwell-DE",
+          product: "Xeon D",
+          type: "Big Core (Server)",
+          stepping: "BDW-DE V2/V3",
+          year: "Mar 2015",
+        },
+        0x4: {
+          core: "Broadwell-DE",
+          product: "Xeon D",
+          type: "Big Core (Server)",
+          stepping: "BDW-DE Y0",
+          year: "Mar 2015",
+        },
+        0x5: {
+          core: "Broadwell-DE",
+          product: "Xeon D",
+          type: "Big Core (Server)",
+          stepping: "BDW-DE A1",
+          year: "July 2017",
+        },
+      },
+    },
+    // Skylake - Skylake
+    0x4e: {
+      uarch: "Skylake",
+      node: "14nm",
+      process: "P1272/P1273",
+      steppings: {
+        0x2: {
+          core: "Skylake",
+          product: "Xeon E3 v5",
+          type: "Big Core (Server)",
+          stepping: "SKL C0",
+          year: "Sep 2015",
+        },
+        0x3: {
+          core: "Skylake",
+          product: "Xeon D",
+          type: "Big Core (Server)",
+          stepping: "SKL D0",
+          year: "Mar 2015",
+        },
+      },
+    },
+    // Skylake - Skylake, Cascade Lake, Cooper Lake
+    0x55: {
+      uarch: "Skylake",
+      node: "14nm",
+      process: "P1272/P1273",
+      steppings: {
+        0x2: {
+          core: "Skylake",
+          product: "Intel Xeon W/D/Scalable",
+          type: "Big Core (Server)",
+          stepping: "SKL B0/L0",
+          year: "Feb 2018",
+        },
+        0x3: {
+          core: "Skylake",
+          product: "Intel Xeon Scalable",
+          type: "Big Core (Server)",
+          stepping: "SKL B1",
+          year: "July 2017",
+        },
+        0x4: {
+          core: "Skylake",
+          product: "Xeon W/D/Scalable",
+          type: "Big Core (Server)",
+          stepping: "SKL H0/M0/U0",
+          year: "Feb 2018",
+        },
+        0x5: {
+          core: "Cascade Lake",
+          product: "Xeon Scalable 2nd Gen",
+          type: "Big Core (Server)",
+          stepping: "CSL A0",
+          year: "Apr 2019",
+        },
+        0x6: {
+          core: "Cascade Lake-AP",
+          product: "Xeon W/Scalable 2nd Gen",
+          type: "Big Core (Server)",
+          stepping: "CSL B0",
+          year: "Apr 2019",
+        },
+        0x7: {
+          core: "Cascade Lake/-W",
+          product: "Xeon W/Scalable 2nd Gen",
+          type: "Big Core (Server)",
+          stepping: "CSL/-W B1/L1/R1",
+          year: "Oct 2019",
+        },
+        0xa: {
+          core: "Cooper Lake",
+          product: "Xeon Scalable 3rd Gen",
+          type: "Big Core (Server)",
+          stepping: "CPL A0",
+          year: "June 2020",
+        },
+        0xb: {
+          core: "Cooper Lake",
+          product: "Xeon Scalable 3rd Gen",
+          type: "Big Core (Server)",
+          stepping: "CPL A1",
+          year: "June 2020",
+        },
+      },
+    },
+    // Skylake - Skylake-H/S
+    0x5e: {
+      uarch: "Skylake",
+      node: "14nm",
+      process: "P1272/P1273",
+      steppings: {
+        0x1: {
+          core: "Skylake-H",
+          product: "Xeon E3 v5",
+          type: "Big Core (Server)",
+          stepping: "SKL-H Q0",
+          year: "Sep 2015",
+        },
+        0x3: {
+          core: "Skylake-H/S/E3",
+          product: "Xeon E3 v5",
+          type: "Big Core (Server)",
+          stepping: "SKL-H/S/E3 R0/N0/S0",
+          year: "Sep 2015",
+        },
+      },
+    },
 
     // // kaby, coffee, whiskey, comet lake
     // 0x8e: {
@@ -913,30 +1090,30 @@ const INTEL_PROCESSORS = {
     //     year: "2022"
     //     },
     // },
-},
+  },
 };
 
 function decodeEAX(eaxValue) {
-// Extract fields according to Intel documentation
-const stepping = eaxValue & 0xf;
-const model = (eaxValue >> 4) & 0xf;
-const family = (eaxValue >> 8) & 0xf;
-const procType = (eaxValue >> 12) & 0x3;
-const extModel = (eaxValue >> 16) & 0xf;
-const extFamily = (eaxValue >> 20) & 0xff;
+  // Extract fields according to Intel documentation
+  const stepping = eaxValue & 0xf;
+  const model = (eaxValue >> 4) & 0xf;
+  const family = (eaxValue >> 8) & 0xf;
+  const procType = (eaxValue >> 12) & 0x3;
+  const extModel = (eaxValue >> 16) & 0xf;
+  const extFamily = (eaxValue >> 20) & 0xff;
 
-// Calculate effective family and model
-let effectiveFamily = family;
-let effectiveModel = model;
+  // Calculate effective family and model
+  let effectiveFamily = family;
+  let effectiveModel = model;
 
-if (family === 0xf) {
+  if (family === 0xf) {
     effectiveFamily = family + extFamily;
-}
-if (family === 0x6 || family === 0xf) {
+  }
+  if (family === 0x6 || family === 0xf) {
     effectiveModel = (extModel << 4) + model;
-}
+  }
 
-return {
+  return {
     stepping,
     model: effectiveModel,
     family: effectiveFamily,
@@ -945,162 +1122,162 @@ return {
     extFamily,
     rawModel: model,
     rawFamily: family,
-};
+  };
 }
 
 function lookupProcessor(family, model, stepping) {
-const familyData = INTEL_PROCESSORS[family];
-if (!familyData) {
+  const familyData = INTEL_PROCESSORS[family];
+  if (!familyData) {
     return {
-        uarch: "Unknown",
-        core: "Unknown",
-        product: "Unknown",
-        type: "Unknown",
-        steppingName: "Unknown",
-        node: "Unknown",
-        process: "Unknown",
-        year: "Unknown",
+      uarch: "Unknown",
+      core: "Unknown",
+      product: "Unknown",
+      type: "Unknown",
+      steppingName: "Unknown",
+      node: "Unknown",
+      process: "Unknown",
+      year: "Unknown",
     };
-}
+  }
 
-const modelData = familyData[model];
-if (!modelData) {
+  const modelData = familyData[model];
+  if (!modelData) {
     return {
-        uarch: "Unknown",
-        core: "Unknown",
-        product: "Unknown",
-        type: "Unknown",
-        steppingName: "Unknown",
-        node: "Unknown",
-        process: "Unknown",
-        year: "Unknown",
+      uarch: "Unknown",
+      core: "Unknown",
+      product: "Unknown",
+      type: "Unknown",
+      steppingName: "Unknown",
+      node: "Unknown",
+      process: "Unknown",
+      year: "Unknown",
     };
-}
+  }
 
-const steppingData = modelData.steppings[stepping];
-if (!steppingData) {
+  const steppingData = modelData.steppings[stepping];
+  if (!steppingData) {
     return {
-        uarch: modelData.uarch,
-        core: "Unknown",
-        product: "Unknown",
-        type: "Unknown",
-        steppingName: "Unknown",
-        node: modelData.node,
-        process: modelData.process,
-        year: "Unknown",
+      uarch: modelData.uarch,
+      core: "Unknown",
+      product: "Unknown",
+      type: "Unknown",
+      steppingName: "Unknown",
+      node: modelData.node,
+      process: modelData.process,
+      year: "Unknown",
     };
-}
+  }
 
-return {
+  return {
     uarch: modelData.uarch,
     core: steppingData.core,
     product: steppingData.product,
     type: steppingData.type,
     steppingName: steppingData.stepping,
     node: modelData.node,
-        process: modelData.process,
+    process: modelData.process,
     year: steppingData.year,
-};
+  };
 }
 
 function updateEAXDisplay(eaxValue) {
-const decoded = decodeEAX(eaxValue);
-const processor = lookupProcessor(
+  const decoded = decodeEAX(eaxValue);
+  const processor = lookupProcessor(
     decoded.family,
     decoded.model,
     decoded.stepping
-);
+  );
 
-// Update version fields
-document.getElementById(
-    "extFamily"
-).textContent = `0x${decoded.extFamily.toString(16).toUpperCase()} (${
-    decoded.extFamily
-})`;
-document.getElementById("extModel").textContent = `0x${decoded.extModel
+  // Update version fields
+  document.getElementById("extFamily").textContent = `0x${decoded.extFamily
+    .toString(16)
+    .toUpperCase()} (${decoded.extFamily})`;
+  document.getElementById("extModel").textContent = `0x${decoded.extModel
     .toString(16)
     .toUpperCase()} (${decoded.extModel})`;
-document.getElementById("procType").textContent = `0x${decoded.procType
+  document.getElementById("procType").textContent = `0x${decoded.procType
     .toString(16)
     .toUpperCase()} (${decoded.procType})`;
-document.getElementById("family").textContent = `0x${decoded.family
+  document.getElementById("family").textContent = `0x${decoded.family
     .toString(16)
     .toUpperCase()} (${decoded.family})`;
-document.getElementById("model").textContent = `0x${decoded.model
+  document.getElementById("model").textContent = `0x${decoded.model
     .toString(16)
     .toUpperCase()} (${decoded.model})`;
-document.getElementById("stepping").textContent = `0x${decoded.stepping
+  document.getElementById("stepping").textContent = `0x${decoded.stepping
     .toString(16)
     .toUpperCase()} (${decoded.stepping})`;
 
-// Update processor info
-document.getElementById("uarch").textContent = processor.uarch;
-document.getElementById("core").textContent = processor.core;
-document.getElementById("product").textContent = processor.product;
-document.getElementById("productType").textContent = processor.type;
-document.getElementById("steppingName").textContent = processor.steppingName;
-document.getElementById("node").textContent = processor.node;
-document.getElementById("process").textContent = processor.process;
-document.getElementById("year").textContent = processor.year;
+  // Update processor info
+  document.getElementById("uarch").textContent = processor.uarch;
+  document.getElementById("core").textContent = processor.core;
+  document.getElementById("product").textContent = processor.product;
+  document.getElementById("productType").textContent = processor.type;
+  document.getElementById("steppingName").textContent = processor.steppingName;
+  document.getElementById("node").textContent = processor.node;
+  document.getElementById("process").textContent = processor.process;
+  document.getElementById("year").textContent = processor.year;
 
-// Update bit layout
-document.getElementById("extFamilyBits").textContent = decoded.extFamily
+  // Update bit layout
+  document.getElementById("extFamilyBits").textContent = decoded.extFamily
     .toString(2)
     .padStart(8, "0");
-document.getElementById("extModelBits").textContent = decoded.extModel
+  document.getElementById("extModelBits").textContent = decoded.extModel
     .toString(2)
     .padStart(4, "0");
-document.getElementById("reservedBits").textContent = "00";
-document.getElementById("typeBits").textContent = decoded.procType
+  document.getElementById("reservedBits").textContent = "00";
+  document.getElementById("typeBits").textContent = decoded.procType
     .toString(2)
     .padStart(2, "0");
-document.getElementById("familyBits").textContent = decoded.rawFamily
+  document.getElementById("familyBits").textContent = decoded.rawFamily
     .toString(2)
     .padStart(4, "0");
-document.getElementById("modelBits").textContent = decoded.rawModel
+  document.getElementById("modelBits").textContent = decoded.rawModel
     .toString(2)
     .padStart(4, "0");
-document.getElementById("steppingBits").textContent = decoded.stepping
+  document.getElementById("steppingBits").textContent = decoded.stepping
     .toString(2)
     .padStart(4, "0");
 }
 // Default values stay empty (all zero) until the user pastes.
 document.addEventListener("DOMContentLoaded", () => {
-render("ecx", 0);
-render("edx", 0);
+  render("ecx", 0);
+  render("edx", 0);
 
-const ecxIn = document.getElementById("ecxIn");
-const edxIn = document.getElementById("edxIn");
-const eaxIn = document.getElementById("eaxIn");
+  const ecxIn = document.getElementById("ecxIn");
+  const edxIn = document.getElementById("edxIn");
+  const eaxIn = document.getElementById("eaxIn");
 
-// Populate the EAX dropdown
-const cpuidOptions = generateCPUIDOptions();
+  // Populate the EAX dropdown
+  const cpuidOptions = generateCPUIDOptions();
 
-cpuidOptions.forEach(option => {
+  cpuidOptions.forEach((option) => {
     const optionElement = document.createElement("option");
     optionElement.value = option.value;
     optionElement.textContent = option.text;
     eaxIn.appendChild(optionElement);
-});
+  });
 
-// Add custom option at the end
-const customOption = document.createElement("option");
-customOption.value = "custom";
-customOption.textContent = "Custom...";
-eaxIn.appendChild(customOption);
+  // Add custom option at the end
+  const customOption = document.createElement("option");
+  customOption.value = "custom";
+  customOption.textContent = "Custom...";
+  eaxIn.appendChild(customOption);
 
-const update = () => {
+  const update = () => {
     render("ecx", parseVal(ecxIn.value));
     render("edx", parseVal(edxIn.value));
-};
+  };
 
-const updateEAX = () => {
+  const updateEAX = () => {
     const selectedValue = eaxIn.value;
     if (selectedValue && selectedValue !== "custom") {
       updateEAXDisplay(parseVal(selectedValue));
     } else if (selectedValue === "custom") {
       // Handle custom input - you could show a text input here if needed
-      const customValue = prompt("Enter custom CPUID EAX value (hex format like 0x806ec):");
+      const customValue = prompt(
+        "Enter custom CPUID EAX value (hex format like 0x806ec):"
+      );
       if (customValue) {
         updateEAXDisplay(parseVal(customValue));
       }
@@ -1109,129 +1286,361 @@ const updateEAX = () => {
     }
   };
 
-ecxIn.addEventListener("input", update);
-edxIn.addEventListener("input", update);
-eaxIn.addEventListener("change", updateEAX);
+  ecxIn.addEventListener("input", update);
+  edxIn.addEventListener("input", update);
+  eaxIn.addEventListener("change", updateEAX);
 
-// Provide a handy demo value when users paste nothing and press Enter
-function maybeDemo(e) {
+  // Provide a handy demo value when users paste nothing and press Enter
+  function maybeDemo(e) {
     if (e.key === "Enter" && !e.target.value.trim()) {
       if (e.target === ecxIn) ecxIn.value = "0x7ffafbff";
       if (e.target === edxIn) edxIn.value = "0xbfebfbff";
       update();
     }
-}
-ecxIn.addEventListener("keydown", maybeDemo);
-edxIn.addEventListener("keydown", maybeDemo);
+  }
+  ecxIn.addEventListener("keydown", maybeDemo);
+  edxIn.addEventListener("keydown", maybeDemo);
 
-// Initialize displays
-updateEAXDisplay(0);
+  // Initialize displays
+  updateEAXDisplay(0);
 });
 
 // Add this function to generate CPUID values from the database
 function generateCPUIDOptions() {
   const options = [];
-  
+
   for (const [family, familyData] of Object.entries(INTEL_PROCESSORS)) {
     for (const [model, modelData] of Object.entries(familyData)) {
-      for (const [stepping, steppingData] of Object.entries(modelData.steppings)) {
+      for (const [stepping, steppingData] of Object.entries(
+        modelData.steppings
+      )) {
         // Calculate the CPUID value
         const familyInt = parseInt(family);
         const modelInt = parseInt(model);
         const steppingInt = parseInt(stepping);
         let cpuidValue = 0;
-        
+
         // Set stepping (bits 3:0)
-        cpuidValue |= (steppingInt & 0xF);
-        
+        cpuidValue |= steppingInt & 0xf;
+
         // Set model (bits 7:4) and extended model (bits 19:16)
-        const baseModel = modelInt & 0xF;
-        const extModel = (modelInt >> 4) & 0xF;
-        cpuidValue |= (baseModel << 4);
-        cpuidValue |= (extModel << 16);
-        
+        const baseModel = modelInt & 0xf;
+        const extModel = (modelInt >> 4) & 0xf;
+        cpuidValue |= baseModel << 4;
+        cpuidValue |= extModel << 16;
+
         // Set family (bits 11:8) and extended family (bits 27:20)
-        if (familyInt === 0xF) {
-          cpuidValue |= (0xF << 8); // Base family for extended
-          cpuidValue |= ((familyInt - 0xF) << 20); // Extended family
+        if (familyInt === 0xf) {
+          cpuidValue |= 0xf << 8; // Base family for extended
+          cpuidValue |= (familyInt - 0xf) << 20; // Extended family
         } else {
-          cpuidValue |= (familyInt << 8);
+          cpuidValue |= familyInt << 8;
         }
-        
+
         // Type is usually 0 for client processors
         const type = steppingData.type.toLowerCase().includes("server") ? 1 : 0;
-        cpuidValue |= (type << 12);
-        
+        cpuidValue |= type << 12;
+
         const cpuidHex = `0x${cpuidValue.toString(16).toUpperCase()}`;
         const displayName = `${cpuidHex} - ${steppingData.core} (${steppingData.product})`;
-        
+
         options.push({
           value: cpuidHex,
           text: displayName,
-          data: steppingData
+          data: steppingData,
         });
       }
     }
   }
-  
-    //   Sort by CPUID value
-    options.sort((a, b) => {
-        // Extract generation numbers and processor types
-        const extractGenInfo = (product) => {
-            const coreMatch = product.match(/(\d+)(?:st|nd|rd|th)\s+Gen\s+Core/i);
-            const xeonMatch = product.match(/(\d+)(?:st|nd|rd|th)\s+Gen\s+Xeon/i);
-            
-            if (coreMatch) {
-                return { type: 'core', gen: parseInt(coreMatch[1]) };
-            } else if (xeonMatch) {
-                return { type: 'xeon', gen: parseInt(xeonMatch[1]) };
-            }
-            return { type: 'other', gen: 999 }; // Unknown products go last
-        };
-        
-        const aInfo = extractGenInfo(a.data.product);
-        const bInfo = extractGenInfo(b.data.product);
-        
-        // Core processors come before Xeon
-        if (aInfo.type !== bInfo.type) {
-            if (aInfo.type === 'core' && bInfo.type === 'xeon') return -1;
-            if (aInfo.type === 'xeon' && bInfo.type === 'core') return 1;
-            if (aInfo.type === 'other') return 1;
-            if (bInfo.type === 'other') return -1;
-        }
-        
-        // Sort by generation number within same type
-        if (aInfo.gen !== bInfo.gen) {
-            return aInfo.gen - bInfo.gen;
-        }
-        
-        // Handle mixed generation products like "7/8th Gen Core" 
-        // Extract the first generation from mixed products for sorting
-        const getFirstGen = (product) => {
-            const mixedMatch = product.match(/(\d+)\/\d+(?:st|nd|rd|th)\s+Gen/i);
-            if (mixedMatch) return parseInt(mixedMatch[1]);
-            return aInfo.gen; // Use regular gen if not mixed
-        };
-        
-        const aFirstGen = getFirstGen(a.data.product);
-        const bFirstGen = getFirstGen(b.data.product);
-        
-        if (aFirstGen !== bFirstGen) {
-            return aFirstGen - bFirstGen;
-        }
-        
-        // Within same first generation, single gen comes before mixed
-        const aMixed = a.data.product.includes('/');
-        const bMixed = b.data.product.includes('/');
-        
-        if (aMixed !== bMixed) {
-            return aMixed ? 1 : -1; // Single gen (false) comes before mixed (true)
-        }        
-        // If same product, sort by name
-        return a.data.core.localeCompare(b.data.core);
-    });
 
-  console.log(options)
-  
+  //   Sort by CPUID value
+  options.sort((a, b) => {
+    // Extract generation numbers and processor types
+    const extractGenInfo = (product) => {
+      const coreMatch = product.match(/(\d+)(?:st|nd|rd|th)\s+Gen\s+Core/i);
+      const xeonMatch = product.match(/(\d+)(?:st|nd|rd|th)\s+Gen\s+Xeon/i);
+
+      if (coreMatch) {
+        return { type: "core", gen: parseInt(coreMatch[1]) };
+      } else if (xeonMatch) {
+        return { type: "xeon", gen: parseInt(xeonMatch[1]) };
+      }
+      return { type: "other", gen: 999 }; // Unknown products go last
+    };
+
+    const aInfo = extractGenInfo(a.data.product);
+    const bInfo = extractGenInfo(b.data.product);
+
+    // Core processors come before Xeon
+    if (aInfo.type !== bInfo.type) {
+      if (aInfo.type === "core" && bInfo.type === "xeon") return -1;
+      if (aInfo.type === "xeon" && bInfo.type === "core") return 1;
+      if (aInfo.type === "other") return 1;
+      if (bInfo.type === "other") return -1;
+    }
+
+    // Sort by generation number within same type
+    if (aInfo.gen !== bInfo.gen) {
+      return aInfo.gen - bInfo.gen;
+    }
+
+    // Handle mixed generation products like "7/8th Gen Core"
+    // Extract the first generation from mixed products for sorting
+    const getFirstGen = (product) => {
+      const mixedMatch = product.match(/(\d+)\/\d+(?:st|nd|rd|th)\s+Gen/i);
+      if (mixedMatch) return parseInt(mixedMatch[1]);
+      return aInfo.gen; // Use regular gen if not mixed
+    };
+
+    const aFirstGen = getFirstGen(a.data.product);
+    const bFirstGen = getFirstGen(b.data.product);
+
+    if (aFirstGen !== bFirstGen) {
+      return aFirstGen - bFirstGen;
+    }
+
+    // Within same first generation, single gen comes before mixed
+    const aMixed = a.data.product.includes("/");
+    const bMixed = b.data.product.includes("/");
+
+    if (aMixed !== bMixed) {
+      return aMixed ? 1 : -1; // Single gen (false) comes before mixed (true)
+    }
+    // If same product, sort by name
+    return a.data.core.localeCompare(b.data.core);
+  });
+
+  console.log(options);
+
   return options;
 }
+
+function populateProcessorTable() {
+  const tableBody = document.getElementById("processorTableBody");
+  const architectures = new Set();
+  const rows = [];
+
+  for (const [family, familyData] of Object.entries(INTEL_PROCESSORS)) {
+    for (const [model, modelData] of Object.entries(familyData)) {
+      architectures.add(modelData.uarch);
+
+      for (const [stepping, steppingData] of Object.entries(
+        modelData.steppings
+      )) {
+        // Calculate CPUID value
+        const familyInt = parseInt(family);
+        const modelInt = parseInt(model);
+        const steppingInt = parseInt(stepping);
+        let cpuidValue = 0;
+
+        // Set stepping (bits 3:0)
+        cpuidValue |= steppingInt & 0xf;
+
+        // Set model (bits 7:4) and extended model (bits 19:16)
+        const baseModel = modelInt & 0xf;
+        const extModel = (modelInt >> 4) & 0xf;
+        cpuidValue |= baseModel << 4;
+        cpuidValue |= extModel << 16;
+
+        // Set family (bits 11:8)
+        cpuidValue |= familyInt << 8;
+
+        // Type is usually 0 for client processors
+        const type = steppingData.type.toLowerCase().includes("server") ? 1 : 0;
+        cpuidValue |= type << 12;
+
+        const cpuidHex = `0x${cpuidValue.toString(16).toUpperCase()}`;
+
+        rows.push({
+          cpuid: cpuidHex,
+          cpuidValue: cpuidValue,
+          arch: modelData.uarch,
+          core: steppingData.core,
+          product: steppingData.product,
+          type: steppingData.type,
+          stepping: steppingData.stepping,
+          node: modelData.node,
+          process: modelData.process,
+          year: steppingData.year,
+        });
+      }
+    }
+  }
+
+  // Sort rows by CPUID value
+  rows.sort((a, b) => a.cpuidValue - b.cpuidValue);
+
+  // Populate architecture filter
+  const archFilter = document.getElementById("filterArch");
+  Array.from(architectures)
+    .sort()
+    .forEach((arch) => {
+      const option = document.createElement("option");
+      option.value = arch.toLowerCase();
+      option.textContent = arch;
+      archFilter.appendChild(option);
+    });
+
+  // Populate table
+  function renderRows(filteredRows = rows) {
+    tableBody.innerHTML = "";
+    filteredRows.forEach((row) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><span class="cpuid-clickable" data-cpuid="${row.cpuid}">${row.cpuid}</span></td>
+        <td>${row.arch}</td>
+        <td class="core-cell" title="${row.core}">${row.core}</td>
+        <td class="product-cell" title="${row.product}">${row.product}</td>
+        <td>${row.type}</td>
+        <td>${row.stepping}</td>
+        <td>${row.node}</td>
+        <td>${row.process}</td>
+        <td>${row.year}</td>
+      `;
+      tableBody.appendChild(tr);
+    });
+
+    // Add click handlers for CPUID values
+    document.querySelectorAll(".cpuid-clickable").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        const cpuidValue = e.target.dataset.cpuid;
+        // Switch to decoder tab
+        switchTab("decoder");
+        // Set the dropdown value
+        const eaxSelect = document.getElementById("eaxIn");
+        eaxSelect.value = cpuidValue;
+        // Trigger update
+        updateEAXDisplay(parseVal(cpuidValue));
+      });
+    });
+  }
+
+  // Search and filter functionality
+  const searchInput = document.getElementById("searchInput");
+//   const archFilter = document.getElementById("filterArch");
+  const typeFilter = document.getElementById("filterType");
+
+  function filterTable() {
+    const searchTerm = searchInput.value.toLowerCase();
+    const archFilter = document
+      .getElementById("filterArch")
+      .value.toLowerCase();
+    const typeFilter = document
+      .getElementById("filterType")
+      .value.toLowerCase();
+
+    const filteredRows = rows.filter((row) => {
+      const matchesSearch =
+        !searchTerm ||
+        row.cpuid.toLowerCase().includes(searchTerm) ||
+        row.arch.toLowerCase().includes(searchTerm) ||
+        row.core.toLowerCase().includes(searchTerm) ||
+        row.product.toLowerCase().includes(searchTerm) ||
+        row.stepping.toLowerCase().includes(searchTerm);
+
+      const matchesArch =
+        !archFilter || row.arch.toLowerCase().includes(archFilter);
+      const matchesType =
+        !typeFilter || row.type.toLowerCase().includes(typeFilter);
+
+      return matchesSearch && matchesArch && matchesType;
+    });
+
+    renderRows(filteredRows);
+  }
+
+  searchInput.addEventListener("input", filterTable);
+  document.getElementById("filterArch").addEventListener("change", filterTable);
+  document.getElementById("filterType").addEventListener("change", filterTable);
+
+  // Initial render
+  renderRows();
+}
+
+function switchTab(tabName) {
+  // Update tab buttons
+  document.querySelectorAll(".cpuid-tab-btn").forEach((btn) => {
+    btn.classList.remove("active");
+  });
+  document.querySelector(`[data-tab="${tabName}"]`).classList.add("active");
+
+  // Update tab content
+  document.querySelectorAll(".cpuid-tab-content").forEach((content) => {
+    content.classList.add("hidden");
+  });
+  document.getElementById(`${tabName}-tab`).classList.remove("hidden");
+}
+
+// Update the existing DOMContentLoaded event listener
+document.addEventListener("DOMContentLoaded", () => {
+  render("ecx", 0);
+  render("edx", 0);
+
+  const ecxIn = document.getElementById("ecxIn");
+  const edxIn = document.getElementById("edxIn");
+  const eaxIn = document.getElementById("eaxIn");
+
+  // Populate the EAX dropdown
+  const cpuidOptions = generateCPUIDOptions();
+
+  cpuidOptions.forEach((option) => {
+    const optionElement = document.createElement("option");
+    optionElement.value = option.value;
+    optionElement.textContent = option.text;
+    eaxIn.appendChild(optionElement);
+  });
+
+  // Add custom option at the end
+  const customOption = document.createElement("option");
+  customOption.value = "custom";
+  customOption.textContent = "Custom...";
+  eaxIn.appendChild(customOption);
+
+  const update = () => {
+    render("ecx", parseVal(ecxIn.value));
+    render("edx", parseVal(edxIn.value));
+  };
+
+  const updateEAX = () => {
+    const selectedValue = eaxIn.value;
+    if (selectedValue && selectedValue !== "custom") {
+      updateEAXDisplay(parseVal(selectedValue));
+    } else if (selectedValue === "custom") {
+      // Handle custom input - you could show a text input here if needed
+      const customValue = prompt(
+        "Enter custom CPUID EAX value (hex format like 0x806ec):"
+      );
+      if (customValue) {
+        updateEAXDisplay(parseVal(customValue));
+      }
+    } else {
+      updateEAXDisplay(0);
+    }
+  };
+
+  ecxIn.addEventListener("input", update);
+  edxIn.addEventListener("input", update);
+  eaxIn.addEventListener("change", updateEAX);
+
+  // Provide a handy demo value when users paste nothing and press Enter
+  function maybeDemo(e) {
+    if (e.key === "Enter" && !e.target.value.trim()) {
+      if (e.target === ecxIn) ecxIn.value = "0x7ffafbff";
+      if (e.target === edxIn) edxIn.value = "0xbfebfbff";
+      update();
+    }
+  }
+  ecxIn.addEventListener("keydown", maybeDemo);
+  edxIn.addEventListener("keydown", maybeDemo);
+
+  // Tab functionality
+  document.querySelectorAll(".cpuid-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const tabName = e.target.dataset.tab;
+      switchTab(tabName);
+    });
+  });
+
+  // Populate processor table
+  populateProcessorTable();
+});
