@@ -607,7 +607,96 @@ const INTEL_PROCESSORS = {
         },
       },
     },
+    // Sunny Cove - Ice Lake-SP
+    0x6a: {
+      uarch: "Sunny Cove",
+      node: "10nm+",
+      process: "P1274/P1275",
+      steppings: {
+        0x5: {
+          core: "Ice Lake-SP",
+          product: "Xeon Scalable 3rd Gen",
+          type: "Big Core (Server)",
+          stepping: "ICL-SP C0",
+          year: "Apr 2021",
+        },
+        0x6: {
+          core: "Ice Lake-SP",
+          product: "Xeon Scalable 3rd Gen",
+          type: "Big Core (Server)",
+          stepping: "ICL-SP D2/M1",
+          year: "Apr 2021",
+        },
+      },
+    },
+    // Sunny Cove - Ice Lake-D
+    0x6c: {
+      uarch: "Sunny Cove",
+      node: "10nm+",
+      process: "P1274/P1275",
+      steppings: {
+        0x1: {
+          core: "Ice Lake-D",
+          product: "Xeon D",
+          type: "Big Core (Server)",
+          stepping: "ICL-D U1/U2",
+          year: "Apr 2022",
+        },
+      },
+    },
+    // Sapphire Rapids - Golden Cove
+    0x8f: {
+      uarch: "Sapphire Rapids",
+      node: "Intel 7 (7nm)",
+      process: "P1276/P1277",
+      steppings: {
+        0x3: {
+          core: "Golden Cove",
+          product: "Xeon W/Scalable 4th Gen",
+          type: "Big Core (Server)",
+          stepping: "SPR D",
+          year: "Jan 2023",
+        },
+        0x4: {
+          core: "Golden Cove",
+          product: "Xeon W/Scalable 4th Gen",
+          type: "Big Core (Server)",
+          stepping: "SPR E0",
+          year: "Jan 2023",
+        },
+        0x5: {
+          core: "Golden Cove",
+          product: "Xeon W/Scalable 4th Gen",
+          type: "Big Core (Server)",
+          stepping: "SPR E2",
+          year: "Jan 2023",
+        },
+        0x6: {
+          core: "Golden Cove",
+          product: "Xeon W/Scalable 4th Gen",
+          type: "Big Core (Server)",
+          stepping: "SPR E3",
+          year: "Jan 2023",
+        },
+        0x7: {
+          core: "Golden Cove",
+          product: "Xeon W/Scalable 4th Gen",
+          type: "Big Core (Server)",
+          stepping: "SPR E4/S2",
+          year: "Jan 2023",
+        },
+        0x8: {
+          core: "Golden Cove",
+          product: "Xeon W/Scalable 4th Gen",
+          type: "Big Core (Server)",
+          stepping: "SPR E5/B3/S3",
+          year: "Jan 2023",
+        },
+      },
+    },
 
+
+    
     // // kaby, coffee, whiskey, comet lake
     // 0x8e: {
     // // Model 142
