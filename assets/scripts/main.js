@@ -105,6 +105,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 </a>
                 <ul class="dropdown-menu bg-dark text-light" aria-labelledby="archDropdown">
                   <li><a class="dropdown-item text-light" href="pages/arch/x86-os-internals.html">x86 OS Internals</a></li>
+                  <li><a class="dropdown-item text-light" href="pages/arch/x86-firmware.html">x86 Firmware</a></li>
                 </ul>
               </li>
 
