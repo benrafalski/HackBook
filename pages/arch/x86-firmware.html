@@ -67,6 +67,7 @@
           <li><u>Bus</u>: PCI has up to 256 (8 bits to encode)
             <ul>
               <li><u>PCI Bridge</u>: used to connect PCI buses</li>
+              <li><u>PCI Switch</u>: same as bridge but for PCIe</li>
               <li><u>Bus 0</u>: used by Intel/AMD CPU/PCH/ICH/MCH-internal hardware blocks</li>
             </ul>
           </li>
@@ -74,12 +75,57 @@
           <li><u>Function</u>: each device has up to 8 (3 bits to encode)</li>
         </ul>
         <img src="https://d9xyzjwjgfkc2g.archive.ph/4N1fd/1cf4eafd328b58577cfe8edcac87515b68d57ebd.jpg" alt="PCI Evolution diagram" class="img-fluid" />
+        <br><br>
+        <h4 id="pci-enumeration">PCI Enumeration</h4>
+        <pre class="command-line"
+            data-user="hacker"
+            data-host="remotehost"
+            data-output="2-16"><code class="language-bash">python3 chipsec_util.py pci enumerate
+BDF     | VID:DID   | Vendor                       | Device
+-------------------------------------------------------------------------
+00:00.0 | 8086:0C00 | Intel Corporation            | 4th Gen Core Processor DRAM Controller
+00:01.0 | 8086:0C01 | Intel Corporation            | Xeon E3-1200 v3/4th Gen Core Processor PCI Express x16 Controller
+00:02.0 | 8086:0412 | Intel Corporation            | Xeon E3-1200 v3/4th Gen Core Processor Integrated Graphics Controller
+00:03.0 | 8086:0C0C | Intel Corporation            | Xeon E3-1200 v3/4th Gen Core Processor HD Audio Controller
+00:14.0 | 8086:8C31 | Intel Corporation            | 8 Series/C220 Series Chipset Family USB xHCI
+00:16.0 | 8086:8C3A | Intel Corporation            | 8 Series/C220 Series Chipset Family MEI Controller #1
+00:19.0 | 8086:153A | Intel Corporation            | Ethernet Connection I217-LM
+00:1A.0 | 8086:8C2D | Intel Corporation            | 8 Series/C220 Series Chipset Family USB EHCI #2
+00:1B.0 | 8086:8C20 | Intel Corporation            | 8 Series/C220 Series Chipset High Definition Audio Controller
+00:1D.0 | 8086:8C26 | Intel Corporation            | 8 Series/C220 Series Chipset Family USB EHCI #1
+00:1F.0 | 8086:8C4E | Intel Corporation            | Q87 Express LPC Controller
+00:1F.2 | 8086:8C02 | Intel Corporation            | 8 Series/C220 Series Chipset Family 6-port SATA Controller 1 [AHCI mode]
+00:1F.3 | 8086:8C22 | Intel Corporation            | 8 Series/C220 Series Chipset Family SMBus Controller</code></pre>
         <h3 id="pci-address-spaces">PCI Address Spaces</h3>
         <ul>
-          <li><u>PCI Configuration Space (Required)</u>: up to 256 bytes</li>
+          <li><u>PCI Configuration Space (Required)</u>: up to 256 bytes for PCI, extended to 4KB for PCIe</li>
           <li><u>PCI MMIO Space (Optional)</u>: PCI device-dependent memory</li>
           <li><u>PCI Port IO Space (Optional)</u>: same as MMIO just PIO access</li>
         </ul>
+        <h4>PCI Configuration Space Dump</h4>
+        <pre class="command-line"
+            data-user="hacker"
+            data-host="remotehost"
+            data-output="2-19"><code class="language-bash">python3 chipsec_util.py pci dump 0 0 0
+[CHIPSEC] PCI device 00:00.00 configuration:
+    _00__01__02__03__04__05__06__07__08__09__0A__0B__0C__0D__0E__0F__
+00 | 86  80  36  9A  06  01  90  00  05  00  00  06  00  00  00  00
+10 | 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  20
+20 | 00  00  00  00  00  00  00  00  00  00  00  00  86  80  70  72
+30 | 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+40 | 01  10  DA  FE  00  00  00  00  01  00  DC  FE  00  00  00  00
+50 | C1  FE  00  00  F1  80  02  00  C7  00  20  50  E7  00  00  4B
+60 | 01  00  00  C0  00  00  00  00  01  00  DA  FE  00  00  00  00
+70 | 08  02  00  01  00  04  00  00  00  00  00  00  88  06  44  00
+80 | 30  33  33  33  33  33  33  10  00  00  00  00  00  00  00  00
+90 | 08  02  00  01  00  04  00  00  1A  02  00  01  00  04  00  00
+A0 | 01  00  00  00  04  00  00  00  01  00  C0  AF  04  00  00  00
+B0 | 01  00  80  4C  01  00  00  4C  01  00  00  4B  01  00  40  50
+C0 | 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+D0 | 1A  02  00  01  00  04  00  00  00  00  00  00  00  00  00  00
+E0 | 09  00  14  01  58  24  00  62  00  00  24  30  0B  02  40  06
+F0 | 00  90  1F  00  1D  0F  01  00  00  00  00  00  00  00  00  00</code></pre>
+
     </div>
   </body>
 </html>
