@@ -132,14 +132,134 @@
   color: #999;
 }
 
+/* PCI Configuration Header Styles */
+.pci-config-header {
+  background: #0e1318;
+  border: 2px solid #2a3543 !important;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  overflow: hidden;
+  width: 50%; /* Limit container to 50% of page width */
+  max-width: 800px; /* Add a reasonable max width */
+  margin-left: 0; /* Right justify the container */
+}
+
+.config-row {
+  border-bottom: 1px solid #2a3543 !important;
+  width: 100%; /* Ensure rows take full width */
+}
+
+.config-row:last-child {
+  border-bottom: none !important;
+}
+
+.config-field {
+  padding: 12px !important;
+  border-right: 1px solid #2a3543 !important;
+  transition: background-color 0.2s ease;
+  cursor: help;
+  position: relative;
+  flex: 1; /* Make fields expand to fill available space */
+  min-width: 0; /* Allow fields to shrink if needed */
+}
+
+.config-field:last-child {
+  border-right: none !important;
+}
+
+.config-field:hover {
+  background-color: rgba(207, 251, 236, 0.1) !important;
+}
+
+.field-name {
+  font-weight: bold !important;
+  color: #cffbec !important;
+  margin-bottom: 2px;
+  word-wrap: break-word; /* Allow text to wrap if needed */
+}
+
+.field-offset {
+  font-size: 0.7em !important;
+  color: #9db5d3 !important;
+}
+
+/* Specific field color overrides for dark theme */
+.config-field.vendor-id {
+  background-color: #1a2332 !important;
+}
+.config-field.device-id {
+  background-color: #2a1a32 !important;
+}
+.config-field.command {
+  background-color: #1a321a !important;
+}
+.config-field.status {
+  background-color: #321a1a !important;
+}
+.config-field.revision {
+  background-color: #2a1f32 !important;
+}
+.config-field.prog-if {
+  background-color: #1a322a !important;
+}
+.config-field.subclass {
+  background-color: #322a1a !important;
+}
+.config-field.class-code {
+  background-color: #1a2a32 !important;
+}
+.config-field.cache-line {
+  background-color: #321a2a !important;
+}
+.config-field.latency {
+  background-color: #1a322f !important;
+}
+.config-field.header-type {
+  background-color: #2f1a32 !important;
+}
+.config-field.bist {
+  background-color: #322f1a !important;
+}
+.config-field.bar {
+  background-color: #1a2f32 !important;
+}
+.config-field.cardbus {
+  background-color: #1f1f1f !important;
+}
+.config-field.subsystem {
+  background-color: #1a2332 !important;
+}
+.config-field.expansion {
+  background-color: #2a1a32 !important;
+}
+.config-field.capabilities {
+  background-color: #1f321a !important;
+}
+.config-field.reserved {
+  background-color: #1a1a1a !important;
+}
+.config-field.interrupt {
+  background-color: #321a1a !important;
+}
+
 @media (max-width: 768px) {
   .converter-inputs {
     grid-template-columns: 1fr;
   }
-  
+
   .register-diagram {
     font-size: 0.6em !important;
     width: 100% !important;
     max-width: 100% !important;
+  }
+
+  .pci-config-header {
+    width: 90%; /* Use more width on mobile */
+    font-size: 0.75em; /* Smaller font on mobile */
+  }
+
+  .config-field {
+    padding: 8px !important; /* Reduce padding on mobile */
   }
 }

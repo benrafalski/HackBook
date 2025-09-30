@@ -148,73 +148,71 @@ F0 | 00  90  1F  00  1D  0F  01  00  00  00  00  00  00  00  00  00</code></pre>
             <li>Register Layout:</li>
           </ul>
           <div class="pci-converter-container">
-      <div class="converter-inputs">
-        <div class="input-group">
-          <label for="configRegInput">CONFIG_ADDRESS Register Value:</label>
-          <input type="text" id="configRegInput" placeholder="e.g., 0x80000f8f0" class="converter-input">
-        </div>
-        <div class="input-group">
-          <label for="bdfoInput">BDFO (Bus:Device.Function Offset):</label>
-          <input type="text" id="bdfoInput" placeholder="e.g., 00:1f.7 0xf0" class="converter-input">
-        </div>
-      </div>
-      
-      <div class="register-diagram mt-3" style="border: 2px solid #333; padding: 2px; font-size: 0.8em; width: 700px; max-width: 700px;">
-  <div class="register-bits d-flex">
-    <div class="pci-bit-group" style="width: 4%;" title="Enable bit - Set to 1 to enable config space access">
-      <div class="pci-bit-label">31</div>
-      <div class="pci-bit-field enable" id="enableBit">E</div>
-    </div>
-    <div class="pci-bit-group" style="width: 21.875%;" title="Reserved bits - Must be set to 0">
-      <div class="pci-bit-label">30-24</div>
-      <div class="pci-bit-field reserved" id="reservedBits">Reserved</div>
-    </div>
-    <div class="pci-bit-group" style="width: 25%;" title="Bus Number - Identifies the PCI bus (0-255)">
-      <div class="pci-bit-label">23-16</div>
-      <div class="pci-bit-field bus" id="busBits">Bus</div>
-    </div>
-    <div class="pci-bit-group" style="width: 15.625%;" title="Device Number - Identifies the device on the bus (0-31)">
-      <div class="pci-bit-label">15-11</div>
-      <div class="pci-bit-field device" id="deviceBits">Device</div>
-    </div>
-    <div class="pci-bit-group" style="width: 9.375%;" title="Function Number - Identifies the function within the device (0-7)">
-      <div class="pci-bit-label">10-8</div>
-      <div class="pci-bit-field function" id="functionBits">Function</div>
-    </div>
-    <div class="pci-bit-group" style="width: 25%;" title="Register Offset - Byte offset in config space, must be DWORD aligned">
-      <div class="pci-bit-label">7-2</div>
-      <div class="pci-bit-field offset" id="offsetBits">Register Offset</div>
-    </div>
-    <div class="pci-bit-group" style="width: 6.25%;" title="Reserved bits - Must be set to 00 for DWORD alignment">
-      <div class="pci-bit-label">1-0</div>
-      <div class="pci-bit-field reserved" id="alignBits">00</div>
-    </div>
-  </div>
-</div>
-      
-      <div class="conversion-info mt-3">
-        <div class="info-field">
-          <label>Bus:</label>
-          <span id="busValue">0x00 (0)</span>
-        </div>
-        <div class="info-field">
-          <label>Device:</label>
-          <span id="deviceValue">0x00 (0)</span>
-        </div>
-        <div class="info-field">
-          <label>Function:</label>
-          <span id="functionValue">0x0 (0)</span>
-        </div>
-        <div class="info-field">
-          <label>Offset:</label>
-          <span id="offsetValue">0x00 (0)</span>
-        </div>
-        <div class="info-field">
-          <label>Enable:</label>
-          <span id="enableValue">0 (Disabled)</span>
-        </div>
-      </div>
-    </div>
+            <div class="converter-inputs">
+              <div class="input-group">
+                <label for="configRegInput">CONFIG_ADDRESS Register Value:</label>
+                <input type="text" id="configRegInput" placeholder="e.g., 0x80000f8f0" class="converter-input">
+              </div>
+              <div class="input-group">
+                <label for="bdfoInput">BDFO (Bus:Device.Function Offset):</label>
+                <input type="text" id="bdfoInput" placeholder="e.g., 00:1f.7 0xf0" class="converter-input">
+              </div>
+            </div>
+            <div class="register-diagram mt-3" style="border: 2px solid #333; padding: 2px; font-size: 0.8em;">
+              <div class="register-bits d-flex">
+                <div class="pci-bit-group" style="width: 4%;" title="Enable bit - Set to 1 to enable config space access">
+                  <div class="pci-bit-label">31</div>
+                  <div class="pci-bit-field enable" id="enableBit">E</div>
+                </div>
+                <div class="pci-bit-group" style="width: 21.875%;" title="Reserved bits - Must be set to 0">
+                  <div class="pci-bit-label">30-24</div>
+                  <div class="pci-bit-field reserved" id="reservedBits">Reserved</div>
+                </div>
+                <div class="pci-bit-group" style="width: 25%;" title="Bus Number - Identifies the PCI bus (0-255)">
+                  <div class="pci-bit-label">23-16</div>
+                  <div class="pci-bit-field bus" id="busBits">Bus</div>
+                </div>
+                <div class="pci-bit-group" style="width: 15.625%;" title="Device Number - Identifies the device on the bus (0-31)">
+                  <div class="pci-bit-label">15-11</div>
+                  <div class="pci-bit-field device" id="deviceBits">Device</div>
+                </div>
+                <div class="pci-bit-group" style="width: 9.375%;" title="Function Number - Identifies the function within the device (0-7)">
+                  <div class="pci-bit-label">10-8</div>
+                  <div class="pci-bit-field function" id="functionBits">Function</div>
+                </div>
+                <div class="pci-bit-group" style="width: 25%;" title="Register Offset - Byte offset in config space, must be DWORD aligned">
+                  <div class="pci-bit-label">7-2</div>
+                  <div class="pci-bit-field offset" id="offsetBits">Register Offset</div>
+                </div>
+                <div class="pci-bit-group" style="width: 6.25%;" title="Reserved bits - Must be set to 00 for DWORD alignment">
+                  <div class="pci-bit-label">1-0</div>
+                  <div class="pci-bit-field reserved" id="alignBits">00</div>
+                </div>
+              </div>
+            </div>
+            <div class="conversion-info mt-3">
+              <div class="info-field">
+                <label>Bus:</label>
+                <span id="busValue">0x00 (0)</span>
+              </div>
+              <div class="info-field">
+                <label>Device:</label>
+                <span id="deviceValue">0x00 (0)</span>
+              </div>
+              <div class="info-field">
+                <label>Function:</label>
+                <span id="functionValue">0x0 (0)</span>
+              </div>
+              <div class="info-field">
+                <label>Offset:</label>
+                <span id="offsetValue">0x00 (0)</span>
+              </div>
+              <div class="info-field">
+                <label>Enable:</label>
+                <span id="enableValue">0 (Disabled)</span>
+              </div>
+            </div>
+          </div>
              
         </li>           
         <li><u>CONFIG_DATA</u>: 
@@ -233,6 +231,194 @@ mov   eax, 0xfed1c001
 out   dx, eax           ; Write 0xFED1C001 to CONFIG_DATA (writes to 0xF0 of 0:31.7)</code></pre>
         </li>
       </ul>
+      <h4>PCI Config Address Space Header</h4>
+      <ul>
+        <li><u>Type 0 Header (General Device)</u>: 
+          <ul>
+            <li><u>Size</u>: 64 (40h) bytes
+              <ul>
+                <li>First 16 (10h) bytes are standard and defined the same for all PCI devices</li>
+                <li>Remaining bytes are device-specific</li>
+              </ul>
+            </li>
+            <li><u>Hardware Identifiers</u>: Vendor ID, Device ID, Revision ID, Class Code</li>
+          </ul>
+        </li>
+      </ul>
+      <div class="pci-header-diagram mt-4"></div>
+        <div class="header-title mb-3">
+          <h5>PCI Type 0 Configuration Space Header</h5>
+        </div>
+        
+        <div class="pci-config-header">
+          <!-- Row 0: 0x00-0x03 -->
+          <div class="config-row d-flex">
+            <div class="config-field vendor-id" title="Identifies the manufacturer of the device. 0x8086 = Intel Corporation">
+              <div class="field-name">Vendor ID</div>
+              <div class="field-offset">0x00-0x01</div>
+            </div>
+            <div class="config-field device-id" title="Identifies the particular device. This value is assigned by the vendor">
+              <div class="field-name">Device ID</div>
+              <div class="field-offset">0x02-0x03</div>
+            </div>
+          </div>
+          
+          <!-- Row 1: 0x04-0x07 -->
+          <div class="config-row d-flex">
+            <div class="config-field command" title="Controls device operation. Bits enable I/O space, memory space, bus mastering, etc.">
+              <div class="field-name">Command</div>
+              <div class="field-offset">0x04-0x05</div>
+            </div>
+            <div class="config-field status" title="Reports device status and capabilities. Includes capability list, 66MHz support, etc.">
+              <div class="field-name">Status</div>
+              <div class="field-offset">0x06-0x07</div>
+            </div>
+          </div>
+          
+          <!-- Row 2: 0x08-0x0B -->
+          <div class="config-row d-flex">
+            <div class="config-field revision" title="Revision ID of the device. Assigned by the vendor to track device revisions">
+              <div class="field-name">Revision ID</div>
+              <div class="field-offset">0x08</div>
+            </div>
+            <div class="config-field prog-if" title="Programming interface code. Identifies the register-level programming interface">
+              <div class="field-name">Prog IF</div>
+              <div class="field-offset">0x09</div>
+            </div>
+            <div class="config-field subclass" title="Subclass code. Identifies the specific function of the device">
+              <div class="field-name">Subclass</div>
+              <div class="field-offset">0x0A</div>
+            </div>
+            <div class="config-field class-code" title="Class code. Identifies the generic function of the device (e.g., network, storage, display)">
+              <div class="field-name">Class Code</div>
+              <div class="field-offset">0x0B</div>
+            </div>
+          </div>
+          
+          <!-- Row 3: 0x0C-0x0F -->
+          <div class="config-row d-flex">
+            <div class="config-field cache-line" title="Cache line size in 32-bit word units. Used by the system for memory coherency">
+              <div class="field-name">Cache Line Size</div>
+              <div class="field-offset">0x0C</div>
+            </div>
+            <div class="config-field latency" title="Latency timer in PCI bus clock units. Specifies the burst period length">
+              <div class="field-name">Latency Timer</div>
+              <div class="field-offset">0x0D</div>
+            </div>
+            <div class="config-field header-type" title="Header type and multi-function flag. 0x00=Type 0, 0x01=Type 1, bit 7=multi-function">
+              <div class="field-name">Header Type</div>
+              <div class="field-offset">0x0E</div>
+            </div>
+            <div class="config-field bist" title="Built-in Self Test. Bit 7=BIST capable, bits 3:0=completion code">
+              <div class="field-name">BIST</div>
+              <div class="field-offset">0x0F</div>
+            </div>
+          </div>
+          
+          <!-- BAR0-BAR5 -->
+          <div class="config-row d-flex">
+            <div class="config-field bar" title="Base Address Register 0. Defines the memory or I/O address space required by the device">
+              <div class="field-name">Base Address Register 0 (BAR0)</div>
+              <div class="field-offset">0x10-0x13</div>
+            </div>
+          </div>
+          
+          <div class="config-row d-flex">
+            <div class="config-field bar" title="Base Address Register 1. Additional memory or I/O address space for the device">
+              <div class="field-name">Base Address Register 1 (BAR1)</div>
+              <div class="field-offset">0x14-0x17</div>
+            </div>
+          </div>
+          
+          <div class="config-row d-flex">
+            <div class="config-field bar" title="Base Address Register 2. Additional memory or I/O address space for the device">
+              <div class="field-name">Base Address Register 2 (BAR2)</div>
+              <div class="field-offset">0x18-0x1B</div>
+            </div>
+          </div>
+          
+          <div class="config-row d-flex">
+            <div class="config-field bar" title="Base Address Register 3. Additional memory or I/O address space for the device">
+              <div class="field-name">Base Address Register 3 (BAR3)</div>
+              <div class="field-offset">0x1C-0x1F</div>
+            </div>
+          </div>
+          
+          <div class="config-row d-flex">
+            <div class="config-field bar" title="Base Address Register 4. Additional memory or I/O address space for the device">
+              <div class="field-name">Base Address Register 4 (BAR4)</div>
+              <div class="field-offset">0x20-0x23</div>
+            </div>
+          </div>
+          
+          <div class="config-row d-flex">
+            <div class="config-field bar" title="Base Address Register 5. Additional memory or I/O address space for the device">
+              <div class="field-name">Base Address Register 5 (BAR5)</div>
+              <div class="field-offset">0x24-0x27</div>
+            </div>
+          </div>
+          
+          <!-- CardBus CIS Pointer -->
+          <div class="config-row d-flex">
+            <div class="config-field cardbus" title="CardBus Card Information Structure pointer. Used for CardBus compatibility">
+              <div class="field-name">CardBus CIS Pointer</div>
+              <div class="field-offset">0x28-0x2B</div>
+            </div>
+          </div>
+          
+          <!-- Subsystem -->
+          <div class="config-row d-flex">
+            <div class="config-field subsystem" title="Subsystem Vendor ID. Identifies the vendor of the add-in board or subsystem">
+              <div class="field-name">Subsystem Vendor ID</div>
+              <div class="field-offset">0x2C-0x2D</div>
+            </div>
+            <div class="config-field subsystem" title="Subsystem ID. Identifies the particular subsystem. Assigned by subsystem vendor">
+              <div class="field-name">Subsystem ID</div>
+              <div class="field-offset">0x2E-0x2F</div>
+            </div>
+          </div>
+          
+          <!-- Expansion ROM -->
+          <div class="config-row d-flex">
+            <div class="config-field expansion" title="Expansion ROM base address. Points to device's expansion ROM for initialization code">
+              <div class="field-name">Expansion ROM Base Address</div>
+              <div class="field-offset">0x30-0x33</div>
+            </div>
+          </div>
+          
+          <!-- Capabilities & Reserved -->
+          <div class="config-row d-flex">
+            <div class="config-field capabilities" title="Capabilities pointer. Points to first item in capabilities linked list">
+              <div class="field-name">Capabilities Ptr</div>
+              <div class="field-offset">0x34</div>
+            </div>
+            <div class="config-field reserved" title="Reserved for future use. Should be set to 0">
+              <div class="field-name">Reserved</div>
+              <div class="field-offset">0x35-0x3B</div>
+            </div>
+          </div>
+          
+          <!-- Interrupt Info -->
+          <div class="config-row d-flex">
+            <div class="config-field interrupt" title="Interrupt line. Communicates interrupt line routing information">
+              <div class="field-name">Interrupt Line</div>
+              <div class="field-offset">0x3C</div>
+            </div>
+            <div class="config-field interrupt" title="Interrupt pin. Indicates which interrupt pin the device uses (INTA#-INTD#)">
+              <div class="field-name">Interrupt Pin</div>
+              <div class="field-offset">0x3D</div>
+            </div>
+            <div class="config-field interrupt" title="Min Grant. Specifies minimum burst period length in 1/4 microsecond units">
+              <div class="field-name">Min Grant</div>
+              <div class="field-offset">0x3E</div>
+            </div>
+            <div class="config-field interrupt" title="Max Latency. Specifies maximum latency in 1/4 microsecond units">
+              <div class="field-name">Max Latency</div>
+              <div class="field-offset">0x3F</div>
+            </div>
+          </div>
+        </div>        
+      </div>
 
 
     </div>
