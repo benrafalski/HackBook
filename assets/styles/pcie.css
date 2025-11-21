@@ -243,6 +243,51 @@
   background-color: #321a1a !important;
 }
 
+/* BAR and Command Decoder Containers */
+.bar-decoder-container,
+.command-decoder-container {
+  background: #11161c;
+  border: 1px solid #1c2531;
+  padding: 1rem;
+  border-radius: 12px;
+  margin: 1rem 0;
+}
+
+.bar-decoder-container h5,
+.command-decoder-container h5 {
+  color: #cffbec;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+}
+
+.command-bits {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.command-bits .info-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  background: #0e1318;
+  border: 1px solid #243040;
+  border-radius: 6px;
+}
+
+.command-bits .info-field label {
+  font-weight: 600;
+  color: #9db5d3;
+  font-size: 0.9rem;
+}
+
+.command-bits .info-field span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #cffbec;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
 @media (max-width: 768px) {
   .converter-inputs {
     grid-template-columns: 1fr;
@@ -261,5 +306,16 @@
 
   .config-field {
     padding: 8px !important; /* Reduce padding on mobile */
+  }
+
+  .bar-decoder-container,
+  .command-decoder-container {
+    font-size: 0.9em;
+  }
+
+  .command-bits .info-field {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
   }
 }
