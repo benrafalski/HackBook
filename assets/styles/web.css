@@ -1,0 +1,162 @@
+.cheatsheet-section {
+  margin-bottom: 2rem;
+}
+
+.cheatsheet-section h3 {
+  color: #cffbec;
+  font-size: 1.3rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 2px solid #2a3543;
+  padding-bottom: 0.3rem;
+}
+
+.cheatsheet-section pre {
+  margin: 0;
+  border-radius: 5px;
+  /* background: #0e1318 !important; */
+}
+
+.cheatsheet-section code {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+/* Architecture and Diagram Styles */
+.architecture-diagram,
+.memory-diagram,
+.event-loop-diagram,
+.sync-async-comparison,
+.api-diagram {
+  display: grid;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.architecture-diagram {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.memory-diagram,
+.sync-async-comparison,
+.api-diagram {
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+}
+
+.event-loop-diagram {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.arch-box,
+.memory-section,
+.phase-box,
+.event-loop-section,
+.comparison-box,
+.api-section {
+  background: #0e1318;
+  border: 2px solid #2a3543;
+  border-radius: 8px;
+  padding: 1rem;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.arch-box:hover,
+.memory-section:hover,
+.phase-box:hover,
+.event-loop-section:hover,
+.comparison-box:hover,
+.api-section:hover {
+  transform: translateY(-2px);
+  border-color: #4a90e2;
+}
+
+.arch-box h5,
+.memory-section h5,
+.phase-box h5,
+.event-loop-section h5,
+.comparison-box h5,
+.api-section h5 {
+  color: #cffbec;
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid #2a3543;
+  padding-bottom: 0.5rem;
+}
+
+.arch-box p,
+.memory-section p,
+.event-loop-section p {
+  color: #9db5d3;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.memory-section ul,
+.phase-box ul,
+.event-loop-section ul,
+.comparison-box ul,
+.api-section ul {
+  color: #9db5d3;
+  font-size: 0.9rem;
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.memory-section li,
+.phase-box li,
+.event-loop-section li,
+.comparison-box li,
+.api-section li {
+  margin-bottom: 0.5rem;
+}
+
+.execution-phases {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.execution-order {
+  background: #0e1318;
+  border: 2px solid #2a3543;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+}
+
+.execution-order ol {
+  color: #9db5d3;
+  font-size: 1rem;
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.execution-order li {
+  margin-bottom: 0.75rem;
+  line-height: 1.6;
+}
+
+.execution-order strong {
+  color: #cffbec;
+}
+
+.comparison-box pre {
+  margin: 1rem 0;
+  font-size: 0.8rem;
+}
+
+.comparison-box code {
+  font-size: 0.8rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .architecture-diagram,
+  .memory-diagram,
+  .event-loop-diagram,
+  .sync-async-comparison,
+  .api-diagram,
+  .execution-phases {
+    grid-template-columns: 1fr;
+  }
+}

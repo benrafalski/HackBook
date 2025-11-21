@@ -108,6 +108,14 @@ document.addEventListener("DOMContentLoaded", () => {
                   <li><a class="dropdown-item text-light" href="pages/arch/x86-firmware.html">x86 Firmware</a></li>
                 </ul>
               </li>
+              <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" id="webDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  Web
+                </a>
+                <ul class="dropdown-menu bg-dark text-light" aria-labelledby="webDropdown">
+                  <li><a class="dropdown-item text-light" href="pages/web/javascript.html">JavaScript</a></li>
+                </ul>
+              </li>
 
             </ul>
 

