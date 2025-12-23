@@ -249,8 +249,8 @@ async function lookupVidDid(vendorId, deviceId) {
     targetUrl += `&device=${deviceId}`;
   }
 
-  // Use corsproxy.io to bypass CORS
-  const apiUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+  // Use allorigins.win proxy to bypass CORS
+  const apiUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
 
   vendorDescEl.textContent = "Looking up...";
   deviceDescEl.textContent = "Looking up...";
@@ -261,7 +261,9 @@ async function lookupVidDid(vendorId, deviceId) {
       throw new Error(`HTTP error: ${response.status}`);
     }
 
-    const data = await response.json();
+    // allorigins wraps response in { contents: "..." }
+    const wrapper = await response.json();
+    const data = JSON.parse(wrapper.contents);
 
     if (data && data.length > 0) {
       const result = data[0];
