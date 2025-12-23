@@ -6,10 +6,21 @@ function parseVal(str) {
     if (s.startsWith("0x")) return Number.parseInt(s, 16) >>> 0;
     if (s.startsWith("0b")) return Number.parseInt(s.slice(2), 2) >>> 0;
     if (/^[0-9]+$/.test(s)) return Number.parseInt(s, 10) >>> 0;
+    // Also try parsing as hex without 0x prefix (common for VID/DID)
+    if (/^[0-9a-f]+$/.test(s)) return Number.parseInt(s, 16) >>> 0;
     return 0 >>> 0;
   } catch {
     return 0 >>> 0;
   }
+}
+
+function parseHexId(str) {
+  if (!str) return null;
+  const s = str.trim().toLowerCase().replace(/^0x/, '');
+  if (/^[0-9a-f]{1,4}$/.test(s)) {
+    return s.padStart(4, '0');
+  }
+  return null;
 }
 
 function parseBDFO(bdfoStr) {
@@ -214,8 +225,131 @@ function updateCommandDisplay(cmdValue) {
   );
 }
 
+// VID/DID Lookup Functions
+let vidDidLookupTimeout = null;
+
+async function lookupVidDid(vendorId, deviceId) {
+  const vendorDescEl = document.getElementById("vendorDesc");
+  const deviceDescEl = document.getElementById("deviceDesc");
+
+  // Reset display
+  vendorDescEl.textContent = "-";
+  deviceDescEl.textContent = "-";
+
+  if (!vendorId && !deviceId) {
+    return;
+  }
+
+  // Build API URL
+  let apiUrl = "https://pcilookup.com/api.php?action=search";
+  if (vendorId) {
+    apiUrl += `&vendor=${vendorId}`;
+  }
+  if (deviceId) {
+    apiUrl += `&device=${deviceId}`;
+  }
+
+  vendorDescEl.textContent = "Looking up...";
+  deviceDescEl.textContent = "Looking up...";
+
+  try {
+    const response = await fetch(apiUrl);
+    console.log(response);
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`);
+    }
+
+    console.log(response)
+
+    const data = await response.json();
+
+    if (data && data.length > 0) {
+      const result = data[0];
+      vendorDescEl.textContent = result.venDesc ? result.venDesc.trim() : `Unknown (0x${vendorId})`;
+      deviceDescEl.textContent = result.desc ? result.desc.trim() : `Unknown (0x${deviceId})`;
+    } else {
+      vendorDescEl.textContent = vendorId ? `Unknown (0x${vendorId})` : "-";
+      deviceDescEl.textContent = deviceId ? `Unknown (0x${deviceId})` : "-";
+    }
+  } catch (error) {
+    console.error("VID/DID lookup failed:", error);
+    vendorDescEl.textContent = vendorId ? `Lookup failed (0x${vendorId})` : "-";
+    deviceDescEl.textContent = deviceId ? `Lookup failed (0x${deviceId})` : "-";
+  }
+}
+
+function debouncedVidDidLookup() {
+  const vidInput = document.getElementById("vidInput");
+  const didInput = document.getElementById("didInput");
+
+  if (vidDidLookupTimeout) {
+    clearTimeout(vidDidLookupTimeout);
+  }
+
+  vidDidLookupTimeout = setTimeout(() => {
+    const vendorId = parseHexId(vidInput.value);
+    const deviceId = parseHexId(didInput.value);
+    lookupVidDid(vendorId, deviceId);
+  }, 500); // 500ms debounce
+}
+
+// Decoder Panel Switching
+function switchDecoderPanel(panelType) {
+  const panels = {
+    viddid: document.getElementById("viddidDecoder"),
+    bar: document.getElementById("barDecoder"),
+    command: document.getElementById("commandDecoder"),
+  };
+
+  // Hide all panels
+  Object.values(panels).forEach((panel) => {
+    if (panel) panel.style.display = "none";
+  });
+
+  // Show selected panel
+  if (panels[panelType]) {
+    panels[panelType].style.display = "block";
+  }
+}
+
 // Update the DOMContentLoaded event listener
 document.addEventListener("DOMContentLoaded", () => {
+  // Decoder panel selector initialization
+  const decoderSelect = document.getElementById("decoderSelect");
+  if (decoderSelect) {
+    decoderSelect.addEventListener("change", (e) => {
+      switchDecoderPanel(e.target.value);
+    });
+    // Initialize to show VID/DID panel by default
+    switchDecoderPanel("viddid");
+  }
+
+  // VID/DID Decoder initialization
+  const vidInput = document.getElementById("vidInput");
+  const didInput = document.getElementById("didInput");
+
+  if (vidInput && didInput) {
+    vidInput.addEventListener("input", debouncedVidDidLookup);
+    didInput.addEventListener("input", debouncedVidDidLookup);
+
+    // Demo values on Enter
+    vidInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.target.value.trim()) {
+        vidInput.value = "8086";
+        didInput.value = "09A2";
+        debouncedVidDidLookup();
+      }
+    });
+
+    didInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.target.value.trim()) {
+        vidInput.value = "8086";
+        didInput.value = "09A2";
+        debouncedVidDidLookup();
+      }
+    });
+  }
+
   // CONFIG_ADDRESS converter initialization
   const configRegInput = document.getElementById("configRegInput");
   const bdfoInput = document.getElementById("bdfoInput");

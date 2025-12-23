@@ -418,87 +418,125 @@ out   dx, eax           ; Write 0xFED1C001 to CONFIG_DATA (writes to 0xF0 of 0:3
             </div>
           </div>
         </div> 
-              <div class="bar-decoder-container mt-5">
-                <h5>BAR Decoder</h5>
+              <div class="register-decoder-container mt-5">
+                <h5>PCI Register Decoder</h5>
                 <div class="converter-inputs">
                   <div class="input-group">
-                    <label for="bar0Input">BAR0 Value:</label>
-                    <input type="text" id="bar0Input" placeholder="e.g., 0xfed1c004" class="converter-input">
-                  </div>
-                  <div class="input-group">
-                    <label for="bar1Input">BAR1 Value (for 64-bit BARs):</label>
-                    <input type="text" id="bar1Input" placeholder="e.g., 0x00000000" class="converter-input">
-                  </div>
-                </div>
-                <div class="conversion-info mt-3">
-                  <div class="info-field">
-                    <label>Type:</label>
-                    <span id="barType">-</span>
-                  </div>
-                  <div class="info-field">
-                    <label>Address:</label>
-                    <span id="barAddress">-</span>
-                  </div>
-                  <div class="info-field">
-                    <label>Size:</label>
-                    <span id="barSize">-</span>
-                  </div>
-                  <div class="info-field">
-                    <label>Prefetchable:</label>
-                    <span id="barPrefetch">-</span>
+                    <label for="decoderSelect">Select Register Type:</label>
+                    <select id="decoderSelect" class="converter-input">
+                      <option value="viddid">Vendor ID / Device ID</option>
+                      <option value="bar">Base Address Register (BAR)</option>
+                      <option value="command">Command Register</option>
+                    </select>
                   </div>
                 </div>
-              </div>
 
-              <div class="command-decoder-container mt-5">
-                <h5>Command Register Decoder</h5>
-                <div class="converter-inputs">
-                  <div class="input-group">
-                    <label for="commandInput">Command Register Value:</label>
-                    <input type="text" id="commandInput" placeholder="e.g., 0x0006" class="converter-input">
+                <!-- VID/DID Decoder -->
+                <div id="viddidDecoder" class="decoder-panel">
+                  <div class="converter-inputs mt-3">
+                    <div class="input-group">
+                      <label for="vidInput">Vendor ID:</label>
+                      <input type="text" id="vidInput" placeholder="e.g., 8086" class="converter-input">
+                    </div>
+                    <div class="input-group">
+                      <label for="didInput">Device ID:</label>
+                      <input type="text" id="didInput" placeholder="e.g., 09A2" class="converter-input">
+                    </div>
+                  </div>
+                  <div class="conversion-info mt-3">
+                    <div class="info-field" style="grid-column: span 2;">
+                      <label>Vendor:</label>
+                      <span id="vendorDesc">-</span>
+                    </div>
+                    <div class="info-field" style="grid-column: span 2;">
+                      <label>Device:</label>
+                      <span id="deviceDesc">-</span>
+                    </div>
                   </div>
                 </div>
-                <div class="register-diagram mt-3" style="border: 2px solid #333; padding: 10px; font-size: 0.8em;">
-                  <div class="command-bits">
+
+                <!-- BAR Decoder -->
+                <div id="barDecoder" class="decoder-panel" style="display: none;">
+                  <div class="converter-inputs mt-3">
+                    <div class="input-group">
+                      <label for="bar0Input">BAR0 Value:</label>
+                      <input type="text" id="bar0Input" placeholder="e.g., 0xfed1c004" class="converter-input">
+                    </div>
+                    <div class="input-group">
+                      <label for="bar1Input">BAR1 Value (for 64-bit BARs):</label>
+                      <input type="text" id="bar1Input" placeholder="e.g., 0x00000000" class="converter-input">
+                    </div>
+                  </div>
+                  <div class="conversion-info mt-3">
                     <div class="info-field">
-                      <label>Bit 0 - I/O Space:</label>
-                      <span id="cmdIoSpace">-</span>
+                      <label>Type:</label>
+                      <span id="barType">-</span>
                     </div>
                     <div class="info-field">
-                      <label>Bit 1 - Memory Space:</label>
-                      <span id="cmdMemSpace">-</span>
+                      <label>Address:</label>
+                      <span id="barAddress">-</span>
                     </div>
                     <div class="info-field">
-                      <label>Bit 2 - Bus Master:</label>
-                      <span id="cmdBusMaster">-</span>
+                      <label>Size:</label>
+                      <span id="barSize">-</span>
                     </div>
                     <div class="info-field">
-                      <label>Bit 3 - Special Cycles:</label>
-                      <span id="cmdSpecialCycles">-</span>
+                      <label>Prefetchable:</label>
+                      <span id="barPrefetch">-</span>
                     </div>
-                    <div class="info-field">
-                      <label>Bit 4 - Memory Write and Invalidate:</label>
-                      <span id="cmdMemWrInv">-</span>
+                  </div>
+                </div>
+
+                <!-- Command Register Decoder -->
+                <div id="commandDecoder" class="decoder-panel" style="display: none;">
+                  <div class="converter-inputs mt-3">
+                    <div class="input-group">
+                      <label for="commandInput">Command Register Value:</label>
+                      <input type="text" id="commandInput" placeholder="e.g., 0x0006" class="converter-input">
                     </div>
-                    <div class="info-field">
-                      <label>Bit 5 - VGA Palette Snoop:</label>
-                      <span id="cmdVgaSnoop">-</span>
-                    </div>
-                    <div class="info-field">
-                      <label>Bit 6 - Parity Error Response:</label>
-                      <span id="cmdParityErr">-</span>
-                    </div>
-                    <div class="info-field">
-                      <label>Bit 8 - SERR# Enable:</label>
-                      <span id="cmdSerrEn">-</span>
-                    </div>
-                    <div class="info-field">
-                      <label>Bit 9 - Fast Back-to-Back Enable:</label>
-                      <span id="cmdFastB2b">-</span>
-                    </div>
-                    <div class="info-field">
-                      <label>Bit 10 - Interrupt Disable:</label>
-                      <span id="cmdIntDisable">-</span>
+                  </div>
+                  <div class="register-diagram mt-3" style="border: 2px solid #333; padding: 10px; font-size: 0.8em;">
+                    <div class="command-bits">
+                      <div class="info-field">
+                        <label>Bit 0 - I/O Space:</label>
+                        <span id="cmdIoSpace">-</span>
+                      </div>
+                      <div class="info-field">
+                        <label>Bit 1 - Memory Space:</label>
+                        <span id="cmdMemSpace">-</span>
+                      </div>
+                      <div class="info-field">
+                        <label>Bit 2 - Bus Master:</label>
+                        <span id="cmdBusMaster">-</span>
+                      </div>
+                      <div class="info-field">
+                        <label>Bit 3 - Special Cycles:</label>
+                        <span id="cmdSpecialCycles">-</span>
+                      </div>
+                      <div class="info-field">
+                        <label>Bit 4 - Memory Write and Invalidate:</label>
+                        <span id="cmdMemWrInv">-</span>
+                      </div>
+                      <div class="info-field">
+                        <label>Bit 5 - VGA Palette Snoop:</label>
+                        <span id="cmdVgaSnoop">-</span>
+                      </div>
+                      <div class="info-field">
+                        <label>Bit 6 - Parity Error Response:</label>
+                        <span id="cmdParityErr">-</span>
+                      </div>
+                      <div class="info-field">
+                        <label>Bit 8 - SERR# Enable:</label>
+                        <span id="cmdSerrEn">-</span>
+                      </div>
+                      <div class="info-field">
+                        <label>Bit 9 - Fast Back-to-Back Enable:</label>
+                        <span id="cmdFastB2b">-</span>
+                      </div>
+                      <div class="info-field">
+                        <label>Bit 10 - Interrupt Disable:</label>
+                        <span id="cmdIntDisable">-</span>
+                      </div>
                     </div>
                   </div>
                 </div>
