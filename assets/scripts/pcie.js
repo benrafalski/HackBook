@@ -240,26 +240,26 @@ async function lookupVidDid(vendorId, deviceId) {
     return;
   }
 
-  // Build API URL
-  let apiUrl = "https://pcilookup.com/api.php?action=search";
+  // Build API URL with CORS proxy
+  let targetUrl = "https://pcilookup.com/api.php?action=search";
   if (vendorId) {
-    apiUrl += `&vendor=${vendorId}`;
+    targetUrl += `&vendor=${vendorId}`;
   }
   if (deviceId) {
-    apiUrl += `&device=${deviceId}`;
+    targetUrl += `&device=${deviceId}`;
   }
+
+  // Use corsproxy.io to bypass CORS
+  const apiUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
 
   vendorDescEl.textContent = "Looking up...";
   deviceDescEl.textContent = "Looking up...";
 
   try {
     const response = await fetch(apiUrl);
-    console.log(response);
     if (!response.ok) {
       throw new Error(`HTTP error: ${response.status}`);
     }
-
-    console.log(response)
 
     const data = await response.json();
 
