@@ -372,3 +372,43 @@ select.converter-input option {
     gap: 0.25rem;
   }
 }
+
+/* PCIe Converter Tabs - matching cpuid style */
+.pci-converter-container .nav-tabs {
+  border-bottom: 1px solid #2a3543;
+  margin-bottom: 0;
+}
+
+.pci-converter-container .nav-tabs .nav-link {
+  background: transparent;
+  border: none;
+  color: #9db5d3;
+  padding: 0.75rem 1.5rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.3s ease;
+  font-size: 0.95rem;
+  font-weight: 500;
+  border-radius: 0;
+}
+
+.pci-converter-container .nav-tabs .nav-link:hover {
+  color: #cffbec;
+  background: rgba(207, 251, 236, 0.05);
+  border-color: transparent;
+}
+
+.pci-converter-container .nav-tabs .nav-link.active {
+  color: #cffbec;
+  background: transparent;
+  border-color: transparent;
+  border-bottom: 2px solid #cffbec;
+}
+
+.pci-converter-container .tab-content {
+  padding-top: 0;
+}
+
+.pci-converter-container .tab-pane {
+  padding-top: 0;
+}

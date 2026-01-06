@@ -174,6 +174,127 @@ function updateBARDisplay(bar0, bar1) {
   document.getElementById("barPrefetch").textContent = decoded.prefetchable;
 }
 
+// PCIe Extended Config Space (MMCFG) Functions
+// Common PCIEXBAR values (256MB aligned)
+const COMMON_PCIEXBAR_VALUES = [
+  0xE0000000,  // Most common
+  0xF0000000,
+  0xC0000000,
+  0x80000000,
+  0xB0000000,
+];
+
+function detectPciexbar(mmioAddr) {
+  // PCIEXBAR is typically 256MB aligned (0x10000000)
+  // The MMCFG region is up to 256MB (256 buses * 32 devices * 8 functions * 4KB)
+  // Common bases: 0xE0000000, 0xF0000000, 0xC0000000, 0x80000000
+  
+  // Mask off lower 28 bits to get 256MB aligned base
+  const aligned256MB = (mmioAddr & 0xF0000000) >>> 0;
+  
+  // Check if it matches a common PCIEXBAR value
+  for (const base of COMMON_PCIEXBAR_VALUES) {
+    if (mmioAddr >= base && mmioAddr < base + 0x10000000) {
+      return base;
+    }
+  }
+  
+  // Default to 256MB aligned value
+  return aligned256MB;
+}
+
+function mmcfgAddressToBDFO(pciexbar, mmioAddr) {
+  // MMIO Address = PCIEXBAR + (Bus << 20) + (Device << 15) + (Function << 12) + Offset
+  const offset_from_base = (mmioAddr - pciexbar) >>> 0;
+  
+  const bus = (offset_from_base >>> 20) & 0xff;
+  const device = (offset_from_base >>> 15) & 0x1f;
+  const func = (offset_from_base >>> 12) & 0x07;
+  const offset = offset_from_base & 0xfff;
+
+  return { bus, device, func, offset };
+}
+
+function bdfoToMmcfgAddress(pciexbar, bus, device, func, offset) {
+  // MMIO Address = PCIEXBAR + (Bus << 20) + (Device << 15) + (Function << 12) + Offset
+  let mmioAddr = pciexbar >>> 0;
+  mmioAddr += (bus & 0xff) << 20;
+  mmioAddr += (device & 0x1f) << 15;
+  mmioAddr += (func & 0x07) << 12;
+  mmioAddr += offset & 0xfff;
+  return mmioAddr >>> 0;
+}
+
+function parseMmcfgBDFO(bdfoStr) {
+  // Parse format like "00:1f.7 0xf00" for extended config space (offset up to 0xFFF)
+  const parts = bdfoStr.trim().split(/\s+/);
+  if (parts.length !== 2) return null;
+
+  const [bdf, offsetStr] = parts;
+  const bdfParts = bdf.split(/[:.]/);
+  if (bdfParts.length !== 3) return null;
+
+  try {
+    const bus = parseInt(bdfParts[0], 16);
+    const device = parseInt(bdfParts[1], 16);
+    const func = parseInt(bdfParts[2], 16);
+    const offset = parseVal(offsetStr);
+
+    if (bus > 255 || device > 31 || func > 7 || offset > 0xfff) {
+      return null;
+    }
+
+    return { bus, device, func, offset };
+  } catch {
+    return null;
+  }
+}
+
+function updateMmcfgDisplay(pciexbar, mmioAddr) {
+  const decoded = mmcfgAddressToBDFO(pciexbar, mmioAddr);
+
+  // Update bit fields in diagram
+  const pciexbarBits = document.getElementById("pciexbarBits");
+  const mmcfgBusBits = document.getElementById("mmcfgBusBits");
+  const mmcfgDeviceBits = document.getElementById("mmcfgDeviceBits");
+  const mmcfgFunctionBits = document.getElementById("mmcfgFunctionBits");
+  const mmcfgOffsetBits = document.getElementById("mmcfgOffsetBits");
+
+  if (pciexbarBits) pciexbarBits.textContent = `0x${pciexbar.toString(16).toUpperCase()}`;
+  if (mmcfgBusBits) mmcfgBusBits.textContent = `0x${decoded.bus.toString(16).padStart(2, "0").toUpperCase()}`;
+  if (mmcfgDeviceBits) mmcfgDeviceBits.textContent = `0x${decoded.device.toString(16).toUpperCase()}`;
+  if (mmcfgFunctionBits) mmcfgFunctionBits.textContent = `0x${decoded.func.toString(16).toUpperCase()}`;
+  if (mmcfgOffsetBits) mmcfgOffsetBits.textContent = `0x${decoded.offset.toString(16).padStart(3, "0").toUpperCase()}`;
+
+  // Update PCIEXBAR output field
+  const pciexbarValue = document.getElementById("mmcfgPciexbarValue");
+  if (pciexbarValue) pciexbarValue.textContent = `0x${pciexbar.toString(16).toUpperCase().padStart(8, "0")}`;
+
+  // Update info fields
+  document.getElementById("mmcfgBusValue").textContent = `0x${decoded.bus
+    .toString(16)
+    .padStart(2, "0")
+    .toUpperCase()} (${decoded.bus})`;
+  document.getElementById("mmcfgDeviceValue").textContent = `0x${decoded.device
+    .toString(16)
+    .toUpperCase()} (${decoded.device})`;
+  document.getElementById("mmcfgFunctionValue").textContent = `0x${decoded.func
+    .toString(16)
+    .toUpperCase()} (${decoded.func})`;
+  document.getElementById("mmcfgOffsetValue").textContent = `0x${decoded.offset
+    .toString(16)
+    .padStart(3, "0")
+    .toUpperCase()} (${decoded.offset})`;
+  
+  // Format BDFO string
+  const bdfoStr = `${decoded.bus.toString(16).padStart(2, "0")}:${decoded.device
+    .toString(16)
+    .padStart(2, "0")}.${decoded.func.toString(16)} 0x${decoded.offset
+    .toString(16)
+    .padStart(3, "0")}`;
+  document.getElementById("mmcfgBdfoValue").textContent = bdfoStr;
+}
+
 // Command Register Decoder Functions
 function decodeCommandRegister(cmdValue) {
   return {
@@ -295,37 +416,8 @@ function debouncedVidDidLookup() {
   }, 500); // 500ms debounce
 }
 
-// Decoder Panel Switching
-function switchDecoderPanel(panelType) {
-  const panels = {
-    viddid: document.getElementById("viddidDecoder"),
-    bar: document.getElementById("barDecoder"),
-    command: document.getElementById("commandDecoder"),
-  };
-
-  // Hide all panels
-  Object.values(panels).forEach((panel) => {
-    if (panel) panel.style.display = "none";
-  });
-
-  // Show selected panel
-  if (panels[panelType]) {
-    panels[panelType].style.display = "block";
-  }
-}
-
 // Update the DOMContentLoaded event listener
 document.addEventListener("DOMContentLoaded", () => {
-  // Decoder panel selector initialization
-  const decoderSelect = document.getElementById("decoderSelect");
-  if (decoderSelect) {
-    decoderSelect.addEventListener("change", (e) => {
-      switchDecoderPanel(e.target.value);
-    });
-    // Initialize to show VID/DID panel by default
-    switchDecoderPanel("viddid");
-  }
-
   // VID/DID Decoder initialization
   const vidInput = document.getElementById("vidInput");
   const didInput = document.getElementById("didInput");
@@ -464,6 +556,85 @@ document.addEventListener("DOMContentLoaded", () => {
       if (e.key === "Enter" && !e.target.value.trim()) {
         commandInput.value = "0x0006";
         commandInput.dispatchEvent(new Event("input"));
+      }
+    });
+  }
+
+  // PCIe Extended Config Space (MMCFG) converter initialization
+  const mmioAddrInput = document.getElementById("mmioAddrInput");
+
+  if (mmioAddrInput) {
+    // Update from MMIO address (auto-detect PCIEXBAR)
+    const updateFromMmioAddr = () => {
+      const mmioAddr = parseVal(mmioAddrInput.value);
+      
+      if (mmioAddr) {
+        const pciexbar = detectPciexbar(mmioAddr);
+        updateMmcfgDisplay(pciexbar, mmioAddr);
+      }
+    };
+
+    mmioAddrInput.addEventListener("input", updateFromMmioAddr);
+
+    // Initialize with zeros
+    updateMmcfgDisplay(0xE0000000, 0);
+
+    // Demo values on Enter for MMIO Address
+    mmioAddrInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.target.value.trim()) {
+        mmioAddrInput.value = "0xE00F8F00";
+        updateFromMmioAddr();
+      }
+    });
+  }
+
+  // BDFO to MMIO Calculator initialization
+  const mmcfgCalcPciexbar = document.getElementById("mmcfgCalcPciexbar");
+  const mmcfgCalcBus = document.getElementById("mmcfgCalcBus");
+  const mmcfgCalcDevice = document.getElementById("mmcfgCalcDevice");
+  const mmcfgCalcFunction = document.getElementById("mmcfgCalcFunction");
+  const mmcfgCalcOffset = document.getElementById("mmcfgCalcOffset");
+
+  if (mmcfgCalcPciexbar && mmcfgCalcBus && mmcfgCalcDevice && mmcfgCalcFunction && mmcfgCalcOffset) {
+    const updateMmcfgCalc = () => {
+      const pciexbar = parseVal(mmcfgCalcPciexbar.value);
+      const bus = parseVal(mmcfgCalcBus.value);
+      const device = parseVal(mmcfgCalcDevice.value);
+      const func = parseVal(mmcfgCalcFunction.value);
+      const offset = parseVal(mmcfgCalcOffset.value);
+
+      const resultEl = document.getElementById("mmcfgCalcResult");
+      const bdfoEl = document.getElementById("mmcfgCalcBdfo");
+
+      // Validate ranges
+      if (bus > 255 || device > 31 || func > 7 || offset > 0xfff) {
+        resultEl.textContent = "Invalid input (check ranges)";
+        bdfoEl.textContent = "-";
+        return;
+      }
+
+      // Calculate MMIO address
+      const mmioAddr = bdfoToMmcfgAddress(pciexbar, bus, device, func, offset);
+
+      // Format output
+      resultEl.textContent = `0x${mmioAddr.toString(16).toUpperCase().padStart(8, "0")}`;
+      bdfoEl.textContent = `${bus.toString(16).padStart(2, "0")}:${device.toString(16).padStart(2, "0")}.${func.toString(16)} 0x${offset.toString(16).padStart(3, "0")}`;
+    };
+
+    const calcInputs = [mmcfgCalcPciexbar, mmcfgCalcBus, mmcfgCalcDevice, mmcfgCalcFunction, mmcfgCalcOffset];
+    calcInputs.forEach(input => {
+      input.addEventListener("input", updateMmcfgCalc);
+    });
+
+    // Demo values on Enter
+    mmcfgCalcPciexbar.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.target.value.trim()) {
+        mmcfgCalcPciexbar.value = "0xE0000000";
+        mmcfgCalcBus.value = "0x00";
+        mmcfgCalcDevice.value = "0x1F";
+        mmcfgCalcFunction.value = "0x0";
+        mmcfgCalcOffset.value = "0xF00";
+        updateMmcfgCalc();
       }
     });
   }

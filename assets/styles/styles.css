@@ -19,6 +19,21 @@ th {
     background-color: #343a40; /* Adds a background color to table headers */
 }
 
+.section-container {
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 25px;
+  background-color: #212529;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.section-container h3 {
+  margin-top: 0;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #6c757d;
+  margin-bottom: 15px;
+}
+
 .memory-row {
   display: flex;
   margin-bottom: 20px;
