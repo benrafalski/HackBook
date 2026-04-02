@@ -116,6 +116,16 @@ document.addEventListener("DOMContentLoaded", () => {
                   <li><a class="dropdown-item text-light" href="pages/web/javascript.html">JavaScript</a></li>
                 </ul>
               </li>
+              <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" id="blockchainDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  Blockchain
+                </a>
+                <ul class="dropdown-menu bg-dark text-light" aria-labelledby="blockchainDropdown">
+                  <li><a class="dropdown-item text-light" href="pages/blockchain/solidity.html">Solidity</a></li>
+                </ul>
+              </li>
+
+
 
             </ul>
 
