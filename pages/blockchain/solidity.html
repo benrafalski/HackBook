@@ -34,6 +34,9 @@
     <!-- Prism JS -->
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-solidity.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
     <link
       rel="stylesheet"
       href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css"
@@ -77,454 +80,306 @@
 
       <h2>Syntax</h2>
 
-      <h3>File Structure</h3>
+      <h3>Types, Variables &amp; State</h3>
 
-      <p>Every Solidity file follows this structure:</p>
-
-<pre><code class="language-solidity">// 1. License identifier (required)
-// SPDX-License-Identifier: MIT
-
-// 2. Pragma — tells the compiler which version to use
-pragma solidity ^0.8.28;
-//              ^0.8.28 means "0.8.28 or higher, but below 0.9.0"
-//              The ^ is like npm versioning — compatible within minor version
-
-// 3. Imports
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;  // ^0.8.28 = ">=0.8.28 &lt;0.9.0"
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-// 4. Contract definition (like a class in other languages)
 contract MyContract {
-    // state variables, functions, events, etc.
+    // === Value Types ===
+    bool isActive = true;
+    uint256 amount = 100;                        // unsigned (0 to 2^256-1), also uint8..uint128
+    int256 temperature = -50;                    // signed (-2^255 to 2^255-1)
+    address wallet = 0xAbC123...;                // 20-byte Ethereum address
+    address payable recipient = payable(wallet);
+    bytes32 hash = keccak256("hello");           // fixed-size byte array
+    string name = "Alice";                       // dynamic UTF-8 string
+
+    // === Reference Types ===
+    uint256[] numbers;                           // dynamic array
+    uint256[5] fixed;                            // fixed-size array
+    mapping(address =&gt; uint256) balances;        // key-value store (can't iterate!)
+    mapping(address =&gt; mapping(address =&gt; uint256)) allowances; // nested
+    struct User { address wallet; uint256 balance; bool isActive; }
+    enum Status { Pending, Active, Closed }
+
+    // === Visibility ===
+    uint256 public count;       // auto-generates getter
+    uint256 private secret;     // only this contract
+    uint256 internal shared;    // this contract + children
+
+    // === Constants (no storage cost) ===
+    uint256 public constant MAX = 1000;          // compile-time
+    uint256 public immutable deployTime;         // set once in constructor
+
+    // === Data Location ===
+    // storage: persistent on-chain (state vars). memory: temporary. calldata: read-only, cheapest.
+    function example(uint256[] calldata input) external {
+        uint256[] memory temp = new uint256[](5);
+        uint256[] storage ref = numbers;         // reference to state — changes persist
+    }
 }</code></pre>
 
-      <hr />
+      <h3>Functions &amp; Control Flow</h3>
 
-      <h3>Data Types</h3>
+<pre><code class="language-solidity">// Visibility:  public | external | internal | private
+// Mutability:  view (reads, free) | pure (no state, free) | payable (receives ETH) | default (costs gas)
 
-<pre><code class="language-solidity">// === VALUE TYPES ===
+function get() public view returns (uint256) { return x; }
+function add(uint a, uint b) public pure returns (uint) { return a+b; }
+function deposit() public payable { value += msg.value; }
+function set(uint v) public { value = v; }
+function getInfo() public pure returns (uint256, bool, string memory) { return (42, true, "hello"); }
 
-bool isActive = true;                    // true or false
-
-uint256 amount = 100;                    // unsigned integer (0 to 2^256-1)
-uint8 smallNumber = 255;                 // unsigned 8-bit (0 to 255)
-int256 temperature = -50;                // signed integer (-2^255 to 2^255-1)
-
-address wallet = 0xAbC123...;            // 20-byte Ethereum address
-address payable recipient = payable(wallet); // address that can receive ETH
-
-bytes32 hash = keccak256("hello");       // fixed-size byte array
-bytes data = hex"001122";               // dynamic-size byte array
-string name = "Alice";                   // UTF-8 string (dynamic)
-
-
-// === REFERENCE TYPES ===
-
-uint256[] numbers;                       // dynamic array
-uint256[5] fixed;                        // fixed-size array (5 elements)
-
-mapping(address =&gt; uint256) balances;    // key-value store (like a dictionary/hashmap)
-// mappings can be nested:
-mapping(address =&gt; mapping(address =&gt; uint256)) allowances;
-
-struct User {                            // custom type (like a struct in C)
-    address wallet;
-    uint256 balance;
-    bool isActive;
+// Modifiers — reusable guards
+modifier onlyOwner() {
+    require(msg.sender == owner, "Not the owner");
+    _;  // function body runs here
 }
+function mint() public onlyOwner { /* ... */ }
 
-enum Status { Pending, Active, Closed }  // enumeration</code></pre>
+// Error handling
+require(amount &gt; 0, "Amount must be &gt; 0");   // validate inputs (refunds gas)
+revert("Cannot send to zero address");        // complex conditions
+assert(b != 0);                               // invariant check (no gas refund)
+error InsufficientBalance(uint256 requested, uint256 available); // custom error (gas-efficient)
 
-      <hr />
+// Events — logs on blockchain (cheap, for off-chain use, can't be read by contracts)
+event Transfer(address indexed from, address indexed to, uint256 value); // indexed: filterable (max 3)
+emit Transfer(msg.sender, to, amount);</code></pre>
 
-      <h3>Visibility &amp; State</h3>
+      <h3>ETH, Inheritance &amp; Interfaces</h3>
 
-<pre><code class="language-solidity">contract Example {
+<pre><code class="language-solidity">// === Sending ETH — use call (recommended) ===
+(bool success, ) = _to.call{value: _amount}("");
+require(success, "Send failed");
+// .transfer() and .send() forward only 2300 gas — avoid
 
-    // === STATE VARIABLES (stored on blockchain — costs gas) ===
+// === Receiving ETH ===
+receive() external payable { }   // ETH sent with no calldata
+fallback() external payable { }  // no function match / ETH with calldata
+address(this).balance             // contract's ETH balance
 
-    uint256 public count;        // public: auto-generates a getter function
-    uint256 private secret;      // private: only this contract can read
-    uint256 internal shared;     // internal: this contract + contracts that inherit it
-    // (there is no "external" for state variables)
-
-    // === CONSTANTS (embedded in bytecode — no storage cost) ===
-
-    uint256 public constant MAX = 1000;         // set at compile time, never changes
-    uint256 public immutable deployTime;         // set once in constructor, never changes
-
-    constructor() {
-        deployTime = block.timestamp;
-    }
-}</code></pre>
-
-      <hr />
-
-      <h3>Functions</h3>
-
-<pre><code class="language-solidity">contract Functions {
-
-    uint256 public value;
-
-    // === FUNCTION VISIBILITY ===
-
-    function publicFunc() public { }       // anyone can call (external + internal)
-    function externalFunc() external { }   // only callable from outside the contract
-    function internalFunc() internal { }   // only this contract + children
-    function privateFunc() private { }     // only this contract
-
-    // === STATE MUTABILITY ===
-
-    // view: reads state but doesn't modify it (free to call, no gas if called externally)
-    function getValue() public view returns (uint256) {
-        return value;
-    }
-
-    // pure: doesn't read or modify state (free to call)
-    function add(uint256 a, uint256 b) public pure returns (uint256) {
-        return a + b;
-    }
-
-    // payable: can receive ETH with the call
-    function deposit() public payable {
-        // msg.value contains the ETH sent
-        value += msg.value;
-    }
-
-    // default (no keyword): reads AND modifies state — costs gas
-    function setValue(uint256 _value) public {
-        value = _value;
-    }
-
-    // === MULTIPLE RETURN VALUES ===
-
-    function getInfo() public pure returns (uint256, bool, string memory) {
-        return (42, true, "hello");
-    }
-}</code></pre>
-
-      <hr />
-
-      <h3>Global Variables (Available Everywhere)</h3>
-
-<pre><code class="language-solidity">// === TRANSACTION CONTEXT ===
-msg.sender      // address that called this function
-msg.value       // ETH sent with the call (in wei)
-msg.data        // raw calldata bytes
-
-// === BLOCK CONTEXT ===
-block.timestamp // current block's timestamp (seconds since epoch)
-block.number    // current block number
-block.chainid   // chain ID (1 = mainnet, 84532 = base sepolia)
-
-// === TRANSACTION CONTEXT ===
-tx.origin       // original externally-owned account that started the tx chain
-//                 (DANGEROUS — don't use for auth, see AccessControl exercise)
-
-// === UNITS ===
-1 ether   == 1e18          // 1 ETH = 10^18 wei
-1 gwei    == 1e9           // 1 gwei = 10^9 wei
-1 wei     == 1             // smallest unit
-1 days    == 86400         // seconds
-1 hours   == 3600
-1 minutes == 60</code></pre>
-
-      <hr />
-
-      <h3>Modifiers (Reusable Function Guards)</h3>
-
-<pre><code class="language-solidity">contract Ownable {
-    address public owner;
-
-    constructor() {
-        owner = msg.sender;
-    }
-
-    // A modifier adds checks before (or after) a function runs
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Not the owner");
-        _; // &lt;-- this is where the function body runs
-    }
-
-    // Using the modifier — mint() will revert if caller isn't owner
-    function mint() public onlyOwner {
-        // only runs if the modifier's require passes
-    }
-}</code></pre>
-
-      <hr />
-
-      <h3>Error Handling</h3>
-
-<pre><code class="language-solidity">contract ErrorHandling {
-
-    // require: validate inputs and conditions (refunds remaining gas)
-    function withdraw(uint256 amount) public {
-        require(amount &gt; 0, "Amount must be &gt; 0");
-        require(amount &lt;= balance[msg.sender], "Insufficient balance");
-    }
-
-    // revert: same as require but for complex conditions
-    function transfer(address to) public {
-        if (to == address(0)) {
-            revert("Cannot send to zero address");
-        }
-    }
-
-    // assert: check for invariants that should NEVER be false (no gas refund)
-    function divide(uint256 a, uint256 b) public pure returns (uint256) {
-        assert(b != 0); // if this fails, something is very wrong
-        return a / b;
-    }
-
-    // Custom errors (gas-efficient, Solidity 0.8.4+)
-    error InsufficientBalance(uint256 requested, uint256 available);
-
-    function send(uint256 amount) public {
-        if (amount &gt; balance) {
-            revert InsufficientBalance(amount, balance);
-        }
-    }
-}</code></pre>
-
-      <hr />
-
-      <h3>Events (Logging)</h3>
-
-<pre><code class="language-solidity">contract Events {
-    // Events are logs stored on the blockchain — cheap storage, but
-    // contracts can't read them. Used for off-chain apps (frontends, indexers).
-
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    //             ^indexed: allows filtering/searching by this field (max 3 indexed)
-
-    function transfer(address to, uint256 amount) public {
-        // ... transfer logic ...
-        emit Transfer(msg.sender, to, amount);
-    }
-}</code></pre>
-
-      <hr />
-
-      <h3>Sending ETH</h3>
-
-<pre><code class="language-solidity">contract SendingETH {
-
-    // Three ways to send ETH:
-
-    // 1. call (RECOMMENDED) — forwards all gas, returns success bool
-    function sendViaCall(address payable _to, uint256 _amount) public {
-        (bool success, ) = _to.call{value: _amount}("");
-        require(success, "Send failed");
-    }
-
-    // 2. transfer — forwards 2300 gas, reverts on failure (NOT recommended)
-    function sendViaTransfer(address payable _to, uint256 _amount) public {
-        _to.transfer(_amount);
-    }
-
-    // 3. send — forwards 2300 gas, returns bool (NOT recommended)
-    function sendViaSend(address payable _to, uint256 _amount) public {
-        bool success = _to.send(_amount);
-        require(success, "Send failed");
-    }
-}</code></pre>
-
-      <hr />
-
-      <h3>Receiving ETH</h3>
-
-<pre><code class="language-solidity">contract ReceivingETH {
-
-    // receive() is called when ETH is sent with no calldata
-    receive() external payable {
-        // e.g., someone sends ETH directly to this contract address
-    }
-
-    // fallback() is called when no function matches the calldata
-    // or when ETH is sent with calldata
-    fallback() external payable {
-        // catch-all
-    }
-
-    // Check contract's ETH balance
-    function getBalance() public view returns (uint256) {
-        return address(this).balance;
-    }
-}</code></pre>
-
-      <hr />
-
-      <h3>Inheritance</h3>
-
-<pre><code class="language-solidity">// Base contract
+// === Inheritance ===
 contract Animal {
-    string public name;
-
-    constructor(string memory _name) {
-        name = _name;
-    }
-
-    // virtual: allows child contracts to override this function
-    function speak() public pure virtual returns (string memory) {
-        return "...";
-    }
+    function speak() public pure virtual returns (string memory) { return "..."; }
 }
-
-// Child contract — inherits all of Animal's state and functions
 contract Dog is Animal {
-    constructor() Animal("Rex") { }
-
-    // override: replaces the parent's implementation
-    function speak() public pure override returns (string memory) {
-        return "Woof!";
-    }
+    function speak() public pure override returns (string memory) { return "Woof!"; }
 }
+contract GuideDog is Dog, Ownable { }  // multiple inheritance
 
-// Multiple inheritance
-contract GuideDog is Dog, Ownable {
-    // inherits from both Dog and Ownable
-}</code></pre>
-
-      <hr />
-
-      <h3>Interfaces &amp; Abstract Contracts</h3>
-
-<pre><code class="language-solidity">// Interface: defines function signatures without implementations
-// Used to interact with other contracts
+// === Interfaces — call other contracts ===
 interface IERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
 }
+IERC20 token = IERC20(tokenAddress);
 
-// Using an interface to call another contract
-contract TokenUser {
-    function checkBalance(address tokenAddress, address user) public view returns (uint256) {
-        IERC20 token = IERC20(tokenAddress);
-        return token.balanceOf(user);
-    }
+// === Abstract — has unimplemented functions ===
+abstract contract Base { function mustImplement() public virtual returns (uint256); }</code></pre>
+
+      <h3>Globals &amp; EVM</h3>
+
+<pre><code class="language-solidity">msg.sender       // caller address          msg.value   // ETH sent (wei)
+block.timestamp  // seconds since epoch     block.number // current block
+block.chainid    // 1=mainnet, etc.         tx.origin    // original EOA (DANGEROUS for auth)
+
+// Units
+1 ether == 1e18;  1 gwei == 1e9;  1 wei == 1;
+1 days == 86400;  1 hours == 3600; 1 minutes == 60;</code></pre>
+
+<pre><code>EVM gas costs:  ADD = 3 | SLOAD (read) = 2,100 | SSTORE (write) = 5,000-20,000 | CALL = 2,600+
+Storage = permanent (expensive) → Memory = temporary (cheaper) → Stack = computation (cheapest)</code></pre>
+
+      <p><strong>Why gas matters for security:</strong> storage writes → <code>unchecked {}</code> → overflow bugs; external calls → reentrancy; block gas limit → unbounded loops → DoS</p>
+
+      <hr />
+
+      <h3>Runtime Environments</h3>
+
+      <h4>Hardhat (JavaScript/TypeScript)</h4>
+      <p>Most popular framework. JS ecosystem, great plugins (etherscan verify, gas reporter).</p>
+<pre><code class="language-bash">npm init -y ; npm i --save-dev hardhat ; npx hardhat init
+
+contracts/*.sol          test/*.test.js          scripts/*.js          hardhat.config.js
+
+npx hardhat compile                 → solc compiles .sol → artifacts/
+npx hardhat test                    → compile + local EVM + run tests
+npx hardhat test --grep "name"      → run specific test
+npx hardhat node                    → start local chain (JSON-RPC)
+npx hardhat run scripts/deploy.js   → deploy script
+
+Uses ethers.js/viem + Chai assertions. Supports console.log in Solidity.
+evmVersion: "cancun" for latest opcodes (OpenZeppelin v5).</code></pre>
+
+<pre><code class="language-javascript">// test/MyToken.test.js
+const { expect } = require("chai");
+const { ethers } = require("hardhat");
+
+describe("MyToken", function () {
+  let token, owner, addr1;
+
+  beforeEach(async function () {
+    [owner, addr1] = await ethers.getSigners();
+    const MyToken = await ethers.getContractFactory("MyToken");
+    token = await MyToken.deploy(1000);       // deploy with constructor arg
+  });
+
+  it("should transfer tokens", async function () {
+    await token.transfer(addr1.address, 50);
+    expect(await token.balanceOf(addr1.address)).to.equal(50);
+  });
+
+  it("should revert on insufficient balance", async function () {
+    await expect(token.connect(addr1).transfer(owner.address, 1))
+      .to.be.revertedWith("Insufficient balance");
+  });
+});</code></pre>
+
+<pre><code class="language-javascript">// scripts/deploy.js
+const { ethers } = require("hardhat");
+
+async function main() {
+  const MyToken = await ethers.getContractFactory("MyToken");
+  const token = await MyToken.deploy(1000);
+  await token.waitForDeployment();
+  console.log("Deployed to:", await token.getAddress());
 }
+main();</code></pre>
 
-// Abstract: has at least one unimplemented function
-abstract contract Base {
-    function mustImplement() public virtual returns (uint256);
-}</code></pre>
+      <h4>Foundry (Rust-based CLI)</h4>
+      <p>Fastest compilation. Tests written in Solidity. Powerful fuzzing built-in.</p>
+<pre><code class="language-bash">curl -L https://foundry.paradigm.xyz | bash ; foundryup ; forge init my-project
 
-      <hr />
+src/*.sol          test/*.t.sol          script/*.s.sol          foundry.toml
 
-      <h3>Data Location (memory vs storage vs calldata)</h3>
+forge build                              → compile
+forge test                               → run tests
+forge test --match-test "name"           → run specific test
+anvil                                    → start local chain
+forge script script/Deploy.s.sol         → deploy script
 
-<pre><code class="language-solidity">contract DataLocation {
+Cheatcodes: vm.prank(addr), vm.deal(addr, amt), vm.warp(time), vm.expectRevert()</code></pre>
 
-    uint256[] public numbers; // state variable — always in STORAGE
+<pre><code class="language-solidity">// test/MyToken.t.sol
+import "forge-std/Test.sol";
+import "../src/MyToken.sol";
 
-    function example(uint256[] calldata input) external {
-        //                     ^^^^^^^^
-        // calldata: read-only, cheapest, only for external function params
+contract MyTokenTest is Test {
+    MyToken token;
+    address alice = makeAddr("alice");
 
-        uint256[] memory temp = new uint256[](5);
-        // memory: temporary, exists only during function execution, modifiable
-
-        uint256[] storage ref = numbers;
-        // storage: reference to the actual blockchain storage — modifications persist
-        ref.push(1); // this modifies the actual `numbers` array on-chain
+    function setUp() public {
+        token = new MyToken(1000);
     }
 
-    // Rule of thumb:
-    // - Use calldata for external function inputs you won't modify
-    // - Use memory for temporary variables
-    // - Use storage when you need to modify state
-}</code></pre>
-
-      <hr />
-
-      <h3>Mappings Deep Dive</h3>
-
-<pre><code class="language-solidity">contract MappingExamples {
-
-    // Simple mapping
-    mapping(address =&gt; uint256) public balances;
-
-    // Nested mapping (e.g., ERC20 allowances)
-    mapping(address =&gt; mapping(address =&gt; uint256)) public allowances;
-
-    // Mapping with struct values
-    struct Player {
-        uint256 level;
-        uint256 score;
+    function testTransfer() public {
+        token.transfer(alice, 50);
+        assertEq(token.balanceOf(alice), 50);
     }
-    mapping(address =&gt; Player) public players;
 
-    function example() public {
-        // Set values
-        balances[msg.sender] = 100;
+    function testRevertInsufficientBalance() public {
+        vm.prank(alice);                         // next call is from alice
+        vm.expectRevert("Insufficient balance");
+        token.transfer(address(this), 1);
+    }
 
-        // Get values (default is 0 for missing keys)
-        uint256 bal = balances[address(0)]; // returns 0, NOT an error
-
-        // Delete
-        delete balances[msg.sender]; // resets to 0
-
-        // IMPORTANT: You CANNOT iterate over a mapping!
-        // You cannot get its length or list all keys.
-        // If you need iteration, maintain a separate array of keys.
+    function testFuzz_Transfer(uint256 amount) public {
+        vm.assume(amount &lt;= 1000);              // bound fuzz input
+        token.transfer(alice, amount);
+        assertEq(token.balanceOf(alice), amount);
     }
 }</code></pre>
 
-      <hr />
+<pre><code class="language-solidity">// script/Deploy.s.sol
+import "forge-std/Script.sol";
+import "../src/MyToken.sol";
 
-      <h3>The EVM &amp; Gas</h3>
+contract DeployScript is Script {
+    function run() external {
+        vm.startBroadcast();                     // start signing txs
+        new MyToken(1000);
+        vm.stopBroadcast();
+    }
+}</code></pre>
 
-<pre><code>┌─────────────────────────────────────────────────────┐
-│                   TRANSACTION                        │
-│  from: 0xABC...  to: 0xDEF...  value: 1 ETH        │
-│  data: 0xa9059cbb000...  (encoded function call)     │
-│  gasLimit: 100000  gasPrice: 20 gwei                 │
-└─────────────────┬───────────────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────────────┐
-│                     EVM                              │
-│  Executes bytecode instruction by instruction        │
-│  Each instruction costs GAS:                         │
-│    ADD = 3 gas                                       │
-│    SSTORE (write) = 20,000 gas (new) / 5,000 (update)│
-│    SLOAD (read) = 2,100 gas                          │
-│    CALL (external) = 2,600+ gas                      │
-│                                                      │
-│  Storage is PERMANENT — most expensive               │
-│  Memory is TEMPORARY — cheaper                       │
-│  Stack is for computation — cheapest                 │
-└─────────────────────────────────────────────────────┘</code></pre>
+      <h4>Brownie (Python)</h4>
+      <p>Python-based framework using web3.py. Good for Python-native devs. (Largely superseded by Ape.)</p>
+<pre><code class="language-bash">pip install eth-brownie ; brownie init
 
-      <p><strong>Why gas matters for security:</strong></p>
-      <ul>
-        <li><strong>Storage writes are expensive</strong> → incentivizes gas optimization → developers use <code>unchecked {}</code> → can introduce overflow bugs</li>
-        <li><strong>External calls are dangerous</strong> → the called contract runs arbitrary code → reentrancy attacks</li>
-        <li><strong>Block gas limit</strong> → unbounded loops can make functions permanently uncallable → DoS attacks</li>
-      </ul>
+contracts/*.sol          tests/*.py          scripts/*.py          brownie-config.yaml
 
-      <hr />
+brownie compile                → compile
+brownie test                   → run pytest tests
+brownie test -k "name"         → run specific test
+brownie console                → interactive Python REPL with deployed contracts
+brownie run scripts/deploy.py  → deploy script
 
-      <h3>How This Relates to Your Hardhat Setup</h3>
+Uses web3.py + pytest. accounts[0] for test wallets.</code></pre>
 
-<pre><code>hardhat.config.js          ← Configures which Solidity version &amp; EVM to use
-contracts/*.sol            ← Your Solidity source files
-test/*.test.js             ← JavaScript tests that deploy &amp; interact with contracts
-npx hardhat compile        ← Runs solc on your .sol files → artifacts/
-npx hardhat test           ← Compiles + spins up a local EVM + runs tests</code></pre>
+<pre><code class="language-python"># tests/test_my_token.py
+from brownie import MyToken, accounts, reverts
 
-      <p>When you run <code>npx hardhat test</code>:</p>
-      <ol>
-        <li>Hardhat downloads the Solidity compiler (<code>solc 0.8.28</code>)</li>
-        <li>Compiles all <code>.sol</code> files to bytecode</li>
-        <li>Starts a <strong>local in-memory blockchain</strong> (Hardhat Network)</li>
-        <li>Your test file deploys contracts and sends transactions to this local chain</li>
-        <li>Results are shown in the terminal — nothing goes to a real blockchain</li>
-      </ol>
+def test_transfer():
+    token = MyToken.deploy(1000, {"from": accounts[0]})
+    token.transfer(accounts[1], 50, {"from": accounts[0]})
+    assert token.balanceOf(accounts[1]) == 50
 
-      <p>The <code>evmVersion: "cancun"</code> setting tells the compiler to target the Cancun hard fork,
-      which includes newer opcodes like <code>mcopy</code> that OpenZeppelin v5 uses.</p>
+def test_revert_insufficient():
+    token = MyToken.deploy(1000, {"from": accounts[0]})
+    with reverts("Insufficient balance"):
+        token.transfer(accounts[0], 1, {"from": accounts[1]})</code></pre>
 
-    </div>
+<pre><code class="language-python"># scripts/deploy.py
+from brownie import MyToken, accounts
+
+def main():
+    token = MyToken.deploy(1000, {"from": accounts[0]})
+    print(f"Deployed to: {token.address}")</code></pre>
+
+      <h4>Ape (Python)</h4>
+      <p>Modern Python framework, spiritual successor to Brownie. Plugin-based, cleaner API.</p>
+<pre><code class="language-bash">pip install eth-ape ; ape init
+
+contracts/*.sol          tests/*.py          scripts/*.py          ape-config.yaml
+
+ape compile                    → compile
+ape test                       → run pytest tests
+ape test -k "name"             → run specific test
+ape console                    → interactive Python REPL
+ape run scripts/deploy.py      → deploy script
+
+Uses ape.accounts, ape.project. Plugin system: ape-solidity, ape-hardhat, ape-alchemy.</code></pre>
+
+<pre><code class="language-python"># tests/test_my_token.py
+import ape
+import pytest
+
+@pytest.fixture
+def token(owner):
+    return owner.deploy(ape.project.MyToken, 1000)
+
+@pytest.fixture
+def owner(accounts):
+    return accounts[0]
+
+def test_transfer(token, owner, accounts):
+    token.transfer(accounts[1], 50, sender=owner)
+    assert token.balanceOf(accounts[1]) == 50
+
+def test_revert_insufficient(token, accounts):
+    with ape.reverts("Insufficient balance"):
+        token.transfer(accounts[0], 1, sender=accounts[1])</code></pre>
+
+<pre><code class="language-python"># scripts/deploy.py
+from ape import project, accounts
+
+def main():
+    deployer = accounts.load("my-account")
+    token = deployer.deploy(project.MyToken, 1000)
+    print(f"Deployed to: {token.address}")</code></pre>
+
   </body>
 </html>
