@@ -197,9 +197,9 @@ Storage = permanent (expensive) → Memory = temporary (cheaper) → Stack = com
 
       <hr />
 
-      <h3>Runtime Environments</h3>
+      <h2>Runtime Environments</h2>
 
-      <h4>Hardhat (JavaScript/TypeScript)</h4>
+      <h3>Hardhat (JavaScript/TypeScript)</h3>
       <p>Most popular framework. JS ecosystem, great plugins (etherscan verify, gas reporter).</p>
 <pre><code class="language-bash">npm init -y ; npm i --save-dev hardhat ; npx hardhat init
 
@@ -249,7 +249,7 @@ async function main() {
 }
 main();</code></pre>
 
-      <h4>Foundry (Rust-based CLI)</h4>
+      <h3>Foundry (Rust-based CLI)</h3>
       <p>Fastest compilation. Tests written in Solidity. Powerful fuzzing built-in.</p>
 <pre><code class="language-bash">curl -L https://foundry.paradigm.xyz | bash ; foundryup ; forge init my-project
 
@@ -305,7 +305,7 @@ contract DeployScript is Script {
     }
 }</code></pre>
 
-      <h4>Brownie (Python)</h4>
+      <h3>Brownie (Python)</h3>
       <p>Python-based framework using web3.py. Good for Python-native devs. (Largely superseded by Ape.)</p>
 <pre><code class="language-bash">pip install eth-brownie ; brownie init
 
@@ -339,7 +339,7 @@ def main():
     token = MyToken.deploy(1000, {"from": accounts[0]})
     print(f"Deployed to: {token.address}")</code></pre>
 
-      <h4>Ape (Python)</h4>
+      <h3>Ape (Python)</h3>
       <p>Modern Python framework, spiritual successor to Brownie. Plugin-based, cleaner API.</p>
 <pre><code class="language-bash">pip install eth-ape ; ape init
 
