@@ -223,5 +223,139 @@ color: #cffbec;
     background-color: #0aa370;
   }
 
+  /* === TAB SYSTEM === */
+  .tab-container {
+    margin-bottom: 2rem;
+  }
+
+  .tab-buttons {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid #343a40;
+    margin-bottom: 1.5rem;
+  }
+
+  .tab-btn {
+    background: none;
+    border: none;
+    color: #6f6f6f;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: color 0.2s ease, border-color 0.2s ease;
+  }
+
+  .tab-btn:hover {
+    color: #cffbec;
+  }
+
+  .tab-btn.active {
+    color: #47ebb4;
+    border-bottom-color: #47ebb4;
+  }
+
+  .tab-buttons ~ .tab-content {
+    display: none;
+  }
+
+  .tab-buttons ~ .tab-content.active {
+    display: block;
+  }
+
+  /* Bootstrap nav-tabs dark theme styling */
+  .nav-tabs {
+    border-bottom-color: #343a40;
+    margin-bottom: 1.5rem;
+  }
+
+  .nav-tabs .nav-link {
+    color: #6f6f6f;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0.75rem 1.5rem;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .nav-tabs .nav-link:hover {
+    color: #cffbec;
+    border-color: transparent;
+    border-bottom-color: #4a5f78;
+  }
+
+  .nav-tabs .nav-link.active {
+    color: #47ebb4;
+    background: none;
+    border-color: transparent;
+    border-bottom-color: #47ebb4;
+  }
+
+  /* Lab and CTF specific styles */
+  .lab-card, .ctf-card {
+    background-color: #212529;
+    border: 1px solid #343a40;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .lab-card h4, .ctf-card h4 {
+    color: #47ebb4;
+    margin-bottom: 0.5rem;
+  }
+
+  .difficulty {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+  }
+
+  .difficulty-easy { background-color: #1a4731; color: #47ebb4; }
+  .difficulty-medium { background-color: #4a3f00; color: #ffc107; }
+  .difficulty-hard { background-color: #4a1a1a; color: #ff6b6b; }
+
+  .hint-toggle {
+    background: none;
+    border: 1px solid #4a5f78;
+    color: #4a5f78;
+    padding: 0.3rem 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+  }
+
+  .hint-toggle:hover {
+    border-color: #47ebb4;
+    color: #47ebb4;
+  }
+
+  .hint-content {
+    display: none;
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    background-color: #1a1f24;
+    border-left: 3px solid #47ebb4;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .hint-content.show {
+    display: block;
+  }
+
+  .objective {
+    color: #adb5bd;
+    margin-bottom: 0.75rem;
+  }
+
+  .setup-code {
+    margin-top: 1rem;
+  }
+
   /* STOP */
 

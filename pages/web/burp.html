@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Burp Suite</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Burp Suite</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== SETUP ==================== -->
+        <h2>Setting Up Burp Suite</h2>
+
+        <h3>Proxy Configuration</h3>
+        <p>Burp listens on <code>127.0.0.1:8080</code> by default. Configure your browser to route traffic through this proxy.</p>
+<pre><code class="language-bash"># Verify Burp is listening
+curl -x http://127.0.0.1:8080 http://example.com
+
+# Firefox: Settings → Network Settings → Manual proxy
+# Set HTTP Proxy: 127.0.0.1  Port: 8080
+# Check "Also use this proxy for HTTPS"</code></pre>
+
+        <h3>CA Certificate Install</h3>
+        <p>Required for intercepting HTTPS traffic. Without it, browsers reject Burp's self-signed certs.</p>
+<pre><code class="language-bash"># 1. With Burp running, navigate to http://burpsuite (or http://127.0.0.1:8080)
+# 2. Click "CA Certificate" to download cacert.der
+
+# Firefox: Settings → Privacy &amp; Security → Certificates → View Certificates
+#   → Authorities → Import → select cacert.der → Trust for websites
+
+# Chrome/System: Settings → Security → Manage certificates
+#   → Authorities → Import → select cacert.der
+
+# CLI (Linux system-wide)
+sudo cp cacert.der /usr/local/share/ca-certificates/burp.crt
+sudo update-ca-certificates</code></pre>
+
+        <h3>Browser Setup Tips</h3>
+        <p>Use a dedicated browser profile or FoxyProxy to toggle proxy on/off quickly.</p>
+<pre><code class="language-bash"># FoxyProxy (Firefox/Chrome extension)
+# Add proxy: Title=Burp, Type=HTTP, IP=127.0.0.1, Port=8080
+# Toggle via toolbar icon — avoids re-configuring system proxy
+
+# Chromium with Burp proxy (isolated)
+chromium --proxy-server="http://127.0.0.1:8080" --user-data-dir=/tmp/burp-profile
+
+# Burp's embedded browser: no cert install needed
+# Project options → Misc → Embedded Browser → enable</code></pre>
+
+        <!-- ==================== PROXY ==================== -->
+        <h2>Proxy Tab</h2>
+
+        <h3>Intercept</h3>
+        <p>Toggle <strong>Intercept is on/off</strong> to capture requests before they reach the server. While intercepted you can:</p>
+        <ul>
+          <li><strong>Forward</strong> — send the request as-is (or after editing)</li>
+          <li><strong>Drop</strong> — discard the request entirely</li>
+          <li><strong>Send to Repeater/Intruder</strong> — right-click or <code>Ctrl+R</code> / <code>Ctrl+I</code></li>
+        </ul>
+
+        <h3>Match &amp; Replace Rules</h3>
+        <p>Auto-modify requests/responses without manual intercept. <em>Proxy → Options → Match and Replace</em>.</p>
+        <table>
+          <tr><th>Use Case</th><th>Match</th><th>Replace</th><th>Type</th></tr>
+          <tr><td>Force HTTP method</td><td><code>GET</code></td><td><code>POST</code></td><td>Request first line</td></tr>
+          <tr><td>Remove security headers</td><td><code>X-Frame-Options:.*</code></td><td>(empty)</td><td>Response header</td></tr>
+          <tr><td>Bypass client-side check</td><td><code>isAdmin=false</code></td><td><code>isAdmin=true</code></td><td>Request body</td></tr>
+          <tr><td>Inject header</td><td>(empty)</td><td><code>X-Forwarded-For: 127.0.0.1</code></td><td>Request header</td></tr>
+        </table>
+
+        <!-- ==================== TARGET ==================== -->
+        <h2>Target Tab</h2>
+
+        <h3>Site Map</h3>
+        <p>Hierarchical view of all observed hosts, paths, and parameters. Built automatically as you browse through the proxy.</p>
+        <ul>
+          <li><strong>Right-click a host → Add to scope</strong> — filters proxy history and Scanner to only in-scope items</li>
+          <li><strong>Right-click → Spider this host</strong> — actively crawl (Pro only)</li>
+          <li><strong>Filter bar</strong> — show only in-scope, hide images/CSS/JS, filter by MIME type</li>
+        </ul>
+
+        <h3>Scope</h3>
+        <p>Define what's in scope to reduce noise. <em>Target → Scope → Add</em> or right-click from site map.</p>
+<pre><code class="language-bash"># Include scope (regex)
+^https?://target\.com/.*
+
+# Exclude scope
+^https?://target\.com/logout
+^https?://.*\.google\.com/.*</code></pre>
+        <p>Enable <strong>Proxy → Options → "Don't send out-of-scope items to history"</strong> to keep things clean.</p>
+
+        <!-- ==================== REPEATER ==================== -->
+        <h2>Repeater</h2>
+
+        <p>Manually modify and resend individual requests. Essential for testing parameter tampering, auth bypasses, and injection points.</p>
+<pre><code class="language-bash"># Workflow:
+# 1. Intercept a request in Proxy (or find in HTTP history)
+# 2. Right-click → Send to Repeater (Ctrl+R)
+# 3. Modify parameters, headers, or body
+# 4. Click "Send" — response appears on the right
+# 5. Compare responses by opening multiple Repeater tabs
+
+# Useful modifications:
+# - Change parameter values to test SQLi/XSS
+# - Swap HTTP methods (GET ↔ POST)
+# - Add/remove cookies or auth headers
+# - Change Content-Type for deserialization attacks</code></pre>
+
+        <!-- ==================== INTRUDER ==================== -->
+        <h2>Intruder</h2>
+
+        <h3>Attack Types</h3>
+        <table>
+          <tr><th>Type</th><th>Payload Sets</th><th>Behavior</th><th>Use Case</th></tr>
+          <tr><td><strong>Sniper</strong></td><td>1</td><td>Inserts payload into each position one at a time</td><td>Fuzzing individual parameters</td></tr>
+          <tr><td><strong>Battering Ram</strong></td><td>1</td><td>Same payload in all positions simultaneously</td><td>Same value needed everywhere (e.g., CSRF token test)</td></tr>
+          <tr><td><strong>Pitchfork</strong></td><td>1 per position</td><td>Iterates payload sets in parallel (1:1 mapping)</td><td>Username:password pairs from a list</td></tr>
+          <tr><td><strong>Cluster Bomb</strong></td><td>1 per position</td><td>All permutations of all payload sets</td><td>Brute force all username × password combos</td></tr>
+        </table>
+
+        <h3>Payload Types</h3>
+        <ul>
+          <li><strong>Simple list</strong> — paste or load a wordlist</li>
+          <li><strong>Numbers</strong> — sequential or random range (e.g., IDs 1–1000)</li>
+          <li><strong>Recursive grep</strong> — extract token from response, use in next request (anti-CSRF bypass)</li>
+          <li><strong>Brute forcer</strong> — character set + min/max length</li>
+          <li><strong>Null payloads</strong> — repeat request N times with no change (rate limit testing)</li>
+        </ul>
+
+        <h3>Grep Match / Extract</h3>
+        <p>Automatically flag responses containing specific strings or extract data from each response.</p>
+<pre><code class="language-bash"># Grep - Match: flag responses containing a keyword
+# Intruder → Options → Grep - Match → Add
+# Examples: "Invalid password", "Welcome", "error", "admin"
+# Results table shows a checkbox column for each match string
+
+# Grep - Extract: pull values from responses
+# Intruder → Options → Grep - Extract → Add
+# Highlight the region to extract in the sample response
+# Useful for extracting: CSRF tokens, session IDs, usernames</code></pre>
+
+        <!-- ==================== DECODER ==================== -->
+        <h2>Decoder</h2>
+
+        <p>Encode, decode, and hash data. Supports chaining multiple transformations.</p>
+        <table>
+          <tr><th>Operation</th><th>Formats</th></tr>
+          <tr><td>Decode</td><td>URL, HTML, Base64, ASCII Hex, Hex, Octal, Binary, Gzip</td></tr>
+          <tr><td>Encode</td><td>URL, HTML, Base64, ASCII Hex, Hex, Octal, Binary, Gzip</td></tr>
+          <tr><td>Hash</td><td>MD5, SHA-1, SHA-256, SHA-384, SHA-512</td></tr>
+        </table>
+<pre><code class="language-bash"># Quick decode workflow:
+# 1. Paste encoded string (e.g., base64 cookie value)
+# 2. Click "Decode as..." → Base64
+# 3. Chain: Decode Base64 → Decode URL → readable text
+
+# Smart Decode: auto-detects encoding layers
+# Click "Smart decode" to automatically unravel nested encodings</code></pre>
+
+        <!-- ==================== COMPARER ==================== -->
+        <h2>Comparer</h2>
+
+        <p>Diff two requests or responses side-by-side. Useful for spotting subtle differences in blind injection, auth bypass, or A/B testing.</p>
+<pre><code class="language-bash"># Workflow:
+# 1. Right-click response in Repeater/Proxy → Send to Comparer
+# 2. Send a second (modified) response to Comparer
+# 3. Select both items → click "Words" or "Bytes"
+# 4. Differences are highlighted — look for content-length changes,
+#    different error messages, or missing/added headers</code></pre>
+
+        <!-- ==================== SEQUENCER ==================== -->
+        <h2>Sequencer</h2>
+
+        <p>Statistical analysis of session tokens and other random values to detect weak randomness.</p>
+<pre><code class="language-bash"># Workflow:
+# 1. Find a request that returns a token (e.g., Set-Cookie: session=...)
+# 2. Right-click → Send to Sequencer
+# 3. Configure token location in response
+# 4. Click "Start live capture" — collects ~10,000+ samples
+# 5. Click "Analyze now" — provides entropy/randomness rating
+
+# Good randomness: "overall quality is excellent" (entropy close to 128 bits)
+# Weak randomness: predictable tokens → session hijacking possible</code></pre>
+
+        <!-- ==================== EXTENSIONS ==================== -->
+        <h2>Extensions</h2>
+
+        <p>Install via <strong>Extensions → BApp Store</strong>. Require Jython (Python) or Jruby (Ruby) for non-Java extensions.</p>
+        <table>
+          <tr><th>Extension</th><th>Purpose</th></tr>
+          <tr><td><strong>Autorize</strong></td><td>Automated authorization testing — replays requests with low-priv cookies to detect IDOR/broken access control</td></tr>
+          <tr><td><strong>JWT Editor</strong></td><td>Decode, edit, sign/resign JWT tokens; test <code>alg:none</code>, key confusion attacks</td></tr>
+          <tr><td><strong>Logger++</strong></td><td>Advanced HTTP logging with filters, grep, and export — better than built-in history</td></tr>
+          <tr><td><strong>Param Miner</strong></td><td>Discovers hidden parameters, headers, and cookies via brute-forcing — finds web cache poisoning vectors</td></tr>
+          <tr><td><strong>Turbo Intruder</strong></td><td>High-speed request engine using Python scripts — race conditions, rate limit bypass, mass fuzzing</td></tr>
+          <tr><td><strong>Hackvertor</strong></td><td>Tag-based encoding/decoding — auto-encode payloads in requests</td></tr>
+          <tr><td><strong>Active Scan++</strong></td><td>Enhances Burp's active scanner with additional checks (host header injection, cache poisoning)</td></tr>
+        </table>
+
+        <!-- ==================== COLLABORATOR ==================== -->
+        <h2>Collaborator</h2>
+
+        <p>Out-of-band (OOB) testing server. Provides unique subdomains that log DNS/HTTP/SMTP interactions. Proves blind vulnerabilities when no in-band response is visible.</p>
+<pre><code class="language-bash"># Usage (Pro only):
+# 1. Burp → Burp Collaborator client → Copy to clipboard
+# 2. Generates a unique subdomain: xyz123.burpcollaborator.net
+# 3. Inject this domain into payloads:
+
+# Blind SSRF
+https://target.com/fetch?url=http://xyz123.burpcollaborator.net
+
+# Blind XXE
+&lt;!DOCTYPE foo [&lt;!ENTITY xxe SYSTEM "http://xyz123.burpcollaborator.net"&gt;]&gt;
+
+# Blind SQLi (OOB)
+'; EXEC master..xp_dirtree '\\xyz123.burpcollaborator.net\a' --
+
+# 4. Click "Poll now" in Collaborator client to check for interactions
+# 5. DNS/HTTP/SMTP hits confirm the vulnerability</code></pre>
+
+        <!-- ==================== SHORTCUTS ==================== -->
+        <h2>Keyboard Shortcuts</h2>
+
+        <table>
+          <tr><th>Shortcut</th><th>Action</th></tr>
+          <tr><td><code>Ctrl+R</code></td><td>Send to Repeater</td></tr>
+          <tr><td><code>Ctrl+I</code></td><td>Send to Intruder</td></tr>
+          <tr><td><code>Ctrl+Shift+R</code></td><td>Go to Repeater</td></tr>
+          <tr><td><code>Ctrl+Shift+I</code></td><td>Go to Intruder</td></tr>
+          <tr><td><code>Ctrl+Shift+P</code></td><td>Go to Proxy</td></tr>
+          <tr><td><code>Ctrl+Shift+T</code></td><td>Go to Target</td></tr>
+          <tr><td><code>Ctrl+Shift+D</code></td><td>Go to Dashboard</td></tr>
+          <tr><td><code>Ctrl+F</code></td><td>Forward intercepted request</td></tr>
+          <tr><td><code>Ctrl+D</code></td><td>Drop intercepted request</td></tr>
+          <tr><td><code>Ctrl+T</code></td><td>Toggle intercept on/off</td></tr>
+          <tr><td><code>Ctrl+U</code></td><td>URL-encode selected text</td></tr>
+          <tr><td><code>Ctrl+Shift+U</code></td><td>URL-decode selected text</td></tr>
+          <tr><td><code>Ctrl+B</code></td><td>Base64-encode selected text</td></tr>
+          <tr><td><code>Ctrl+Shift+B</code></td><td>Base64-decode selected text</td></tr>
+        </table>
+
+        <!-- ==================== CTF TIPS ==================== -->
+        <h2>Tips for CTF Usage</h2>
+
+        <ul>
+          <li><strong>Scope everything</strong> — add the challenge domain to scope immediately to avoid noise</li>
+          <li><strong>Check cookies &amp; hidden params</strong> — inspect every <code>Set-Cookie</code>, hidden form fields, and custom headers in Proxy history</li>
+          <li><strong>Repeater is your best friend</strong> — manually iterate on payloads faster than a browser</li>
+          <li><strong>Use Decoder for multi-layer encoding</strong> — CTFs love nesting base64 → URL → hex</li>
+          <li><strong>Intruder for brute force</strong> — even Community Edition works (just throttled). Use Turbo Intruder for speed</li>
+          <li><strong>Search proxy history</strong> — <code>Ctrl+Shift+F</code> to search all recorded traffic for flags, tokens, or keywords</li>
+          <li><strong>Compare responses</strong> — send valid vs invalid auth responses to Comparer to spot the exact diff</li>
+          <li><strong>Save your project</strong> — Burp project files preserve all history; save before closing</li>
+        </ul>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Intercept and Modify Requests</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use Burp Proxy to intercept a request and modify a hidden form field to gain access to a restricted resource.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Hidden field bypass
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return '''&lt;html&gt;&lt;body&gt;
+    &lt;h1&gt;Product Store&lt;/h1&gt;
+    &lt;form action="/purchase" method="POST"&gt;
+      &lt;p&gt;Item: Premium Widget&lt;/p&gt;
+      &lt;input type="hidden" name="price" value="1000"&gt;
+      &lt;input type="hidden" name="role" value="user"&gt;
+      &lt;button type="submit"&gt;Buy Now&lt;/button&gt;
+    &lt;/form&gt;
+    &lt;/body&gt;&lt;/html&gt;'''
+
+@app.route('/purchase', methods=['POST'])
+def purchase():
+    price = request.form.get('price', '1000')
+    role = request.form.get('role', 'user')
+    if role == 'admin':
+        return '&lt;h1&gt;Admin access granted! FLAG: BURP{1nt3rc3pt_m0d1fy}&lt;/h1&gt;'
+    if int(price) &lt;= 0:
+        return '&lt;h1&gt;Nice try! Price must be positive.&lt;/h1&gt;'
+    return f'&lt;h1&gt;Purchased for ${price}. You are: {role}&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the Flask app: <code>python app.py</code></li>
+              <li>Configure your browser to proxy through Burp (<code>127.0.0.1:8080</code>)</li>
+              <li>Turn on Intercept in Burp Proxy</li>
+              <li>Click "Buy Now" on the page — the request appears in Burp</li>
+              <li>Modify the <code>role=user</code> parameter to <code>role=admin</code> in the intercepted POST body</li>
+              <li>Forward the request and observe the response</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Brute Force Login with Intruder</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use Burp Intruder to brute force a login form and identify valid credentials from a wordlist.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Login brute force target
+from flask import Flask, request
+
+app = Flask(__name__)
+
+VALID_USERS = {'admin': 'sunshine', 'guest': 'guest123'}
+
+@app.route('/')
+def index():
+    return '''&lt;html&gt;&lt;body&gt;
+    &lt;h1&gt;Login&lt;/h1&gt;
+    &lt;form action="/login" method="POST"&gt;
+      &lt;input name="username" placeholder="Username"&gt;
+      &lt;input name="password" type="password" placeholder="Password"&gt;
+      &lt;button&gt;Login&lt;/button&gt;
+    &lt;/form&gt;
+    &lt;/body&gt;&lt;/html&gt;'''
+
+@app.route('/login', methods=['POST'])
+def login():
+    user = request.form.get('username', '')
+    pwd = request.form.get('password', '')
+    if user in VALID_USERS and VALID_USERS[user] == pwd:
+        return f'&lt;h1&gt;Welcome, {user}! FLAG: BURP{{1ntrud3r_brut3}}&lt;/h1&gt;'
+    return '&lt;h1&gt;Invalid credentials&lt;/h1&gt;', 401
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Submit a test login through Burp Proxy and send the request to Intruder (<code>Ctrl+I</code>)</li>
+              <li>Clear default payload positions, then mark <code>username</code> and <code>password</code> values as positions</li>
+              <li>Select <strong>Cluster Bomb</strong> attack type (tests all username × password combos)</li>
+              <li>Payload set 1 (username): <code>admin</code>, <code>guest</code>, <code>root</code>, <code>user</code></li>
+              <li>Payload set 2 (password): <code>password</code>, <code>123456</code>, <code>sunshine</code>, <code>guest123</code>, <code>admin</code></li>
+              <li>Under Options → Grep - Match, add <code>Welcome</code></li>
+              <li>Start the attack — identify successful logins by HTTP 200 status and "Welcome" match</li>
+              <li>Sort results by status code or grep match column to find valid creds</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Extension-Based Testing</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use Burp extensions (Autorize + JWT Editor) to find broken access control in a JWT-authenticated API.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — JWT auth with broken access control
+import jwt
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+SECRET = 'burp-lab-secret-key'
+
+@app.route('/login', methods=['POST'])
+def login():
+    user = request.json.get('username', '')
+    pwd = request.json.get('password', '')
+    if user == 'admin' and pwd == 'admin':
+        token = jwt.encode({'user': 'admin', 'role': 'admin'}, SECRET)
+        return jsonify({'token': token})
+    if user == 'guest' and pwd == 'guest':
+        token = jwt.encode({'user': 'guest', 'role': 'viewer'}, SECRET)
+        return jsonify({'token': token})
+    return jsonify({'error': 'Invalid credentials'}), 401
+
+@app.route('/api/users')
+def users():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    try:
+        data = jwt.decode(token, SECRET, algorithms=['HS256'])
+    except:
+        return jsonify({'error': 'Invalid token'}), 401
+    return jsonify({'users': ['admin', 'guest', 'bob']})
+
+@app.route('/api/admin/flag')
+def admin_flag():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    try:
+        data = jwt.decode(token, SECRET, algorithms=['HS256'])
+    except:
+        return jsonify({'error': 'Invalid token'}), 401
+    # BUG: checks role from token without verifying against DB
+    if data.get('role') == 'admin':
+        return jsonify({'flag': 'BURP{jwt_3xt3ns10n_ftw}'})
+    return jsonify({'error': 'Admin only'}), 403
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Install <strong>JWT Editor</strong> and <strong>Autorize</strong> from the BApp Store</li>
+              <li>Login as <code>guest:guest</code> via POST to <code>/login</code> — save the JWT token</li>
+              <li>Access <code>/api/users</code> with the guest token — confirm it works</li>
+              <li>Try <code>/api/admin/flag</code> with the guest token — expect 403</li>
+              <li><strong>JWT Editor approach:</strong> Decode the guest JWT, change <code>"role":"viewer"</code> to <code>"role":"admin"</code>, re-sign if possible (try <code>alg:none</code> or brute force the weak secret)</li>
+              <li><strong>Autorize approach:</strong> Set the guest token as the low-privilege cookie in Autorize, then browse as admin — Autorize replays each request with the guest token and highlights access control failures</li>
+              <li>Use the forged/modified token to access <code>/api/admin/flag</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Macro-Based Authentication</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Configure a Burp macro to automatically login and refresh session tokens before each request.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Session-expiring app
+from flask import Flask, request, session, jsonify
+import secrets, time
+
+app = Flask(__name__)
+app.secret_key = secrets.token_hex(16)
+
+tokens = {}
+
+@app.route('/login', methods=['POST'])
+def login():
+    user = request.form.get('username', 'guest')
+    token = secrets.token_hex(16)
+    tokens[token] = {'user': user, 'expires': time.time() + 30}  # 30s expiry
+    return jsonify({"token": token})
+
+@app.route('/api/data')
+def data():
+    token = request.headers.get('X-Token', '')
+    t = tokens.get(token, {})
+    if not t or t['expires'] &lt; time.time():
+        return jsonify({"error": "Token expired. Re-login required."}), 401
+    return jsonify({"data": "sensitive_info", "flag": "BURP{m4cr0_4uth}"})
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Notice that tokens expire after 30 seconds — manual testing is frustrating</li>
+              <li>In Burp: <strong>Project Options → Sessions → Session Handling Rules</strong></li>
+              <li>Add a rule: <strong>Run a macro</strong> → Record a macro that POSTs to <code>/login</code></li>
+              <li>Configure the macro to extract the token from the response</li>
+              <li>Set the rule to add/update <code>X-Token</code> header on all requests in scope</li>
+              <li>Now every request automatically gets a fresh token</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Match and Replace Rules</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use Burp's Match and Replace to automatically modify requests and bypass client-side restrictions.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Match and Replace targets
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/profile')
+def profile():
+    role = request.headers.get('X-Role', 'user')
+    debug = request.headers.get('X-Debug', 'false')
+    if role == 'admin' and debug == 'true':
+        return '&lt;h1&gt;Admin Debug Panel — FLAG: BURP{m4tch_r3pl4c3}&lt;/h1&gt;'
+    return f'&lt;h1&gt;Profile (role={role}, debug={debug})&lt;/h1&gt;'
+
+@app.route('/api/v1/user')
+def api_user():
+    return '{"user":"guest","role":"user"}'
+
+@app.route('/api/v2/user')
+def api_user_v2():
+    return '{"user":"guest","role":"user","flag":"BURP{4p1_v3rs10n_sw4p}"}'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Go to <strong>Proxy → Options → Match and Replace</strong></li>
+              <li>Add rule: Request header — Match: (empty), Replace: <code>X-Role: admin</code></li>
+              <li>Add rule: Request header — Match: (empty), Replace: <code>X-Debug: true</code></li>
+              <li>Browse to <code>/profile</code> — headers are auto-injected</li>
+              <li>Add rule: Request first line — Match: <code>/api/v1/</code>, Replace: <code>/api/v2/</code></li>
+              <li>All v1 API calls automatically hit v2 instead</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Custom Intruder Payloads</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use Burp Intruder with custom payload processing rules to test encoded and transformed inputs.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Requires base64-encoded admin token
+from flask import Flask, request
+import base64
+
+app = Flask(__name__)
+
+@app.route('/verify')
+def verify():
+    token = request.args.get('token', '')
+    try:
+        decoded = base64.b64decode(token).decode()
+        if decoded == 'admin:s3cur3p4ss':
+            return '&lt;h1&gt;FLAG: BURP{cust0m_p4yl04d}&lt;/h1&gt;'
+        return f'&lt;h1&gt;Invalid: {decoded}&lt;/h1&gt;'
+    except:
+        return '&lt;h1&gt;Bad token format&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Send <code>/verify?token=§§</code> to Intruder</li>
+              <li>Payload list: <code>admin:password</code>, <code>admin:admin123</code>, <code>admin:s3cur3p4ss</code>, etc.</li>
+              <li>Add <strong>Payload Processing Rule</strong>: Base64-encode</li>
+              <li>Intruder will base64-encode each payload before sending</li>
+              <li>The correct credential pair produces the flag</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Session Handling Rules</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Configure session handling rules to extract CSRF tokens and include them in every request.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — CSRF-protected form
+from flask import Flask, request, session
+import secrets
+
+app = Flask(__name__)
+app.secret_key = secrets.token_hex(16)
+
+@app.route('/')
+def index():
+    token = secrets.token_hex(16)
+    session['csrf'] = token
+    return f'''&lt;h1&gt;Transfer Funds&lt;/h1&gt;
+    &lt;form action="/transfer" method="POST"&gt;
+    &lt;input type="hidden" name="csrf" value="{token}"&gt;
+    &lt;input name="amount"&gt;&lt;input name="to"&gt;
+    &lt;button&gt;Transfer&lt;/button&gt;&lt;/form&gt;'''
+
+@app.route('/transfer', methods=['POST'])
+def transfer():
+    if request.form.get('csrf') != session.get('csrf'):
+        return '&lt;h1&gt;CSRF token mismatch!&lt;/h1&gt;', 403
+    session.pop('csrf', None)  # Token is single-use
+    return f'&lt;h1&gt;Transferred ${request.form.get("amount")} — FLAG: BURP{{s3ss10n_h4ndl1ng}}&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>The CSRF token is single-use — Repeater/Intruder requests fail after first use</li>
+              <li>Configure a <strong>Session Handling Rule</strong> to run a macro that fetches <code>/</code> before each request</li>
+              <li>Extract the CSRF token from the macro response using regex</li>
+              <li>Update the <code>csrf</code> parameter in the current request with the fresh token</li>
+              <li>Now Repeater/Intruder automatically gets a fresh CSRF token for each request</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Turbo Intruder Scripting</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use Turbo Intruder to perform a single-packet race condition attack on a limited coupon system.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Race condition with coupon
+import time
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+coupons = {'VIP50': True}
+balance = [0]
+
+@app.route('/redeem', methods=['POST'])
+def redeem():
+    code = request.form.get('code', '')
+    if code in coupons and coupons[code]:
+        time.sleep(0.05)
+        coupons[code] = False
+        balance[0] += 50
+        return jsonify({'balance': balance[0]})
+    return jsonify({'error': 'Used'}), 400
+
+@app.route('/balance')
+def bal():
+    if balance[0] &gt;= 200:
+        return f'&lt;h1&gt;FLAG: BURP{{turb0_r4c3}} (balance: ${balance[0]})&lt;/h1&gt;'
+    return f'&lt;h1&gt;Balance: ${balance[0]} (need $200)&lt;/h1&gt;'
+
+app.run(debug=True, threaded=True)</code></pre>
+<pre><code class="language-python"># Turbo Intruder script
+def queueRequests(target, wordlists):
+    engine = RequestEngine(endpoint=target.endpoint,
+                           concurrentConnections=50,
+                           requestsPerConnection=100,
+                           pipeline=True)
+    for i in range(30):
+        engine.queue(target.req, gate='race')
+    engine.openGate('race')
+
+def handleResponse(req, interesting):
+    if req.status == 200:
+        table.add(req)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Install Turbo Intruder from BApp Store</li>
+              <li>Send the redeem request to Turbo Intruder</li>
+              <li>Use the gate feature to send all requests simultaneously</li>
+              <li>The 50ms delay creates a TOCTOU window</li>
+              <li>Check <code>/balance</code> — reach $200 for the flag</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Scope Management &amp; Scan Config</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Properly configure Burp scope, scan settings, and target analysis for a multi-domain application.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Multi-path app
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return '&lt;a href="/app"&gt;App&lt;/a&gt; | &lt;a href="/admin"&gt;Admin&lt;/a&gt; | &lt;a href="/api/v1/status"&gt;API&lt;/a&gt;'
+
+@app.route('/app')
+def app_page():
+    return '&lt;h1&gt;Application&lt;/h1&gt;'
+
+@app.route('/admin')
+def admin():
+    return '&lt;h1&gt;Admin Panel — FLAG: BURP{sc0p3_m4st3r}&lt;/h1&gt;'
+
+@app.route('/api/v1/status')
+def status():
+    return '{"status":"ok"}'
+
+@app.route('/logout')
+def logout():
+    return '&lt;h1&gt;Logged out&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Browse the app through Burp — observe all paths in Site Map</li>
+              <li>Add <code>http://localhost:5000</code> to scope</li>
+              <li>Exclude <code>/logout</code> from scope (prevents accidental logout during scanning)</li>
+              <li>Configure scan: <strong>Active Scanning → Scan Configuration → Audit checks only</strong></li>
+              <li>Right-click the target in Site Map → <strong>Actively scan this host</strong></li>
+              <li>Review findings in the Dashboard/Issues tab</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Extension Development Basics</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write a simple Burp extension in Python (Jython) that adds a custom header to every request.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># custom_header.py — Burp extension (Jython)
+from burp import IBurpExtender, IHttpListener
+
+class BurpExtender(IBurpExtender, IHttpListener):
+    def registerExtenderCallbacks(self, callbacks):
+        self._callbacks = callbacks
+        self._helpers = callbacks.getHelpers()
+        callbacks.setExtensionName("Custom Header Injector")
+        callbacks.registerHttpListener(self)
+
+    def processHttpMessage(self, toolFlag, messageIsRequest, messageInfo):
+        if messageIsRequest:
+            request = messageInfo.getRequest()
+            analyzed = self._helpers.analyzeRequest(request)
+            headers = list(analyzed.getHeaders())
+            headers.append("X-Custom-Auth: BURP{3xt3ns10n_d3v}")
+            body = request[analyzed.getBodyOffset():]
+            messageInfo.setRequest(
+                self._helpers.buildHttpMessage(headers, body)
+            )</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Download Jython standalone JAR from jython.org</li>
+              <li>Burp → Extender → Options → Python Environment → set Jython JAR path</li>
+              <li>Save the script as <code>custom_header.py</code></li>
+              <li>Extender → Add → Extension Type: Python → select the file</li>
+              <li>Browse any site — inspect requests in Proxy History to confirm the header is added</li>
+              <li>Modify the extension to conditionally add headers based on the target host</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: SSL/TLS Configuration</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Configure Burp to intercept HTTPS traffic from a thick client that performs certificate pinning.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — HTTPS with client certificate
+# For this lab, use a real HTTPS setup:
+# 1. Generate self-signed cert: openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes
+# 2. Run with SSL:
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return '{"message":"HTTPS endpoint","flag":"BURP{ssl_c0nf1g}"}'
+
+if __name__ == '__main__':
+    app.run(ssl_context=('cert.pem', 'key.pem'), debug=True)</code></pre>
+<pre><code class="language-bash"># Generate certs
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
+
+# Burp SSL config:
+# 1. User options → TLS → Client TLS Certificates → Add
+# 2. For cert pinning bypass: Proxy → Options → TLS pass-through
+# 3. Import Burp CA into the application's trust store</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Generate self-signed certs and run the HTTPS server</li>
+              <li>Configure Burp to intercept the HTTPS traffic</li>
+              <li>If the client rejects Burp's cert, use <strong>TLS pass-through</strong> for specific hosts</li>
+              <li>For Android/iOS apps: install Burp CA as a system cert</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: HTTP Request Smuggling Testing</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use Burp to detect and exploit HTTP request smuggling vulnerabilities (CL.TE and TE.CL).</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Request smuggling detection with Burp:
+# 1. Install "HTTP Request Smuggler" extension from BApp Store
+# 2. Right-click target → Extensions → HTTP Request Smuggler → Smuggle probe
+
+# Manual CL.TE test (send in Repeater with HTTP/1.1):
+POST / HTTP/1.1
+Host: target.com
+Content-Length: 13
+Transfer-Encoding: chunked
+
+0
+
+SMUGGLED
+
+# Manual TE.CL test:
+POST / HTTP/1.1
+Host: target.com
+Content-Length: 3
+Transfer-Encoding: chunked
+
+8
+SMUGGLED
+0
+
+# Key: Uncheck "Update Content-Length" in Repeater menu
+# Use \r\n line endings (critical for smuggling)</code></pre>
+<pre><code class="language-python"># Simulated smuggling-vulnerable setup
+# In practice, you need a front-end proxy (nginx, HAProxy) + back-end server
+# that disagree on Content-Length vs Transfer-Encoding parsing
+
+# Test environment: use PortSwigger's Web Security Academy labs
+# https://portswigger.net/web-security/request-smuggling</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Install the <strong>HTTP Request Smuggler</strong> extension</li>
+              <li>In Repeater: uncheck <strong>Update Content-Length</strong></li>
+              <li>Send CL.TE probe — if the second request is processed differently, smuggling exists</li>
+              <li>Use the extension's automated scanning for detection</li>
+              <li>Practice on PortSwigger's labs for real-world CL.TE and TE.CL scenarios</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Client-Side Gatekeeper</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A web app validates user input client-side before submitting. Intercept the request and modify it to bypass the check.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Client-side validation bypass
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return '''&lt;html&gt;
+    &lt;body&gt;
+    &lt;h1&gt;Discount Code&lt;/h1&gt;
+    &lt;form id="f" action="/apply" method="POST"&gt;
+      &lt;input id="code" name="code" placeholder="Enter discount code"&gt;
+      &lt;input type="hidden" name="discount" value="0"&gt;
+      &lt;button type="submit"&gt;Apply&lt;/button&gt;
+    &lt;/form&gt;
+    &lt;script&gt;
+    document.getElementById('f').addEventListener('submit', function(e) {
+        let code = document.getElementById('code').value;
+        if (code !== 'SAVE10') {
+            e.preventDefault();
+            alert('Invalid code!');
+        }
+    });
+    &lt;/script&gt;
+    &lt;/body&gt;&lt;/html&gt;'''
+
+@app.route('/apply', methods=['POST'])
+def apply():
+    discount = request.form.get('discount', '0')
+    code = request.form.get('code', '')
+    if int(discount) &gt;= 100:
+        return '&lt;h1&gt;FLAG{burp_cl13nt_byp4ss}&lt;/h1&gt;'
+    return f'&lt;h1&gt;Applied {discount}% discount with code: {code}&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. The client-side JS only validates the discount code, not the discount value.<br>
+            2. Intercept the POST request in Burp Proxy.<br>
+            3. Change the <code>discount=0</code> parameter to <code>discount=100</code> in the request body.<br>
+            4. Forward the modified request to get the flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Hidden Parameter Hunt</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The server checks for a secret parameter that isn't in the HTML form. Use Intruder to brute force the parameter name and value.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Hidden parameter brute force
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return '''&lt;html&gt;&lt;body&gt;
+    &lt;h1&gt;Profile&lt;/h1&gt;
+    &lt;form action="/profile" method="POST"&gt;
+      &lt;input name="username" value="guest"&gt;
+      &lt;button&gt;Update&lt;/button&gt;
+    &lt;/form&gt;
+    &lt;/body&gt;&lt;/html&gt;'''
+
+@app.route('/profile', methods=['POST'])
+def profile():
+    user = request.form.get('username', 'guest')
+    debug = request.form.get('debug', '')
+    if debug == 'true':
+        return f'&lt;h1&gt;Debug mode for {user}&lt;/h1&gt;&lt;pre&gt;FLAG{{p4r4m_m1n3r}}&lt;/pre&gt;'
+    return f'&lt;h1&gt;Profile updated: {user}&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-bash"># Wordlist for parameter names (params.txt):
+# admin, debug, test, verbose, hidden, secret, flag, mode, dev, internal</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Send the POST request to Intruder.<br>
+            2. Append <code>&amp;§param§=§value§</code> to the request body.<br>
+            3. Use <strong>Cluster Bomb</strong> — payload set 1: common param names (debug, admin, test, etc.), payload set 2: common values (true, 1, yes, admin).<br>
+            4. Add Grep - Match for "FLAG" to flag the winning combo.<br>
+            5. Alternatively, use the <strong>Param Miner</strong> extension to automate parameter discovery.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Race to the Flag</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A promo code can only be used once, but a race condition lets you redeem it multiple times. Use Turbo Intruder to exploit the timing window.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Race condition challenge
+import time
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+codes = {'FREEBIE': True}  # True = available
+balance = [0]
+
+@app.route('/')
+def index():
+    return f'''&lt;html&gt;&lt;body&gt;
+    &lt;h1&gt;Promo Code Redemption&lt;/h1&gt;
+    &lt;p&gt;Balance: ${balance[0]}&lt;/p&gt;
+    &lt;form action="/redeem" method="POST"&gt;
+      &lt;input name="code" placeholder="Promo code"&gt;
+      &lt;button&gt;Redeem&lt;/button&gt;
+    &lt;/form&gt;
+    &lt;p&gt;{'FLAG{rac3_c0nd1t10n_turb0} — You got $50+!' if balance[0] &gt;= 50 else 'Reach $50 balance for the flag.'}&lt;/p&gt;
+    &lt;/body&gt;&lt;/html&gt;'''
+
+@app.route('/redeem', methods=['POST'])
+def redeem():
+    code = request.form.get('code', '')
+    if code in codes and codes[code]:
+        # Vulnerable: TOCTOU race — check and update are not atomic
+        time.sleep(0.05)  # simulate DB lookup delay
+        codes[code] = False
+        balance[0] += 10
+        return jsonify({'status': 'success', 'balance': balance[0]})
+    return jsonify({'status': 'already used'}), 400
+
+app.run(debug=True, threaded=True)</code></pre>
+<pre><code class="language-python"># Turbo Intruder script (paste in Turbo Intruder editor)
+def queueRequests(target, wordlists):
+    engine = RequestEngine(endpoint=target.endpoint,
+                           concurrentConnections=30,
+                           requestsPerConnection=100,
+                           pipeline=True)
+    for i in range(20):
+        engine.queue(target.req, gate='race1')
+
+    engine.openGate('race1')  # send all 20 requests simultaneously
+
+def handleResponse(req, interesting):
+    if req.status == 200:
+        table.add(req)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Install <strong>Turbo Intruder</strong> from BApp Store.<br>
+            2. Submit a <code>FREEBIE</code> code via Burp Proxy and send the request to Turbo Intruder (Extensions → Turbo Intruder → Send to Turbo Intruder).<br>
+            3. Use the <code>race-single-packet-attack.py</code> template or the script above. The key is <code>engine.openGate()</code> which releases all queued requests at the same instant.<br>
+            4. The server checks <code>codes[code]</code> before setting it to <code>False</code> — if multiple requests hit the check simultaneously, they all pass.<br>
+            5. Check the balance on the main page — if it exceeds $50, you get the flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Parameter Tampering</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Modify hidden form parameters to purchase an item for free and reveal the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return '''&lt;form action="/buy" method="POST"&gt;
+    &lt;p&gt;Premium Key: $99.99&lt;/p&gt;
+    &lt;input type="hidden" name="item" value="premium_key"&gt;
+    &lt;input type="hidden" name="price" value="9999"&gt;
+    &lt;button&gt;Buy&lt;/button&gt;&lt;/form&gt;'''
+
+@app.route('/buy', methods=['POST'])
+def buy():
+    price = int(request.form.get('price', '9999'))
+    if price &lt;= 0:
+        return '&lt;h1&gt;FLAG{p4r4m_t4mp3r_fr33}&lt;/h1&gt;'
+    return f'&lt;h1&gt;Charged ${price/100:.2f}&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Intercept the POST in Burp Proxy. Change <code>price=9999</code> to <code>price=0</code> or <code>price=-1</code>.<br>
+            Forward the modified request to get the flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: HTTP Request Smuggling</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Exploit a CL.TE request smuggling vulnerability to access the admin endpoint behind a reverse proxy.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># This challenge requires a CL.TE misconfiguration between front-end and back-end.
+# Use PortSwigger Web Security Academy smuggling labs for a live environment.
+
+# CL.TE smuggling payload (send via Repeater, uncheck "Update Content-Length"):
+POST / HTTP/1.1
+Host: vulnerable-site.com
+Content-Length: 35
+Transfer-Encoding: chunked
+
+0
+
+GET /admin HTTP/1.1
+X-Ignore: X
+
+# The front-end uses Content-Length (sees one request)
+# The back-end uses Transfer-Encoding (sees two requests)
+# The smuggled GET /admin bypasses front-end access controls</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. In Repeater: <strong>uncheck</strong> "Update Content-Length".<br>
+            2. The front-end reads Content-Length, back-end reads Transfer-Encoding.<br>
+            3. After the <code>0\r\n\r\n</code> (end of chunked), the back-end treats the remaining bytes as a new request.<br>
+            4. Smuggle a <code>GET /admin</code> request that bypasses the proxy's ACL.<br>
+            5. Use the HTTP Request Smuggler extension for automated detection.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Race Condition with Turbo Intruder</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A gift card can only be redeemed once. Use Turbo Intruder's single-packet attack to redeem it multiple times.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+import time
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+cards = {'GIFT100': True}
+wallet = [0]
+
+@app.route('/redeem', methods=['POST'])
+def redeem():
+    code = request.form.get('code', '')
+    if code in cards and cards[code]:
+        time.sleep(0.03)
+        cards[code] = False
+        wallet[0] += 100
+        return jsonify({'wallet': wallet[0]})
+    return jsonify({'error': 'Already redeemed'}), 400
+
+@app.route('/flag')
+def flag():
+    if wallet[0] &gt;= 500:
+        return jsonify({"flag": "FLAG{turb0_r4c3_w1n}"})
+    return jsonify({"wallet": wallet[0], "need": 500})
+
+app.run(debug=True, threaded=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use Turbo Intruder with the gate feature:<br>
+            Queue 20+ requests, then <code>engine.openGate('race')</code> to release them simultaneously.<br>
+            The 30ms delay before <code>cards[code] = False</code> allows multiple requests to pass the check.<br>
+            Need wallet ≥ $500 ($100 × 5+ successful redeems).</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Hidden API Endpoint Discovery</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Use Burp's content discovery and Intruder to find a hidden API endpoint that returns the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return '&lt;h1&gt;API Server v1.0&lt;/h1&gt;'
+
+@app.route('/api/v1/status')
+def status():
+    return jsonify({"status": "ok"})
+
+@app.route('/api/v1/users')
+def users():
+    return jsonify({"users": ["guest"]})
+
+# Hidden endpoint — not linked anywhere
+@app.route('/api/v1/debug/config')
+def debug_config():
+    return jsonify({"flag": "FLAG{h1dd3n_3ndp01nt}", "db": "internal"})
+
+# Another hidden one
+@app.route('/api/internal/health')
+def health():
+    return jsonify({"healthy": True, "version": "2.1.3"})
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-bash"># Wordlist for endpoint discovery (endpoints.txt):
+# status, users, config, debug, health, admin, internal, backup
+# flag, secret, test, dev, staging, metrics, info, swagger</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Use Intruder: <code>GET /api/v1/§endpoint§</code> and <code>GET /api/§path§/§endpoint§</code>.<br>
+            2. Cluster Bomb with path prefixes: <code>v1, v2, internal, debug</code> and endpoint names.<br>
+            3. Filter by HTTP 200 status codes — most 404s are misses.<br>
+            4. Also try Burp's <strong>Engagement Tools → Discover Content</strong> for automated crawling.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Cookie Tampering</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">The app uses a base64-encoded cookie for authorization. Decode, modify, and re-encode to get admin access.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request, make_response
+import base64, json
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    cookie = base64.b64encode(json.dumps({"user":"guest","admin":False}).encode()).decode()
+    resp = make_response('&lt;h1&gt;Welcome guest&lt;/h1&gt;&lt;a href="/panel"&gt;Admin Panel&lt;/a&gt;')
+    resp.set_cookie('session', cookie)
+    return resp
+
+@app.route('/panel')
+def panel():
+    try:
+        data = json.loads(base64.b64decode(request.cookies.get('session', '')))
+        if data.get('admin') == True:
+            return '&lt;h1&gt;FLAG{c00k13_t4mp3r}&lt;/h1&gt;'
+        return f'&lt;h1&gt;Access denied (admin={data.get("admin")})&lt;/h1&gt;'
+    except:
+        return '&lt;h1&gt;Bad cookie&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>In Burp: inspect the <code>session</code> cookie in Proxy History.<br>
+            Decode from base64: <code>{"user":"guest","admin":false}</code>.<br>
+            Change to <code>{"user":"guest","admin":true}</code>, re-encode, and replace the cookie.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Request Header Manipulation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The admin panel checks for a specific internal header. Use Burp to add the right header and access the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/admin')
+def admin():
+    # Simulates a reverse proxy that adds X-Internal: true for internal requests
+    if request.headers.get('X-Internal') == 'true' and \
+       request.headers.get('X-Forwarded-For') == '127.0.0.1':
+        return '&lt;h1&gt;FLAG{h3ad3r_m4n1p}&lt;/h1&gt;'
+    return '&lt;h1&gt;403 Forbidden — Internal access only&lt;/h1&gt;', 403
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Intercept the request to <code>/admin</code> in Burp Proxy.<br>
+            Add two headers before forwarding:<br>
+            <code>X-Internal: true</code><br>
+            <code>X-Forwarded-For: 127.0.0.1</code><br>
+            Or set up Match and Replace rules to add these automatically.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Web Cache Poisoning</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Poison the web cache to serve an XSS payload to all visitors via an unkeyed header.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Cache poisoning simulation
+from flask import Flask, request, make_response
+import time
+
+app = Flask(__name__)
+cache = {}
+
+@app.route('/')
+def index():
+    cache_key = request.path
+    if cache_key in cache and cache[cache_key]['expires'] &gt; time.time():
+        return cache[cache_key]['response']
+
+    # Unkeyed header reflected in response (cache poison vector)
+    x_host = request.headers.get('X-Forwarded-Host', 'safe.example.com')
+    body = f'''&lt;html&gt;&lt;head&gt;
+    &lt;script src="https://{x_host}/resources/js/analytics.js"&gt;&lt;/script&gt;
+    &lt;/head&gt;&lt;body&gt;
+    &lt;h1&gt;Home Page&lt;/h1&gt;
+    &lt;p&gt;FLAG visible in source after poisoning: FLAG{{c4ch3_p01s0n}}&lt;/p&gt;
+    &lt;/body&gt;&lt;/html&gt;'''
+
+    resp = make_response(body)
+    resp.headers['X-Cache'] = 'MISS'
+    cache[cache_key] = {'response': resp, 'expires': time.time() + 30}
+    return resp
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Use <strong>Param Miner</strong> extension to discover unkeyed headers.<br>
+            2. The <code>X-Forwarded-Host</code> header is reflected but not part of the cache key.<br>
+            3. Send: <code>X-Forwarded-Host: evil.com</code> — the response includes <code>&lt;script src="https://evil.com/..."&gt;</code>.<br>
+            4. If this response gets cached, all subsequent visitors load your malicious script.<br>
+            5. Check the <code>X-Cache</code> header to confirm cache status.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

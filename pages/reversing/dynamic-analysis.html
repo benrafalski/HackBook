@@ -1,0 +1,1549 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Dynamic Analysis</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-nasm.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+  <div class="container mt-4">
+    <h1>Dynamic Analysis</h1>
+
+    <ul class="nav nav-tabs" role="tablist">
+      <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#notes">Notes</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#labs">Labs</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#ctf">CTF Challenges</a></li>
+    </ul>
+
+    <div class="tab-content mt-3">
+
+      <!-- ==================== NOTES ==================== -->
+      <div class="tab-pane fade show active" id="notes">
+
+        <h2>GDB Advanced Usage</h2>
+
+        <h3>Conditional Breakpoints</h3>
+<pre><code class="language-bash"># Break only when condition is true
+break *0x401234 if $rax == 0x41
+break main if argc > 2
+
+# Break on specific iteration
+break loop_func if i == 99
+
+# Watchpoints - break on memory access
+watch *0x7fffffffe000        # break on write
+rwatch *0x7fffffffe000       # break on read
+awatch *0x7fffffffe000       # break on read or write
+
+# Watchpoint on variable
+watch *(int*)0x404060
+
+# Catchpoints
+catch syscall open            # break on open() syscall
+catch signal SIGSEGV          # break on segfault
+catch fork                    # break on fork
+catch exec                    # break on exec
+</code></pre>
+
+        <h3>GDB Python Scripting</h3>
+<pre><code class="language-python"># ~/.gdbinit or source script.py
+import gdb
+
+class DumpOnBreak(gdb.Breakpoint):
+    def stop(self):
+        rax = gdb.parse_and_eval("$rax")
+        print(f"[*] RAX = {rax:#x}")
+        # Return False to not stop execution
+        return False
+
+DumpOnBreak("*0x401234")
+
+# Custom command
+class HexDump(gdb.Command):
+    def __init__(self):
+        super().__init__("hexdump", gdb.COMMAND_USER)
+
+    def invoke(self, arg, from_tty):
+        addr = gdb.parse_and_eval(arg)
+        inferior = gdb.selected_inferior()
+        mem = inferior.read_memory(int(addr), 64)
+        for i in range(0, 64, 16):
+            hex_str = ' '.join(f'{b:02x}' for b in mem[i:i+16])
+            print(f"{int(addr)+i:#x}: {hex_str}")
+
+HexDump()
+
+# Trace all calls to a function
+class TraceFunc(gdb.Breakpoint):
+    def __init__(self, func):
+        super().__init__(func)
+        self.silent = True
+        self.count = 0
+
+    def stop(self):
+        self.count += 1
+        rdi = gdb.parse_and_eval("$rdi")
+        rsi = gdb.parse_and_eval("$rsi")
+        print(f"[{self.count}] {self.location}(rdi={rdi:#x}, rsi={rsi:#x})")
+        return False
+
+TraceFunc("strcmp")
+</code></pre>
+
+        <h2>ltrace / strace</h2>
+<pre><code class="language-bash"># ltrace - trace library calls
+ltrace ./binary
+ltrace -e strcmp+strlen ./binary       # filter specific functions
+ltrace -s 200 ./binary                 # increase string display length
+ltrace -C ./binary                     # demangle C++ names
+ltrace -o output.txt ./binary          # save to file
+
+# strace - trace system calls
+strace ./binary
+strace -f ./binary                     # follow forks
+strace -e trace=network ./binary       # only network syscalls
+strace -e trace=file ./binary          # only file operations
+strace -e trace=read,write ./binary    # specific syscalls
+strace -p PID                          # attach to running process
+strace -c ./binary                     # syscall summary/statistics
+strace -t ./binary                     # timestamps
+strace -x ./binary                     # hex output for strings
+</code></pre>
+
+        <h2>Frida</h2>
+
+        <h3>Basics</h3>
+<pre><code class="language-bash"># Install
+pip install frida-tools
+
+# Attach to running process
+frida -p PID -l script.js
+
+# Spawn and instrument
+frida -f ./binary -l script.js --no-pause
+
+# List running processes
+frida-ps
+frida-ps -U    # USB device (Android)
+</code></pre>
+
+        <h3>Interceptor</h3>
+<pre><code class="language-python"># Frida JS - Hook a function
+Interceptor.attach(Module.findExportByName(null, "strcmp"), {
+    onEnter: function(args) {
+        console.log("[strcmp] arg0: " + Memory.readUtf8String(args[0]));
+        console.log("[strcmp] arg1: " + Memory.readUtf8String(args[1]));
+    },
+    onLeave: function(retval) {
+        console.log("[strcmp] ret: " + retval);
+    }
+});
+
+// Hook by address
+var base = Module.findBaseAddress("target");
+Interceptor.attach(base.add(0x1234), {
+    onEnter: function(args) {
+        console.log("[*] Hit 0x1234, RDI = " + args[0]);
+    }
+});
+</code></pre>
+
+        <h3>Replace</h3>
+<pre><code class="language-python"># Replace function implementation
+Interceptor.replace(Module.findExportByName(null, "ptrace"),
+    new NativeCallback(function(request, pid, addr, data) {
+        console.log("[*] ptrace bypassed");
+        return 0;
+    }, 'long', ['int', 'int', 'pointer', 'pointer'])
+);
+
+// Replace return value
+Interceptor.attach(Module.findExportByName(null, "check_license"), {
+    onLeave: function(retval) {
+        retval.replace(1);  // force return 1 (success)
+    }
+});
+</code></pre>
+
+        <h3>Stalker (Code Tracing)</h3>
+<pre><code class="language-python"># Trace all instructions in a thread
+Stalker.follow(Process.getCurrentThreadId(), {
+    events: { call: true, ret: true },
+    onReceive: function(events) {
+        var parsed = Stalker.parse(events);
+        for (var i = 0; i < parsed.length; i++) {
+            console.log(parsed[i]);
+        }
+    }
+});
+
+// Trace specific range
+var mod = Process.findModuleByName("target");
+Stalker.follow(tid, {
+    transform: function(iterator) {
+        var instruction;
+        while ((instruction = iterator.next()) !== null) {
+            if (instruction.address.compare(mod.base) >= 0 &&
+                instruction.address.compare(mod.base.add(mod.size)) < 0) {
+                console.log(instruction.address + ": " + instruction.mnemonic);
+            }
+            iterator.keep();
+        }
+    }
+});
+</code></pre>
+
+        <h2>Pin / DynamoRIO</h2>
+<pre><code class="language-bash"># Intel Pin - instruction count
+pin -t obj-intel64/inscount0.so -- ./binary
+
+# DynamoRIO - basic block trace
+drrun -t drcov -- ./binary
+# Produces .log file for lighthouse/coverage analysis
+
+# Custom Pin tool (C++)
+# Counts calls to specific function
+</code></pre>
+<pre><code class="language-c">// pintool_calltrace.cpp
+#include "pin.H"
+#include &lt;iostream&gt;
+#include &lt;fstream&gt;
+
+VOID BeforeCall(ADDRINT target, ADDRINT rdi) {
+    std::cout << "CALL " << std::hex << target
+              << " rdi=" << rdi << std::endl;
+}
+
+VOID Instruction(INS ins, VOID *v) {
+    if (INS_IsCall(ins)) {
+        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)BeforeCall,
+                       IARG_BRANCH_TARGET_ADDR,
+                       IARG_REG_VALUE, REG_RDI,
+                       IARG_END);
+    }
+}
+
+int main(int argc, char *argv[]) {
+    PIN_Init(argc, argv);
+    INS_AddInstrumentFunction(Instruction, 0);
+    PIN_StartProgram();
+    return 0;
+}
+</code></pre>
+
+        <h2>Debugging Stripped / PIE Binaries</h2>
+<pre><code class="language-bash"># Stripped binary - no symbols
+file target
+# target: ELF 64-bit LSB executable, ... stripped
+
+# Find main via entry point
+gdb ./target
+(gdb) info file            # entry point address
+(gdb) break *0x401000      # break at entry
+(gdb) run
+(gdb) x/20i $rip           # look for __libc_start_main call pattern
+# RDI before __libc_start_main call = main address
+
+# PIE binary - ASLR randomized base
+gdb ./pie_target
+(gdb) starti               # stop at very first instruction
+(gdb) info proc mappings   # see actual load address
+(gdb) break *($base + 0x1234)   # break relative to base
+
+# With pwndbg/GEF:
+(gdb) piebase              # shows PIE base
+(gdb) pie break 0x1234     # auto-adds base
+</code></pre>
+
+        <h2>Core Dumps Analysis</h2>
+<pre><code class="language-bash"># Enable core dumps
+ulimit -c unlimited
+echo "/tmp/core.%e.%p" > /proc/sys/kernel/core_pattern
+
+# Analyze core dump
+gdb ./binary /tmp/core.binary.1234
+(gdb) bt                   # backtrace at crash
+(gdb) info registers       # register state at crash
+(gdb) x/10i $rip           # instructions at crash point
+(gdb) info threads         # all threads
+(gdb) thread 2             # switch to thread 2
+
+# coredumpctl (systemd)
+coredumpctl list
+coredumpctl debug binary
+</code></pre>
+
+        <h2>LD_PRELOAD Hooking</h2>
+<pre><code class="language-c">// hook_strcmp.c
+#define _GNU_SOURCE
+#include &lt;stdio.h&gt;
+#include &lt;dlfcn.h&gt;
+#include &lt;string.h&gt;
+
+typedef int (*orig_strcmp_t)(const char *s1, const char *s2);
+
+int strcmp(const char *s1, const char *s2) {
+    orig_strcmp_t orig_strcmp = (orig_strcmp_t)dlsym(RTLD_NEXT, "strcmp");
+    printf("[hook] strcmp(\"%s\", \"%s\")\n", s1, s2);
+    return orig_strcmp(s1, s2);
+}
+
+// Force always-match version:
+int strcmp_bypass(const char *s1, const char *s2) {
+    printf("[hook] strcmp bypassed: \"%s\" vs \"%s\"\n", s1, s2);
+    return 0;  // always equal
+}
+</code></pre>
+<pre><code class="language-bash"># Compile and use
+gcc -shared -fPIC -o hook.so hook_strcmp.c -ldl
+LD_PRELOAD=./hook.so ./target
+</code></pre>
+
+        <h2>Valgrind / AddressSanitizer</h2>
+<pre><code class="language-bash"># Valgrind - detect memory errors
+valgrind --tool=memcheck --leak-check=full ./binary
+valgrind --tool=callgrind ./binary   # profiling
+
+# AddressSanitizer - compile-time instrumentation
+gcc -fsanitize=address -g -o target target.c
+./target
+# Reports use-after-free, buffer overflow, etc.
+
+# UndefinedBehaviorSanitizer
+gcc -fsanitize=undefined -g -o target target.c
+</code></pre>
+
+        <h2>Code Coverage with AFL</h2>
+<pre><code class="language-bash"># Compile with AFL instrumentation
+afl-gcc -o target_afl target.c
+# or
+afl-clang-fast -o target_afl target.c
+
+# Create input corpus
+mkdir in && echo "AAAA" > in/seed
+
+# Run fuzzer
+afl-fuzz -i in -o out -- ./target_afl
+
+# Coverage analysis with afl-cov
+afl-cov -d out --coverage-cmd "cat AFL_FILE | ./target_cov" --code-dir .
+</code></pre>
+
+        <h2>Unicorn Engine (Emulation)</h2>
+<pre><code class="language-python">from unicorn import *
+from unicorn.x86_const import *
+
+# Emulate a function
+def emulate_func(code, address=0x400000):
+    mu = Uc(UC_ARCH_X86, UC_MODE_64)
+
+    # Map memory
+    mu.mem_map(address, 0x1000)       # code
+    mu.mem_map(0x7ff000, 0x1000)      # stack
+
+    # Write code
+    mu.mem_write(address, code)
+
+    # Set registers
+    mu.reg_write(UC_X86_REG_RSP, 0x7ff800)
+    mu.reg_write(UC_X86_REG_RDI, 0x41414141)
+
+    # Hook for tracing
+    def hook_code(uc, address, size, user_data):
+        print(f"  {address:#x}: executing {size} bytes")
+
+    mu.hook_add(UC_HOOK_CODE, hook_code)
+
+    # Emulate
+    mu.emu_start(address, address + len(code))
+
+    # Read result
+    rax = mu.reg_read(UC_X86_REG_RAX)
+    print(f"Result RAX = {rax:#x}")
+    return rax
+
+# Example: emulate XOR decryption loop
+code = bytes.fromhex("4831c0b00548ffc0483d0a000000750048c7c001000000c3")
+emulate_func(code)
+</code></pre>
+
+        <h2>Snapshot Debugging</h2>
+<pre><code class="language-bash"># GDB checkpoint/restore
+(gdb) checkpoint       # save state
+(gdb) info checkpoints # list saved states
+(gdb) restart 1        # restore checkpoint 1
+
+# rr - record and replay
+rr record ./binary
+rr replay
+(rr) reverse-continue    # run backwards
+(rr) reverse-step        # step backwards
+(rr) when                # show event number
+(rr) run 500             # go to event 500
+
+# QEMU snapshot
+qemu-system-x86_64 -monitor stdio ...
+(qemu) savevm snap1
+(qemu) loadvm snap1
+</code></pre>
+
+        <h2>Trace-Based Analysis</h2>
+<pre><code class="language-bash"># Intel Processor Trace (PT) with perf
+perf record -e intel_pt// ./binary
+perf script --itrace=b   # decode branches
+
+# perf + FlameGraph
+perf record -g ./binary
+perf script | stackcollapse-perf.pl | flamegraph.pl > flame.svg
+</code></pre>
+
+      </div>
+
+      <!-- ==================== LABS ==================== -->
+      <div class="tab-pane fade" id="labs">
+
+        <div class="lab-card">
+          <h4>Lab 1: GDB Conditional Breakpoints</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use conditional breakpoints to find the iteration where a buffer comparison succeeds in a loop.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab1_conditional.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+
+void check_password(const char *input) {
+    char keys[] = "ABCDEFGHIJ";
+    for (int i = 0; i < 10; i++) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "KEY_%c_%d", keys[i], i * 7 + 3);
+        if (strcmp(input, buf) == 0) {
+            printf("Access granted at index %d!\n", i);
+            return;
+        }
+    }
+    printf("Access denied.\n");
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) { printf("Usage: %s &lt;password&gt;\n", argv[0]); return 1; }
+    check_password(argv[1]);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -g -o lab1 lab1_conditional.c
+# Task: Set a conditional breakpoint on strcmp to print both args
+# Find the correct password without reading source
+# Hint: break strcmp if $rdi != 0 then x/s $rdi and x/s $rsi
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: GDB Python Scripting</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write a GDB Python script that automatically logs all calls to a decryption function and extracts decrypted strings.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab2_decrypt.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+char* decrypt(char *buf, int len, int key) {
+    for (int i = 0; i < len; i++)
+        buf[i] ^= key;
+    return buf;
+}
+
+int main() {
+    char s1[] = {0x57, 0x44, 0x4f, 0x4f, 0x4c, 0x11, 0};  // key=0x23
+    char s2[] = {0x76, 0x4c, 0x55, 0x4f, 0x43, 0x11, 0};  // key=0x23
+    char s3[] = {0x52, 0x40, 0x42, 0x4e, 0x44, 0x57, 0x11, 0}; // key=0x23
+
+    printf("%s\n", decrypt(s1, 5, 0x23));
+    printf("%s\n", decrypt(s2, 5, 0x23));
+    printf("%s\n", decrypt(s3, 6, 0x23));
+    return 0;
+}
+</code></pre>
+<pre><code class="language-python"># Task: Write this GDB script to auto-extract decrypted strings
+import gdb
+
+class DecryptLogger(gdb.Breakpoint):
+    def __init__(self):
+        super().__init__("decrypt")
+        self.silent = True
+
+    def stop(self):
+        # TODO: Read args (rdi=buf, esi=len, edx=key)
+        # TODO: Set a finish breakpoint to read result
+        # TODO: Print decrypted string
+        pass
+
+DecryptLogger()
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: ltrace to Map Library Calls</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use ltrace to discover the correct input for a binary that performs multiple library-based validations.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab3_ltrace.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;ctype.h&gt;
+
+int main(int argc, char **argv) {
+    if (argc != 2) return 1;
+    char *input = argv[1];
+
+    if (strlen(input) != 8) { puts("Wrong length"); return 1; }
+    if (strncmp(input, "dyn", 3) != 0) { puts("Bad prefix"); return 1; }
+    if (!isdigit(input[3])) { puts("Need digit"); return 1; }
+    if (atoi(input + 3) % 7 != 0) { puts("Not divisible"); return 1; }
+    if (strcmp(input + 5, "win") != 0) { puts("Bad suffix"); return 1; }
+
+    printf("Flag: CTF{%s_traced}\n", input);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o lab3 lab3_ltrace.c
+# Task: Run with ltrace to discover all checks
+# ltrace -s 200 ./lab3 "test1234"
+# Reconstruct valid input from observed library calls
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: strace for Syscall Analysis</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use strace to find a hidden file path and secret value that a binary reads at runtime.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab4_strace.c
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;fcntl.h&gt;
+
+int main() {
+    // Read secret from hidden location
+    int fd = open("/tmp/.lab4_secret", O_RDONLY);
+    if (fd < 0) {
+        // Create it if missing
+        fd = open("/tmp/.lab4_secret", O_WRONLY | O_CREAT, 0600);
+        write(fd, "s3cr3t_v4lu3", 12);
+        close(fd);
+        fd = open("/tmp/.lab4_secret", O_RDONLY);
+    }
+
+    char buf[64] = {0};
+    read(fd, buf, 63);
+    close(fd);
+
+    char input[64];
+    printf("Enter secret: ");
+    fgets(input, sizeof(input), stdin);
+    input[strcspn(input, "\n")] = 0;
+
+    if (strcmp(input, buf) == 0)
+        printf("Flag: CTF{syscall_spy_%s}\n", buf);
+    else
+        printf("Wrong!\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o lab4 lab4_strace.c
+# Task: Use strace to find what file is opened and what's read
+# strace -e trace=open,openat,read,write ./lab4
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Frida Basic Hooking</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use Frida to hook a validation function and log its arguments to discover the expected password.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab5_frida.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+int validate(const char *input, const char *secret) {
+    return strcmp(input, secret);
+}
+
+int main() {
+    char secret[] = "fr1d4_h00k_m3";
+    char input[64];
+
+    while (1) {
+        printf("Password: ");
+        if (!fgets(input, sizeof(input), stdin)) break;
+        input[strcspn(input, "\n")] = 0;
+
+        if (validate(input, secret) == 0) {
+            printf("Correct! Flag: CTF{hooked_%s}\n", secret);
+            break;
+        }
+        printf("Try again...\n");
+        sleep(1);
+    }
+    return 0;
+}
+</code></pre>
+<pre><code class="language-python"># hook_lab5.js
+Interceptor.attach(Module.findExportByName(null, "strcmp"), {
+    onEnter: function(args) {
+        var s1 = Memory.readUtf8String(args[0]);
+        var s2 = Memory.readUtf8String(args[1]);
+        console.log("[strcmp] '" + s1 + "' vs '" + s2 + "'");
+    }
+});
+// Run: frida -f ./lab5 -l hook_lab5.js --no-pause
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Frida Function Replacement</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Replace a license-check function with Frida to bypass multi-stage validation.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab6_replace.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;time.h&gt;
+
+int check_license_server(const char *key) {
+    // Simulates network check that always fails
+    return -1;  // server unreachable
+}
+
+int check_expiry() {
+    time_t now = time(NULL);
+    // License expired in 2020
+    return now > 1577836800 ? 0 : 1;
+}
+
+int check_hwid() {
+    // Always fails on non-registered hardware
+    return 0;
+}
+
+int main() {
+    printf("Checking license...\n");
+    if (check_license_server("DEMO-KEY") != 1) {
+        printf("License server check failed.\n");
+        return 1;
+    }
+    if (!check_expiry()) {
+        printf("License expired.\n");
+        return 1;
+    }
+    if (!check_hwid()) {
+        printf("Hardware mismatch.\n");
+        return 1;
+    }
+    printf("Flag: CTF{license_bypassed_with_frida}\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-python"># Task: Write Frida script to replace all three check functions
+# Each should return success (1)
+# Use Interceptor.replace() with NativeCallback
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: LD_PRELOAD Hooking</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Create an LD_PRELOAD library to intercept and modify random number generation to produce predictable output.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab7_random.c
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;time.h&gt;
+
+int main() {
+    srand(time(NULL));
+    int target = 0;
+    for (int i = 0; i < 5; i++) {
+        int r = rand() % 100;
+        target += r;
+        printf("Random[%d] = %d\n", i, r);
+    }
+    // Must sum to exactly 210
+    if (target == 210) {
+        printf("Flag: CTF{ld_preload_rng_control}\n");
+    } else {
+        printf("Sum = %d (need 210)\n", target);
+    }
+    return 0;
+}
+</code></pre>
+<pre><code class="language-c">// hook_rand.c - LD_PRELOAD library
+#include &lt;stdio.h&gt;
+
+static int call_count = 0;
+static int values[] = {42, 42, 42, 42, 42}; // 42*5 = 210
+
+int rand(void) {
+    int val = values[call_count % 5];
+    call_count++;
+    return val;
+}
+
+// Also hook srand to prevent reseeding
+void srand(unsigned int seed) {
+    // no-op
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o lab7 lab7_random.c
+gcc -shared -fPIC -o hook_rand.so hook_rand.c
+LD_PRELOAD=./hook_rand.so ./lab7
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Unicorn Engine Emulation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Extract a flag by emulating an obfuscated decryption routine without running the full binary.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># lab8_unicorn.py
+from unicorn import *
+from unicorn.x86_const import *
+import struct
+
+# Obfuscated decryption function extracted from binary at 0x401100
+# void decrypt(char *buf, int len)
+# XOR with rolling key, then subtract index
+DECRYPT_CODE = bytes([
+    0x55,                         # push rbp
+    0x48, 0x89, 0xe5,             # mov rbp, rsp
+    0x48, 0x89, 0x7d, 0xf8,       # mov [rbp-8], rdi  (buf)
+    0x89, 0x75, 0xf4,             # mov [rbp-0xc], esi (len)
+    0x31, 0xc9,                   # xor ecx, ecx      (i=0)
+    # loop:
+    0x39, 0x75, 0xf4,             # cmp [rbp-0xc], esi... simplified
+    0x48, 0x8b, 0x45, 0xf8,       # mov rax, [rbp-8]
+    0x0f, 0xb6, 0x14, 0x08,       # movzx edx, byte [rax+rcx]
+    0x83, 0xf2, 0x37,             # xor edx, 0x37
+    0x29, 0xca,                   # sub edx, ecx
+    0x88, 0x14, 0x08,             # mov [rax+rcx], dl
+    0xff, 0xc1,                   # inc ecx
+    0x39, 0xf1,                   # cmp ecx, esi
+    0x7c, 0xec,                   # jl loop
+    0x5d,                         # pop rbp
+    0xc3                          # ret
+])
+
+# Encrypted flag data
+encrypted = [0x74, 0x45, 0x63, 0x5b, 0x42, 0x06, 0x6e, 0x58,
+             0x72, 0x5d, 0x5e, 0x57, 0x63, 0x48, 0x5c, 0x55]
+
+# Task: Set up Unicorn to emulate the decrypt function
+# Map code, stack, and data. Write encrypted bytes to data buffer.
+# Set RDI = data_addr, ESI = len, then emulate.
+# Read back decrypted bytes.
+
+def solve():
+    mu = Uc(UC_ARCH_X86, UC_MODE_64)
+    CODE_ADDR = 0x400000
+    DATA_ADDR = 0x500000
+    STACK_ADDR = 0x7ff000
+
+    mu.mem_map(CODE_ADDR, 0x1000)
+    mu.mem_map(DATA_ADDR, 0x1000)
+    mu.mem_map(STACK_ADDR, 0x1000)
+
+    # TODO: Write code, data, set registers, emulate
+    # TODO: Read decrypted flag from DATA_ADDR
+    pass
+
+solve()
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Code Coverage Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use gcov/lcov and DynamoRIO's drcov to achieve 100% code coverage and find a hidden code path.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab9_coverage.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+void process(const char *input) {
+    if (strlen(input) < 4) {
+        printf("Too short\n");
+        return;
+    }
+    if (input[0] == 'X') {
+        if (input[1] == '9') {
+            if (input[2] == 'z') {
+                if (input[3] == '!') {
+                    // Hidden path - only reachable with "X9z!"
+                    printf("Flag: CTF{full_coverage_%s}\n", input);
+                    return;
+                }
+            }
+        }
+        printf("Partial match\n");
+    } else {
+        printf("No match\n");
+    }
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) return 1;
+    process(argv[1]);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash"># gcov approach
+gcc --coverage -g -o lab9 lab9_coverage.c
+./lab9 "AAAA"
+./lab9 "X111"
+gcov lab9_coverage.c
+cat lab9_coverage.c.gcov   # shows uncovered lines
+
+# DynamoRIO approach
+drrun -t drcov -- ./lab9 "test"
+# Load .log in lighthouse (IDA/Ghidra plugin) to visualize coverage
+# Task: Find inputs to cover ALL branches
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Input Fuzzing with AFL</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use AFL to find a crashing input that triggers a hidden buffer overflow vulnerability.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab10_fuzz.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+
+void parse_header(const char *data, int len) {
+    if (len < 4) return;
+    if (data[0] != 'M' || data[1] != 'Z') return;
+
+    int size = (unsigned char)data[2] << 8 | (unsigned char)data[3];
+
+    // Vulnerability: no bounds check on size
+    char buf[64];
+    if (size > 4 && len >= size) {
+        memcpy(buf, data + 4, size - 4);  // overflow if size > 68
+        buf[size - 4] = 0;
+        printf("Parsed: %s\n", buf);
+    }
+}
+
+int main() {
+    char input[256];
+    int n = fread(input, 1, sizeof(input), stdin);
+    parse_header(input, n);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash"># Compile with AFL instrumentation
+afl-clang-fast -o lab10 lab10_fuzz.c
+
+# Seed corpus
+mkdir -p in
+printf 'MZ\x00\x08AAAA' > in/seed1
+
+# Run fuzzer
+afl-fuzz -i in -o out -- ./lab10
+
+# Task: Find the crashing input, explain why it crashes
+# Bonus: Write a PoC exploit for the overflow
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: DynamoRIO Instruction Tracing</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use DynamoRIO to trace instruction execution and identify which comparison values are used in a multi-stage check.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab11_dynrio.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+// Each stage uses different comparison logic
+int stage1(char c) { return (c ^ 0x41) == 0x30; }  // c = 'q'
+int stage2(char c) { return (c + 0x20) == 0x92; }  // c = 'r'
+int stage3(char c) { return (c - 0x10) == 0x55; }  // c = 'e'
+int stage4(char c) { return ((c << 1) & 0xFF) == 0xC8; } // c = 'd'
+
+int main(int argc, char **argv) {
+    if (argc != 2 || strlen(argv[1]) != 4) {
+        printf("Usage: %s &lt;4-char-key&gt;\n", argv[0]);
+        return 1;
+    }
+    if (stage1(argv[1][0]) && stage2(argv[1][1]) &&
+        stage3(argv[1][2]) && stage4(argv[1][3])) {
+        printf("Flag: CTF{dynamorio_%s}\n", argv[1]);
+    } else {
+        printf("Nope.\n");
+    }
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o lab11 lab11_dynrio.c
+
+# Use DynamoRIO instruction trace
+drrun -t drcov -- ./lab11 "AAAA"
+
+# Or use instrace
+drrun -c libinstrace.so -- ./lab11 "AAAA"
+
+# Task: Analyze the trace to find comparison operands
+# Determine correct 4-char key from instruction trace
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Core Dump Forensics</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Analyze a core dump to reconstruct the state of a program that crashed during flag decryption, and recover the partial flag.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab12_coredump.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+
+void decrypt_flag(char *out, const char *key) {
+    char enc[] = {0x13, 0x37, 0x42, 0x55, 0x61, 0x78, 0x23, 0x45,
+                  0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x11, 0x22, 0x33};
+    int klen = strlen(key);
+    for (int i = 0; i < 16; i++) {
+        out[i] = enc[i] ^ key[i % klen];
+    }
+    out[16] = 0;
+
+    // Bug: NULL pointer dereference after partial decrypt
+    char *ptr = NULL;
+    *ptr = out[0];  // CRASH - but flag is in memory
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) return 1;
+    char flag[32] = {0};
+    decrypt_flag(flag, argv[1]);
+    printf("Flag: %s\n", flag);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -g -o lab12 lab12_coredump.c
+ulimit -c unlimited
+
+# Crash it with correct key to get flag in core dump
+./lab12 "secretkey"
+
+# Task: Analyze the core dump
+# gdb ./lab12 core
+# (gdb) info locals
+# (gdb) x/s &amp;flag      # flag should be in stack frame
+# Recover the decrypted flag from the core dump
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 13: Process Memory Injection Analysis</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use /proc/pid/mem and ptrace to read decrypted secrets from a running process's memory.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab13_target.c - long-running target with secret in memory
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+int main() {
+    char secret[] = "CTF{pr0c_m3m_r34d}";
+    // XOR in memory to hide from strings
+    for (int i = 0; i < strlen(secret); i++)
+        secret[i] ^= 0xFF;
+
+    printf("PID: %d - Running...\n", getpid());
+
+    // Decrypt back before use
+    for (int i = 0; i < 18; i++)
+        secret[i] ^= 0xFF;
+
+    // Secret now in cleartext in memory
+    sleep(60);  // keep running
+    printf("Done: %s\n", secret);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-python"># lab13_reader.py - read memory from target process
+import sys
+
+def read_process_memory(pid, address, size):
+    with open(f"/proc/{pid}/mem", "rb") as f:
+        f.seek(address)
+        return f.read(size)
+
+def find_stack_range(pid):
+    with open(f"/proc/{pid}/maps") as f:
+        for line in f:
+            if "[stack]" in line:
+                parts = line.split()[0].split("-")
+                return int(parts[0], 16), int(parts[1], 16)
+    return None, None
+
+# Task: Find and read the decrypted secret from target's stack
+# 1. Run lab13_target in background
+# 2. Parse /proc/PID/maps for stack region
+# 3. Read stack memory and search for "CTF{" pattern
+</code></pre>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ==================== CTF ==================== -->
+      <div class="tab-pane fade" id="ctf">
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Debug to Find Comparison</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A stripped binary compares your input against a runtime-computed password. Use dynamic analysis to find the comparison value.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf1_compare.c - compile stripped: gcc -s -o ctf1 ctf1_compare.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int main() {
+    char pass[32];
+    char input[32];
+    // Compute password at runtime
+    for (int i = 0; i < 8; i++)
+        pass[i] = "XVBNM,./"[i] ^ (i + 0x10);
+    pass[8] = 0;
+
+    printf("Password: ");
+    scanf("%31s", input);
+    if (strcmp(input, pass) == 0)
+        printf("CTF{dyn_cmp_%s}\n", pass);
+    else
+        printf("Wrong\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -s -o ctf1 ctf1_compare.c
+# Solve by breaking on strcmp and reading args
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Use GDB: <code>break strcmp</code>, then <code>x/s $rdi</code> and <code>x/s $rsi</code> to see both strings being compared.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Hook Crypto Function with Frida</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A binary encrypts a flag with AES and discards the key. Hook the encryption call with Frida to capture the key and plaintext before encryption.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf2_crypto.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+
+void custom_encrypt(char *data, int len, const char *key, int keylen) {
+    for (int i = 0; i < len; i++)
+        data[i] ^= key[i % keylen];
+}
+
+int main() {
+    char flag[] = "CTF{fr1d4_k3y_c4ptur3}";
+    char key[] = "r4nd0mK3y!";
+
+    printf("Encrypting flag...\n");
+    custom_encrypt(flag, strlen(flag), key, strlen(key));
+
+    // Key is "gone" after this
+    memset((void*)key, 0, sizeof(key));
+
+    printf("Encrypted (hex): ");
+    for (int i = 0; i < 22; i++)
+        printf("%02x", (unsigned char)flag[i]);
+    printf("\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf2 ctf2_crypto.c
+# Hook custom_encrypt with Frida to read key before memset
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Find <code>custom_encrypt</code> address with <code>nm</code> or Frida's <code>Module.findExportByName</code>. Hook onEnter to read args[0] (data), args[2] (key).</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Bypass Time-Based Check</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A binary only reveals the flag on a specific date in the past. Bypass the time check using dynamic analysis.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf3_time.c
+#include &lt;stdio.h&gt;
+#include &lt;time.h&gt;
+
+int main() {
+    time_t now = time(NULL);
+    struct tm *t = localtime(&amp;now);
+
+    // Only works on Jan 1, 2000
+    if (t->tm_year == 100 && t->tm_mon == 0 && t->tm_mday == 1) {
+        printf("CTF{t1m3_tr4v3l_h4ck}\n");
+    } else {
+        printf("This software expired. Current: %d-%02d-%02d\n",
+               t->tm_year + 1900, t->tm_mon + 1, t->tm_mday);
+    }
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf3 ctf3_time.c
+# Methods: LD_PRELOAD to hook time(), faketime, or Frida
+# Or: GDB - break on the comparison and modify registers
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Use <code>faketime "2000-01-01" ./ctf3</code> or LD_PRELOAD a fake <code>time()</code> that returns 946684800 (epoch for Jan 1, 2000).</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Trace Network Communication</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A binary sends a "license check" to localhost. Intercept the sent data and returned expected response to bypass the check.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf4_net.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys/socket.h&gt;
+#include &lt;arpa/inet.h&gt;
+#include &lt;unistd.h&gt;
+
+int main() {
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in srv = {.sin_family=AF_INET, .sin_port=htons(9999)};
+    inet_pton(AF_INET, "127.0.0.1", &amp;srv.sin_addr);
+
+    if (connect(sock, (struct sockaddr*)&amp;srv, sizeof(srv)) < 0) {
+        printf("Cannot reach license server\n");
+        return 1;
+    }
+
+    char req[] = "CHECK:PROD-KEY-2024";
+    send(sock, req, strlen(req), 0);
+
+    char resp[64] = {0};
+    recv(sock, resp, 63, 0);
+    close(sock);
+
+    if (strcmp(resp, "VALID:OK") == 0)
+        printf("CTF{n3tw0rk_1nt3rc3pt}\n");
+    else
+        printf("License invalid: %s\n", resp);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf4 ctf4_net.c
+# Use strace to see the connect/send/recv
+# Then: write a fake server that responds "VALID:OK"
+# Or: hook send/recv with LD_PRELOAD/Frida
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Run <code>strace -e trace=network ./ctf4</code> to see what it sends. Then create a netcat listener: <code>echo -n "VALID:OK" | nc -l 9999</code> and run the binary.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Emulate Function with Unicorn</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A binary contains an anti-debug-protected decryption function. Extract the bytes and emulate with Unicorn to get the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># The binary has anti-debug so we can't run it normally
+# Extracted function bytes (decrypts flag in RDI buffer, len in ESI):
+func_bytes = bytes([
+    0x31, 0xc9,                   # xor ecx, ecx
+    # loop:
+    0x0f, 0xb6, 0x14, 0x0f,       # movzx edx, byte [rdi+rcx]
+    0x89, 0xc8,                   # mov eax, ecx
+    0x83, 0xc0, 0x05,             # add eax, 5
+    0x31, 0xd0,                   # xor eax, edx
+    0x88, 0x04, 0x0f,             # mov [rdi+rcx], al
+    0xff, 0xc1,                   # inc ecx
+    0x39, 0xf1,                   # cmp ecx, esi
+    0x7c, 0xee,                   # jl loop
+    0xc3                          # ret
+])
+
+# Encrypted flag data (extracted from .rodata)
+encrypted_flag = [0x44, 0x51, 0x48, 0x68, 0x28, 0x50, 0x5b, 0x43,
+                  0x6f, 0x2d, 0x56, 0x5f, 0x4b, 0x73, 0x34, 0x58]
+
+# Task: Emulate func_bytes with Unicorn Engine
+# Set RDI = buffer with encrypted_flag, ESI = 16
+# Read decrypted result
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>The decryption is: <code>out[i] = encrypted[i] ^ (i + 5)</code>. You can solve it manually or emulate with Unicorn by mapping code + data and running emu_start.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Fuzz to Find Crash</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A file parser has a hidden vulnerability. Use fuzzing to find the crash, then construct a PoC that triggers a controlled write.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf6_parser.c
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+struct header {
+    char magic[4];    // "HACK"
+    unsigned short num_entries;
+    unsigned short entry_size;
+};
+
+void parse(const char *data, int len) {
+    if (len < sizeof(struct header)) return;
+    struct header *h = (struct header*)data;
+    if (memcmp(h->magic, "HACK", 4) != 0) return;
+
+    // Bug: integer overflow in total_size calculation
+    unsigned int total_size = h->num_entries * h->entry_size;
+    if (total_size > 1024) return;  // "bounds check"
+
+    // With crafted values: 65535 * 65535 overflows to small value
+    char *buf = malloc(total_size);
+    if (!buf) return;
+
+    // Copies more than allocated
+    int copy_len = len - sizeof(struct header);
+    memcpy(buf, data + sizeof(struct header), copy_len);
+
+    printf("Parsed %d entries\n", h->num_entries);
+    free(buf);
+}
+
+int main() {
+    char input[4096];
+    int n = fread(input, 1, sizeof(input), stdin);
+    parse(input, n);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">afl-clang-fast -o ctf6 ctf6_parser.c
+mkdir -p in && printf 'HACK\x02\x00\x04\x00AAAAAAAA' > in/seed
+afl-fuzz -i in -o out -- ./ctf6
+# Find crash, explain the integer overflow
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Set num_entries and entry_size so their product overflows a 32-bit unsigned int to a small value (e.g., 0x10001 * 0xFFFF = 0xFFFF wrapping). Then the memcpy writes more data than allocated.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Dynamic Library Interception</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A binary loads a shared library at runtime with dlopen and calls a validation function. Provide a fake library to bypass validation.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf7_dlopen.c
+#include &lt;stdio.h&gt;
+#include &lt;dlfcn.h&gt;
+
+int main() {
+    void *lib = dlopen("./libvalidate.so", RTLD_NOW);
+    if (!lib) {
+        printf("Cannot load validator: %s\n", dlerror());
+        return 1;
+    }
+
+    int (*validate)(const char*) = dlsym(lib, "validate_key");
+    if (!validate) { printf("No validate_key symbol\n"); return 1; }
+
+    if (validate("anything") == 0x1337) {
+        printf("CTF{dl0p3n_h1j4ck}\n");
+    } else {
+        printf("Validation failed\n");
+    }
+    dlclose(lib);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf7 ctf7_dlopen.c -ldl
+# Task: Create a fake libvalidate.so that returns 0x1337
+# gcc -shared -fPIC -o libvalidate.so fake_validate.c
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Create <code>fake_validate.c</code>: <code>int validate_key(const char *k) { return 0x1337; }</code> and compile as shared lib in the same directory.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Multi-Process Debugging</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A binary forks a child that performs the actual flag computation. Debug the child process to extract the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf8_fork.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;sys/wait.h&gt;
+
+void compute_flag(int pipe_fd) {
+    char flag[] = "CTF{f0rk_d3bug_m4st3r}";
+    // Anti-debug: parent watches child
+    write(pipe_fd, flag, strlen(flag));
+}
+
+int main() {
+    int pipefd[2];
+    pipe(pipefd);
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child - does the real work
+        close(pipefd[0]);
+        sleep(1);  // Wait for parent to set up
+        compute_flag(pipefd[1]);
+        close(pipefd[1]);
+        return 0;
+    }
+
+    // Parent - reads result from child
+    close(pipefd[1]);
+    char buf[64] = {0};
+    waitpid(pid, NULL, 0);
+    read(pipefd[0], buf, 63);
+    close(pipefd[0]);
+
+    printf("Result: %s\n", buf);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -g -o ctf8 ctf8_fork.c
+# GDB: set follow-fork-mode child
+# Or: strace -f ./ctf8 to see pipe data
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>In GDB: <code>set follow-fork-mode child</code> before running, then break in <code>compute_flag</code>. Or use <code>strace -f</code> to trace both processes and read the pipe write.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Timing Side-Channel with Instrumentation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A password checker uses byte-by-byte comparison with early exit. Use Pin/DynamoRIO instruction counting to determine each byte.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf9_timing.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int check(const char *input) {
+    const char *secret = "s1d3ch4nn3l";
+    int len = strlen(secret);
+    if (strlen(input) != len) return 0;
+
+    for (int i = 0; i < len; i++) {
+        if (input[i] != secret[i])
+            return 0;  // early exit = fewer instructions
+    }
+    return 1;
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) return 1;
+    if (check(argv[1]))
+        printf("CTF{%s_l34k3d}\n", argv[1]);
+    else
+        printf("Wrong\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-python"># solve_timing.py - Use instruction count side-channel
+import subprocess
+import string
+
+def count_instructions(guess):
+    # Use Pin's inscount tool
+    result = subprocess.run(
+        ["pin", "-t", "inscount0.so", "--", "./ctf9", guess],
+        capture_output=True, text=True
+    )
+    # Parse instruction count from output
+    for line in result.stderr.split('\n'):
+        if 'Count' in line:
+            return int(line.split()[-1])
+    return 0
+
+password = ""
+for pos in range(11):  # known length
+    best_char = ''
+    best_count = 0
+    for c in string.ascii_lowercase + string.digits:
+        guess = password + c + 'A' * (10 - pos)
+        count = count_instructions(guess)
+        if count > best_count:
+            best_count = count
+            best_char = c
+    password += best_char
+    print(f"[{pos}] {password}")
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Each correct byte causes the loop to execute one more iteration. The guess with the highest instruction count for each position reveals the correct character.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Anti-Debug Bypass via Hooking</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A binary uses ptrace, timing checks, and /proc/self/status to prevent debugging. Bypass all checks dynamically to reach the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf10_antidebug.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys/ptrace.h&gt;
+#include &lt;time.h&gt;
+#include &lt;stdlib.h&gt;
+
+int check_ptrace() {
+    return ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1;
+}
+
+int check_timing() {
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &amp;start);
+    volatile int x = 0;
+    for (int i = 0; i < 1000; i++) x += i;
+    clock_gettime(CLOCK_MONOTONIC, &amp;end);
+    long diff = (end.tv_nsec - start.tv_nsec);
+    return diff > 1000000;  // > 1ms = debugger
+}
+
+int check_proc_status() {
+    FILE *f = fopen("/proc/self/status", "r");
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "TracerPid:", 10) == 0) {
+            int pid = atoi(line + 10);
+            fclose(f);
+            return pid != 0;
+        }
+    }
+    fclose(f);
+    return 0;
+}
+
+int main() {
+    if (check_ptrace()) { printf("Debugger detected (ptrace)\n"); return 1; }
+    if (check_timing()) { printf("Debugger detected (timing)\n"); return 1; }
+    if (check_proc_status()) { printf("Debugger detected (proc)\n"); return 1; }
+
+    printf("CTF{4nt1_d3bug_byp4ss3d}\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf10 ctf10_antidebug.c
+# Bypass using LD_PRELOAD or Frida to hook:
+# - ptrace() -> return 0
+# - clock_gettime() -> return fixed small values
+# - fopen("/proc/self/status") -> return fake file with TracerPid: 0
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Create an LD_PRELOAD library that hooks all three: <code>ptrace</code> returns 0, <code>clock_gettime</code> returns constant values, and <code>fopen</code> for "/proc/self/status" returns a fake file descriptor. Or use Frida to replace all three functions.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 11: Encrypted Config Extraction</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A daemon decrypts its config file into memory at startup. Attach to the running process and dump the decrypted config containing credentials.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf11_daemon.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+
+char *decrypted_config = NULL;
+
+void load_config() {
+    // Simulated encrypted config
+    char encrypted[] = {0x72, 0x64, 0x60, 0x62, 0x7a, 0x45, 0x27, 0x22,
+                        0x37, 0x34, 0x35, 0x35, 0x3a, 0x44, 0x60, 0x57,
+                        0x40, 0x57, 0x47, 0x32, 0x38, 0x3f, 0x38, 0x00};
+    int len = sizeof(encrypted) - 1;
+    decrypted_config = malloc(len + 1);
+    for (int i = 0; i < len; i++)
+        decrypted_config[i] = encrypted[i] ^ 0x13;
+    decrypted_config[len] = 0;
+}
+
+int main() {
+    load_config();
+    printf("Daemon PID: %d\n", getpid());
+    printf("Config loaded. Serving...\n");
+    // Config is in heap memory - find it!
+    while(1) sleep(10);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf11 ctf11_daemon.c
+./ctf11 &amp;
+# Task: Attach with GDB or read /proc/PID/mem to find decrypted config
+# gdb -p PID then search heap for readable strings
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Attach GDB: <code>gdb -p $(pgrep ctf11)</code>, then <code>info proc mappings</code> to find heap, then <code>find heap_start, heap_end, "admin"</code> or search for readable ASCII in the heap region.</p></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

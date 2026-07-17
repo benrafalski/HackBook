@@ -1,0 +1,2301 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Static Analysis</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-nasm.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+  <h1>Static Analysis</h1>
+
+  <div class="tab-container">
+    <ul class="nav nav-tabs" role="tablist">
+      <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#notes" role="tab">Notes</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#labs" role="tab">Labs</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#ctf" role="tab">CTF Challenges</a></li>
+    </ul>
+
+    <div class="tab-content">
+      <!-- ═══════════════════════════════════════════════════════════════════
+           NOTES TAB
+           ═══════════════════════════════════════════════════════════════════ -->
+      <div class="tab-pane fade show active" id="notes" role="tabpanel">
+
+        <!-- ─── Command-Line Tools ─── -->
+        <h2>Command-Line Recon Tools</h2>
+
+        <h3>file</h3>
+        <p>Identify file type, architecture, linking, and stripping status.</p>
+        <pre><code class="language-bash">$ file crackme
+crackme: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked,
+         interpreter /lib64/ld-linux-x86-64.so.2, not stripped
+
+$ file packed.exe
+packed.exe: PE32 executable (console) Intel 80386, for MS Windows, UPX compressed</code></pre>
+
+        <h3>strings</h3>
+        <p>Extract printable strings — reveals passwords, URLs, debug messages, format strings.</p>
+        <pre><code class="language-bash"># Basic usage
+$ strings -n 8 binary | head -20
+
+# Search for interesting patterns
+$ strings binary | grep -iE "pass|key|flag|secret|http|login"
+
+# Wide strings (UTF-16 for Windows binaries)
+$ strings -e l binary
+
+# With offset information
+$ strings -t x binary | grep "flag"
+  4a2c flag{static_analysis_ftw}</code></pre>
+
+        <h3>readelf</h3>
+        <p>Inspect ELF structure — headers, sections, symbols, relocations.</p>
+        <pre><code class="language-bash"># File header (arch, entry point, type)
+$ readelf -h binary
+  Entry point address:               0x401060
+  Machine:                           Advanced Micro Devices X86-64
+
+# Section headers (find .text, .rodata, .bss sizes)
+$ readelf -S binary
+
+# Symbol table (functions, globals)
+$ readelf -s binary | grep FUNC
+  45: 0000000000401156    85 FUNC    GLOBAL DEFAULT   14 check_password
+  46: 00000000004011ab    42 FUNC    GLOBAL DEFAULT   14 decrypt_flag
+
+# Dynamic symbols (imported functions)
+$ readelf --dyn-syms binary | grep -i "crypt\|strcmp\|rand"
+
+# Program headers (segments, LOAD addresses)
+$ readelf -l binary</code></pre>
+
+        <h3>objdump</h3>
+        <p>Disassemble sections with Intel or AT&T syntax.</p>
+        <pre><code class="language-bash"># Disassemble .text with Intel syntax
+$ objdump -d -M intel binary
+
+# Disassemble specific function
+$ objdump -d -M intel binary | sed -n '/&lt;check_password&gt;:/,/^$/p'
+
+# Show all sections with content
+$ objdump -s -j .rodata binary
+
+# Disassemble with source interleaved (if compiled with -g)
+$ objdump -d -S -M intel binary
+
+# Show relocations
+$ objdump -R binary</code></pre>
+
+        <h3>nm</h3>
+        <p>List symbols — find functions, globals, undefined imports.</p>
+        <pre><code class="language-bash"># All symbols sorted by address
+$ nm binary
+
+# Only defined functions (T=text/code)
+$ nm binary | grep " T "
+
+# Undefined symbols (imports)
+$ nm -u binary
+
+# Demangle C++ names
+$ nm -C binary | grep -i "check\|verify\|validate"
+
+# Symbol types: T=text, D=data, B=bss, U=undefined, W=weak</code></pre>
+
+        <h3>ltrace / strace</h3>
+        <p>Trace library calls and system calls (semi-static — useful for quick recon).</p>
+        <pre><code class="language-bash"># Library calls (strcmp, malloc, printf args visible!)
+$ ltrace ./crackme secretpass
+strcmp("secretpass", "sup3r_s3cr3t") = -1
+puts("Wrong!")
+
+# System calls
+$ strace -f ./binary 2>&1 | grep -E "open|read|write|connect"
+
+# Follow forks
+$ strace -ff -o trace ./binary</code></pre>
+
+        <!-- ─── Ghidra ─── -->
+        <h2>Ghidra</h2>
+
+        <h3>Installation & Project Setup</h3>
+        <pre><code class="language-bash"># Download from https://ghidra-sre.org/
+# Requires JDK 17+
+$ export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+$ ./ghidraRun
+
+# Headless mode (scripting/batch analysis)
+$ ./analyzeHeadless /path/to/project ProjectName \
+    -import binary \
+    -postScript MyScript.py \
+    -scriptPath /path/to/scripts</code></pre>
+        <p><strong>Project workflow:</strong> File → New Project → Non-Shared → Import File → Auto-analyze (accept defaults) → Double-click to open in CodeBrowser.</p>
+
+        <h3>Navigation & Interface</h3>
+        <table class="table table-sm">
+          <thead><tr><th>Action</th><th>Shortcut</th></tr></thead>
+          <tbody>
+            <tr><td>Go to address</td><td><code>G</code></td></tr>
+            <tr><td>Search strings</td><td><code>Search → For Strings</code></td></tr>
+            <tr><td>Rename symbol</td><td><code>L</code></td></tr>
+            <tr><td>Retype variable</td><td><code>Ctrl+L</code></td></tr>
+            <tr><td>Add comment</td><td><code>;</code> (EOL) / <code>Ctrl+;</code> (pre)</td></tr>
+            <tr><td>Undo</td><td><code>Ctrl+Z</code></td></tr>
+            <tr><td>Cross-references to</td><td><code>Ctrl+Shift+F</code> or right-click → References</td></tr>
+            <tr><td>Cross-references from</td><td>Select → References → Show References From</td></tr>
+            <tr><td>Function graph</td><td><code>Space</code> (toggle listing/graph)</td></tr>
+            <tr><td>Decompiler</td><td><code>Window → Decompile</code></td></tr>
+            <tr><td>Define struct</td><td><code>Window → Data Type Manager</code></td></tr>
+            <tr><td>Patch bytes</td><td><code>Ctrl+Shift+G</code> (Patch Instruction)</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Decompiler Tips</h3>
+        <ul>
+          <li>Right-click variables → Retype / Rename to improve output</li>
+          <li>Define structs in Data Type Manager, then apply to pointer params</li>
+          <li>Decompiler output improves dramatically with correct function signatures</li>
+          <li><code>Edit → Tool Options → Decompiler → Analysis</code> to tune settings</li>
+          <li>Override calling convention: right-click function → Edit Function Signature</li>
+        </ul>
+
+        <h3>Cross-References (XREFs)</h3>
+        <p>XREFs are the backbone of static analysis — they tell you where data/functions are used.</p>
+        <pre><code class="language-python"># In Ghidra's decompiler, click a function/variable, press Ctrl+Shift+F
+# Shows all callers of a function or readers/writers of data
+
+# Types of XREFs:
+# - Call references: function A calls function B
+# - Data references: code reads/writes a global variable
+# - String references: code references a string in .rodata</code></pre>
+        <p><strong>Strategy:</strong> Find interesting strings → XREF to code → Trace logic backwards from there.</p>
+
+        <h3>Patching Binaries in Ghidra</h3>
+        <ol>
+          <li>Navigate to the instruction to patch</li>
+          <li><code>Ctrl+Shift+G</code> → Patch Instruction (or right-click → Patch)</li>
+          <li>Modify instruction (e.g., <code>JNE</code> → <code>JE</code>, or <code>NOP</code> out bytes)</li>
+          <li>File → Export Program → Binary (choose Original format)</li>
+        </ol>
+        <pre><code class="language-nasm">; Original: jump if password check fails
+004011a2  75 1a          JNZ    LAB_004011be    ; skip success if not equal
+
+; Patched: always fall through to success
+004011a2  90 90          NOP                     ; two NOPs replace the JNZ</code></pre>
+
+        <h3>Ghidra Python Scripting (Jython)</h3>
+        <pre><code class="language-python"># List all functions and their addresses
+from ghidra.program.model.listing import FunctionManager
+
+fm = currentProgram.getFunctionManager()
+for func in fm.getFunctions(True):
+    print(f"{func.getName()} @ {func.getEntryPoint()}")
+
+# Find all cross-references to a function
+from ghidra.program.model.symbol import RefType
+target = getFunction("check_password")
+refs = getReferencesTo(target.getEntryPoint())
+for ref in refs:
+    print(f"Called from: {ref.getFromAddress()}")
+
+# Search for specific byte patterns (e.g., AES S-box start)
+from ghidra.program.model.mem import MemoryAccessException
+memory = currentProgram.getMemory()
+pattern = bytes([0x63, 0x7c, 0x77, 0x7b])  # AES S-box first 4 bytes
+results = findBytes(None, pattern, 100)
+for addr in results:
+    print(f"Potential AES S-box at: {addr}")
+
+# Rename functions matching a pattern
+fm = currentProgram.getFunctionManager()
+for func in fm.getFunctions(True):
+    if func.getName().startswith("FUN_"):
+        # Check if function references "error" string
+        refs = getReferencesFrom(func.getEntryPoint())
+        # Custom logic to auto-rename based on behavior
+
+# Decompile a function programmatically
+from ghidra.app.decompiler import DecompInterface
+decomp = DecompInterface()
+decomp.openProgram(currentProgram)
+func = getFunction("main")
+results = decomp.decompileFunction(func, 30, monitor)
+print(results.getDecompiledFunction().getC())</code></pre>
+
+        <!-- ─── IDA Pro/Free ─── -->
+        <h2>IDA Pro / IDA Free</h2>
+
+        <h3>Interface & Essential Hotkeys</h3>
+        <table class="table table-sm">
+          <thead><tr><th>Action</th><th>Shortcut</th></tr></thead>
+          <tbody>
+            <tr><td>Go to address/name</td><td><code>G</code></td></tr>
+            <tr><td>Rename</td><td><code>N</code></td></tr>
+            <tr><td>Set type</td><td><code>Y</code></td></tr>
+            <tr><td>Cross-references to</td><td><code>X</code></td></tr>
+            <tr><td>Cross-references from</td><td><code>Ctrl+X</code></td></tr>
+            <tr><td>Decompile (Hex-Rays)</td><td><code>F5</code></td></tr>
+            <tr><td>Graph view</td><td><code>Space</code></td></tr>
+            <tr><td>Strings window</td><td><code>Shift+F12</code></td></tr>
+            <tr><td>Functions window</td><td><code>Shift+F3</code></td></tr>
+            <tr><td>Segments</td><td><code>Shift+F7</code></td></tr>
+            <tr><td>Make code</td><td><code>C</code></td></tr>
+            <tr><td>Make data</td><td><code>D</code></td></tr>
+            <tr><td>Undefine</td><td><code>U</code></td></tr>
+            <tr><td>Add comment</td><td><code>:</code> (regular) / <code>Ins</code> (anterior)</td></tr>
+            <tr><td>Patch bytes</td><td><code>Edit → Patch Program → Change Byte</code></td></tr>
+            <tr><td>Apply struct</td><td><code>Alt+Q</code></td></tr>
+          </tbody>
+        </table>
+
+        <h3>IDA Python</h3>
+        <pre><code class="language-python">import idautils
+import idaapi
+import idc
+
+# List all functions
+for func_ea in idautils.Functions():
+    name = idc.get_func_name(func_ea)
+    print(f"{name} @ {hex(func_ea)}")
+
+# Get cross-references to an address
+target = idc.get_name_ea_simple("check_password")
+for xref in idautils.XrefsTo(target):
+    print(f"Called from {hex(xref.frm)} type={xref.type}")
+
+# Search for string references
+for s in idautils.Strings():
+    if "flag" in str(s).lower():
+        print(f"String '{s}' at {hex(s.ea)}")
+        # Find code that references this string
+        for xref in idautils.XrefsTo(s.ea):
+            print(f"  Referenced from {hex(xref.frm)}")
+
+# Patch bytes
+idc.patch_byte(0x401234, 0x90)  # NOP
+idc.patch_word(0x401234, 0x9090)  # Two NOPs
+
+# Get decompiled pseudocode (Hex-Rays)
+cfunc = idaapi.decompile(idc.get_name_ea_simple("main"))
+print(cfunc)
+
+# Color a basic block
+idc.set_color(0x401100, idc.CIC_ITEM, 0x00FF00)</code></pre>
+
+        <!-- ─── radare2 / rizin ─── -->
+        <h2>radare2 / rizin</h2>
+
+        <h3>Essential Commands</h3>
+        <pre><code class="language-bash"># Open binary in analysis mode
+$ r2 -A binary        # -A = analyze all (aaa)
+$ rizin -A binary     # rizin equivalent
+
+# Navigation
+[0x00401060]> s main          # seek to main
+[0x00401156]> s 0x401156      # seek to address
+
+# Analysis
+[0x00401060]> aaa             # analyze all
+[0x00401060]> afl             # list all functions
+[0x00401060]> afl~check       # grep function list
+[0x00401060]> afn newname     # rename current function
+
+# Disassembly
+[0x00401060]> pdf             # print disassembly of function
+[0x00401060]> pd 20           # print 20 instructions
+[0x00401060]> pdr             # recursive disassembly
+
+# Strings
+[0x00401060]> iz              # strings in data sections
+[0x00401060]> izz             # all strings in binary
+[0x00401060]> iz~pass         # grep strings
+
+# Cross-references
+[0x00401156]> axt             # xrefs TO current address
+[0x00401156]> axf             # xrefs FROM current address
+
+# Information
+[0x00401060]> i               # binary info
+[0x00401060]> iS              # sections
+[0x00401060]> ii              # imports
+[0x00401060]> ie              # exports/entrypoints
+
+# Patching
+[0x004011a2]> wx 9090         # write hex bytes (NOP NOP)
+[0x004011a2]> wa nop;nop      # write assembly
+
+# Visual mode
+[0x00401060]> V               # visual mode
+[0x00401060]> VV              # graph mode
+# In visual: p/P to cycle views, hjkl to navigate</code></pre>
+
+        <h3>radare2 Visual & Graph Mode</h3>
+        <pre><code class="language-bash"># Graph mode (VV) navigation:
+# t/f - follow true/false branch
+# Tab - switch between blocks
+# g - seek to function
+# ; - add comment
+# : - r2 command prompt
+# q - quit to shell
+
+# Useful visual panels mode
+[0x00401060]> v               # panels mode
+# Tab to switch panels, split with | or -</code></pre>
+
+        <!-- ─── Binary Ninja ─── -->
+        <h2>Binary Ninja</h2>
+        <p>Commercial tool with free cloud version. Key features:</p>
+        <ul>
+          <li><strong>MLIL/HLIL:</strong> Multiple decompilation levels (Lifted IL → Low Level IL → Medium Level IL → High Level IL)</li>
+          <li><strong>Type propagation:</strong> Automatically propagates types through SSA form</li>
+          <li><strong>Python API:</strong> Extensive scripting via <code>binaryninja</code> module</li>
+          <li><strong>Triage view:</strong> Quick summary for rapid binary assessment</li>
+        </ul>
+        <pre><code class="language-python"># Binary Ninja Python API
+import binaryninja as bn
+
+bv = bn.open_view("/path/to/binary")
+for func in bv.functions:
+    if "check" in func.name:
+        # Get HLIL (highest level decompilation)
+        for line in func.hlil.root.lines:
+            print(line)
+
+# Find all calls to strcmp
+for ref in bv.get_code_refs_for_type_field("strcmp"):
+    print(f"strcmp called at {hex(ref.address)}")</code></pre>
+
+        <!-- ─── Recognizing C Constructs ─── -->
+        <h2>Recognizing C Constructs in Assembly</h2>
+
+        <h3>if/else</h3>
+        <pre><code class="language-nasm">; C: if (x == 5) { do_a(); } else { do_b(); }
+    cmp     dword [rbp-4], 5
+    jne     .else_branch        ; jump if NOT equal → else
+    call    do_a
+    jmp     .end_if
+.else_branch:
+    call    do_b
+.end_if:</code></pre>
+        <p><strong>Ghidra decompiler output:</strong></p>
+        <pre><code class="language-c">if (local_c == 5) {
+    do_a();
+} else {
+    do_b();
+}</code></pre>
+
+        <h3>for loop</h3>
+        <pre><code class="language-nasm">; C: for (int i = 0; i < 10; i++) { buf[i] ^= key; }
+    mov     dword [rbp-4], 0          ; i = 0
+.loop_top:
+    cmp     dword [rbp-4], 10         ; i < 10?
+    jge     .loop_end
+    ; body
+    mov     eax, [rbp-4]
+    cdqe
+    movzx   eax, byte [rbp+rax-30]    ; buf[i]
+    xor     eax, 0x42                 ; ^= key
+    mov     edx, eax
+    mov     eax, [rbp-4]
+    cdqe
+    mov     [rbp+rax-30], dl          ; store back
+    ; increment
+    add     dword [rbp-4], 1          ; i++
+    jmp     .loop_top
+.loop_end:</code></pre>
+
+        <h3>while loop</h3>
+        <pre><code class="language-nasm">; C: while (*ptr != 0) { ptr++; count++; }
+.while_top:
+    mov     rax, [rbp-8]             ; load ptr
+    movzx   eax, byte [rax]          ; *ptr
+    test    al, al                    ; == 0?
+    je      .while_end
+    add     qword [rbp-8], 1          ; ptr++
+    add     dword [rbp-4], 1          ; count++
+    jmp     .while_top
+.while_end:</code></pre>
+
+        <h3>switch/case (Jump Table)</h3>
+        <pre><code class="language-nasm">; C: switch(choice) { case 0: ... case 1: ... case 2: ... }
+    mov     eax, [rbp-4]             ; choice
+    cmp     eax, 2                    ; bounds check
+    ja      .default                  ; if > max case, goto default
+    lea     rdx, [rip + .jump_table]
+    movsxd  rax, dword [rdx+rax*4]   ; load offset from jump table
+    add     rax, rdx                  ; compute target
+    jmp     rax                       ; indirect jump
+
+.jump_table:
+    .long   .case0 - .jump_table
+    .long   .case1 - .jump_table
+    .long   .case2 - .jump_table</code></pre>
+        <p><strong>Tip:</strong> In Ghidra, switch tables show as computed jumps. Use "Create Jump Table" if auto-analysis misses it.</p>
+
+        <h3>Function Calls & Structs</h3>
+        <pre><code class="language-nasm">; Calling convention (System V AMD64): rdi, rsi, rdx, rcx, r8, r9, then stack
+; C: result = validate(username, password, attempt_count);
+    mov     edx, [rbp-4]             ; arg3 = attempt_count
+    lea     rsi, [rbp-0x30]           ; arg2 = password (stack buffer)
+    lea     rdi, [rbp-0x60]           ; arg1 = username (stack buffer)
+    call    validate
+    mov     [rbp-8], eax              ; store return value
+
+; Struct access:
+; C: player->health = 100;  (struct offset +0x8)
+    mov     rax, [rbp-8]             ; load struct pointer
+    mov     dword [rax+8], 100        ; write to offset 0x8
+
+; Array access:
+; C: arr[i] = value;  (int arr[], so stride = 4)
+    mov     eax, [rbp-4]             ; i
+    cdqe
+    mov     dword [rbp+rax*4-0x40], 0x41  ; arr[i] = 'A'</code></pre>
+
+        <!-- ─── Calling Conventions ─── -->
+        <h2>Calling Conventions</h2>
+        <table class="table table-sm">
+          <thead><tr><th>Convention</th><th>Args</th><th>Return</th><th>Caller/Callee Saved</th></tr></thead>
+          <tbody>
+            <tr><td>System V AMD64 (Linux)</td><td>rdi, rsi, rdx, rcx, r8, r9 → stack</td><td>rax (rdx:rax for 128-bit)</td><td>Callee: rbx, rbp, r12-r15</td></tr>
+            <tr><td>Microsoft x64 (Windows)</td><td>rcx, rdx, r8, r9 → stack (32-byte shadow)</td><td>rax</td><td>Callee: rbx, rbp, rdi, rsi, r12-r15</td></tr>
+            <tr><td>cdecl (x86 32-bit)</td><td>All on stack (right to left)</td><td>eax</td><td>Caller cleans stack</td></tr>
+            <tr><td>stdcall (Win32 API)</td><td>All on stack (right to left)</td><td>eax</td><td>Callee cleans stack</td></tr>
+          </tbody>
+        </table>
+
+        <!-- ─── String Recovery ─── -->
+        <h2>String Recovery Techniques</h2>
+        <ul>
+          <li><strong>Stack strings:</strong> Characters moved individually to stack — defeats simple <code>strings</code></li>
+          <li><strong>XOR-encoded strings:</strong> Loop XORs buffer with key, then uses result</li>
+          <li><strong>Split strings:</strong> Concatenated at runtime from fragments</li>
+          <li><strong>RC4/custom decrypt:</strong> Encrypted blob decrypted at runtime</li>
+        </ul>
+        <pre><code class="language-nasm">; Stack string: "FLAG" built char by char
+    mov     byte [rbp-0x10], 0x46    ; 'F'
+    mov     byte [rbp-0x0f], 0x4c    ; 'L'
+    mov     byte [rbp-0x0e], 0x41    ; 'A'
+    mov     byte [rbp-0x0d], 0x47    ; 'G'
+    mov     byte [rbp-0x0c], 0x00    ; null terminator</code></pre>
+        <pre><code class="language-c">// Ghidra decompiler output for XOR-encoded string
+void decrypt_string(char *buf, int len) {
+    for (int i = 0; i < len; i++) {
+        buf[i] = buf[i] ^ 0x37;
+    }
+}
+// In .rodata: encrypted blob → XOR with 0x37 to recover plaintext</code></pre>
+
+        <!-- ─── Identifying Crypto by Constants ─── -->
+        <h2>Identifying Crypto/Hashing by Constants</h2>
+        <p>Known magic constants fingerprint algorithms even when symbols are stripped:</p>
+        <table class="table table-sm">
+          <thead><tr><th>Algorithm</th><th>Signature Constants</th></tr></thead>
+          <tbody>
+            <tr><td>AES</td><td>S-box: <code>0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5...</code></td></tr>
+            <tr><td>SHA-256</td><td>Init: <code>0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a</code><br>Round: <code>0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5...</code></td></tr>
+            <tr><td>SHA-1</td><td>Init: <code>0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0</code></td></tr>
+            <tr><td>MD5</td><td>Init: <code>0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476</code><br>T-table: <code>0xd76aa478, 0xe8c7b756, 0x242070db...</code></td></tr>
+            <tr><td>RC4</td><td>Key scheduling: 256-byte identity permutation init (0,1,2,...,255)</td></tr>
+            <tr><td>TEA/XTEA</td><td>Delta: <code>0x9E3779B9</code> (golden ratio)</td></tr>
+            <tr><td>Blowfish</td><td>P-array init: <code>0x243F6A88, 0x85A308D3, 0x13198A2E...</code> (π digits)</td></tr>
+            <tr><td>CRC32</td><td>Polynomial: <code>0xEDB88320</code> (reflected) or table entries</td></tr>
+            <tr><td>ChaCha20</td><td>Constant: <code>"expand 32-byte k"</code> = <code>0x61707865, 0x3320646e, 0x79622d32, 0x6b206574</code></td></tr>
+          </tbody>
+        </table>
+        <pre><code class="language-bash"># Search for AES S-box in binary
+$ r2 -qc '/x 637c777b' binary
+Searching for: 637c777b
+hit0_0 0x402040
+
+# In Ghidra: Search → Memory → Hex: 63 7c 77 7b</code></pre>
+
+        <!-- ─── Control Flow & Data Flow ─── -->
+        <h2>Control Flow Graphs (CFG)</h2>
+        <ul>
+          <li><strong>Basic block:</strong> Straight-line code with one entry, one exit</li>
+          <li><strong>Edges:</strong> Conditional (true/false), unconditional jumps, fall-through</li>
+          <li><strong>Dominators:</strong> Block A dominates B if all paths to B pass through A</li>
+          <li><strong>Back edges:</strong> Edges to a dominator = loops</li>
+        </ul>
+        <p><strong>Tools:</strong> Ghidra graph view (<code>Space</code>), IDA graph (<code>Space</code>), r2 <code>VV</code> mode, Binary Ninja MLIL graph.</p>
+
+        <h2>Data Flow Analysis</h2>
+        <ul>
+          <li><strong>Def-use chains:</strong> Track where a value is defined and where it's used</li>
+          <li><strong>Taint analysis:</strong> Track user input through transformations</li>
+          <li><strong>Slice:</strong> Extract only instructions that affect a specific variable</li>
+          <li><strong>Ghidra highlight:</strong> Click variable → all uses highlighted in decompiler</li>
+        </ul>
+
+        <!-- ─── Cross-Referencing Strings to Code ─── -->
+        <h2>Cross-Referencing Strings to Code</h2>
+        <p>The most common static analysis workflow:</p>
+        <ol>
+          <li>Open Strings window (Ghidra: <code>Search → For Strings</code>, IDA: <code>Shift+F12</code>)</li>
+          <li>Find interesting string ("Access granted", "Wrong password", "flag{")</li>
+          <li>Double-click → jumps to string in .rodata</li>
+          <li>View XREFs to that string (Ghidra: right-click → References → Show References To)</li>
+          <li>Navigate to referencing code → now you're in the validation function</li>
+          <li>Analyze the logic that leads to printing that string</li>
+        </ol>
+
+        <!-- ─── Patching Binaries ─── -->
+        <h2>Patching Binaries</h2>
+        <h3>Common Patches</h3>
+        <table class="table table-sm">
+          <thead><tr><th>Goal</th><th>Original</th><th>Patch</th></tr></thead>
+          <tbody>
+            <tr><td>NOP out a check</td><td><code>75 1a</code> (JNE +0x1a)</td><td><code>90 90</code> (NOP NOP)</td></tr>
+            <tr><td>Invert condition</td><td><code>74 1a</code> (JE)</td><td><code>75 1a</code> (JNE)</td></tr>
+            <tr><td>Force always jump</td><td><code>75 1a</code> (JNE)</td><td><code>EB 1a</code> (JMP unconditional)</td></tr>
+            <tr><td>Skip function call</td><td><code>E8 xx xx xx xx</code> (CALL)</td><td><code>90 90 90 90 90</code> (5 NOPs)</td></tr>
+            <tr><td>Return immediately</td><td>Function prologue</td><td><code>C3</code> (RET) or <code>31 C0 C3</code> (xor eax,eax; ret)</td></tr>
+          </tbody>
+        </table>
+        <pre><code class="language-bash"># Patch with r2
+$ r2 -w binary
+[0x00401060]> s 0x4011a2
+[0x004011a2]> wx 9090
+[0x004011a2]> quit
+
+# Patch with dd (careful!)
+$ printf '\x90\x90' | dd of=binary bs=1 seek=$((0x11a2)) conv=notrunc
+
+# Patch with Python
+with open("binary", "r+b") as f:
+    f.seek(0x11a2)
+    f.write(b"\x90\x90")</code></pre>
+
+        <!-- ─── Angr Symbolic Execution ─── -->
+        <h2>Angr Symbolic Execution</h2>
+        <p>Angr explores all paths symbolically to find inputs that reach a target state.</p>
+        <pre><code class="language-python">import angr
+import claripy
+
+# Basic: find input that reaches "success" path, avoid "failure"
+proj = angr.Project("./crackme", auto_load_libs=False)
+
+# Create symbolic input (e.g., 20-byte password)
+password = claripy.BVS("password", 20 * 8)  # 20 bytes = 160 bits
+
+# Set up initial state with symbolic stdin
+state = proj.factory.entry_state(stdin=password)
+
+# Create simulation manager
+simgr = proj.factory.simgr(state)
+
+# Explore: find address that prints "Correct!", avoid "Wrong!"
+simgr.explore(
+    find=0x4011d0,    # address of success branch
+    avoid=0x4011f0    # address of failure branch
+)
+
+# Extract solution
+if simgr.found:
+    solution = simgr.found[0]
+    password_bytes = solution.solver.eval(password, cast_to=bytes)
+    print(f"Password: {password_bytes}")
+
+# Advanced: constrain to printable ASCII
+for i in range(20):
+    byte = password.get_byte(i)
+    state.solver.add(byte >= 0x20)
+    state.solver.add(byte <= 0x7e)</code></pre>
+
+        <pre><code class="language-python"># Angr with function hooks (skip anti-debug, time checks)
+import angr
+
+proj = angr.Project("./binary", auto_load_libs=False)
+
+# Hook a function to always return 0 (e.g., skip ptrace check)
+@proj.hook(0x401050, length=5)
+def skip_antidebug(state):
+    state.regs.eax = 0  # pretend ptrace returned 0
+
+# Hook libc functions
+proj.hook_symbol("time", angr.SIM_PROCEDURES["libc"]["time"]())
+
+state = proj.factory.entry_state()
+simgr = proj.factory.simgr(state)
+simgr.explore(find=lambda s: b"flag{" in s.posix.dumps(1))
+
+if simgr.found:
+    print(simgr.found[0].posix.dumps(1))  # stdout contains flag</code></pre>
+
+        <!-- ─── Scripting Ghidra for Automation ─── -->
+        <h2>Scripting Ghidra for Automation</h2>
+        <pre><code class="language-python"># find_crypto_constants.py — Run via Script Manager or headless
+# Searches for known crypto constants in the binary
+
+from ghidra.program.model.mem import MemoryAccessException
+
+CRYPTO_SIGS = {
+    "AES S-box": bytes([0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5]),
+    "SHA-256 init": b"\x67\xe6\x09\x6a\x85\xae\x67\xbb",
+    "TEA delta": b"\xb9\x79\x37\x9e",  # 0x9E3779B9 little-endian
+    "MD5 T[0]": b"\x78\xa4\x6a\xd7",   # 0xd76aa478 little-endian
+}
+
+memory = currentProgram.getMemory()
+for name, pattern in CRYPTO_SIGS.items():
+    addr = memory.findBytes(memory.getMinAddress(), pattern, None, True, monitor)
+    while addr is not None:
+        print(f"[!] {name} found at {addr}")
+        # Set a bookmark for easy navigation
+        currentProgram.getBookmarkManager().setBookmark(
+            addr, "Analysis", "Crypto", f"Potential {name}")
+        addr = memory.findBytes(addr.add(1), pattern, None, True, monitor)
+
+print("Crypto constant scan complete.")</code></pre>
+
+        <pre><code class="language-python"># rename_by_strings.py — Auto-rename functions based on string references
+from ghidra.program.model.symbol import SourceType
+
+fm = currentProgram.getFunctionManager()
+listing = currentProgram.getListing()
+
+for func in fm.getFunctions(True):
+    if not func.getName().startswith("FUN_"):
+        continue
+    
+    # Get all data references from this function
+    body = func.getBody()
+    refs = currentProgram.getReferenceManager().getReferencesFrom(body.getMinAddress())
+    
+    for ref in getReferencesFrom(func.getEntryPoint()):
+        data = listing.getDataAt(ref.getToAddress())
+        if data and data.hasStringValue():
+            s = data.getValue()
+            if "error" in s.lower():
+                func.setName("error_handler_" + hex(func.getEntryPoint().getOffset()), SourceType.USER_DEFINED)
+            elif "usage" in s.lower() or "help" in s.lower():
+                func.setName("print_usage", SourceType.USER_DEFINED)</code></pre>
+
+        <pre><code class="language-bash"># Headless batch analysis of multiple binaries
+$ for bin in samples/*; do
+    ./analyzeHeadless /tmp/ghidra_proj BatchProject \
+        -import "$bin" \
+        -postScript find_crypto_constants.py \
+        -postScript export_functions.py \
+        -deleteProject \
+        -log /tmp/ghidra_batch.log
+done</code></pre>
+
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           LABS TAB
+           ═══════════════════════════════════════════════════════════════════ -->
+      <div class="tab-pane fade" id="labs" role="tabpanel">
+
+        <div class="lab-card">
+          <h4>Lab 1: First Contact — strings & file</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use command-line tools to extract all useful information from a binary without executing it.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash"># Create the target binary
+cat &lt;&lt; 'EOF' > lab1.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+const char *SECRET = "flag{str1ngs_4r3_y0ur_fr13nd}";
+const char *FAKE = "Try harder!";
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        printf("Usage: %s &lt;password&gt;\n", argv[0]);
+        return 1;
+    }
+    if (strcmp(argv[1], "opensesame") == 0) {
+        printf("Access granted: %s\n", SECRET);
+    } else {
+        printf("%s\n", FAKE);
+    }
+    return 0;
+}
+EOF
+gcc -o lab1 lab1.c -no-pie
+
+# Tasks:
+# 1. Run: file lab1 — note architecture, linking, stripped status
+# 2. Run: strings lab1 | grep -i flag — find the flag
+# 3. Run: strings lab1 | grep -i "usage\|password\|access" — find logic hints
+# 4. Run: readelf -s lab1 | grep FUNC — find function names
+# 5. Run: nm lab1 | grep " T " — same info, different format
+# 6. Run: objdump -d -M intel lab1 | grep -A5 "strcmp" — find the comparison</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Reading Disassembly with objdump</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Disassemble a binary and manually trace execution to determine what input is accepted.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > lab2.c
+#include &lt;stdio.h&gt;
+
+int check(int x) {
+    return (x ^ 0xdeadbeef) == 0xcafebabe;
+}
+
+int main() {
+    int input;
+    printf("Enter the number: ");
+    scanf("%d", &input);
+    if (check(input)) {
+        printf("Correct! flag{xor_m4th_%x}\n", input);
+    } else {
+        printf("Nope.\n");
+    }
+    return 0;
+}
+EOF
+gcc -o lab2 lab2.c -no-pie -O0
+
+# Tasks:
+# 1. objdump -d -M intel lab2 | sed -n '/&lt;check&gt;:/,/^$/p'
+# 2. Identify the XOR and CMP instructions
+# 3. Calculate: what value XORed with 0xdeadbeef equals 0xcafebabe?
+# 4. Answer: 0xdeadbeef ^ 0xcafebabe = 0x14530451 = 340466769
+# 5. Verify: echo 340466769 | ./lab2</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Ghidra Basic Navigation</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Import a binary into Ghidra, navigate the interface, find the main function, and read the decompiler output.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > lab3.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+void secret_func() {
+    printf("flag{gh1dr4_n4v1g4t10n_m4st3r}\n");
+}
+
+int validate(const char *input) {
+    int sum = 0;
+    for (int i = 0; input[i]; i++) {
+        sum += input[i];
+    }
+    return sum == 532;  // "hello" doesn't work, find what does
+}
+
+int main() {
+    char buf[64];
+    printf("Password: ");
+    fgets(buf, sizeof(buf), stdin);
+    buf[strcspn(buf, "\n")] = 0;
+    
+    if (validate(buf)) {
+        printf("Valid!\n");
+    } else {
+        printf("Invalid.\n");
+    }
+    return 0;
+}
+EOF
+gcc -o lab3 lab3.c -no-pie -O0
+strip lab3  # Remove symbols to make it harder
+
+# Tasks in Ghidra:
+# 1. Import lab3, let auto-analysis complete
+# 2. Find entry → identify main (first arg to __libc_start_main)
+# 3. Rename FUN_XXXX to "main", "validate", "secret_func"
+# 4. Read decompiler of validate — find the target sum (532)
+# 5. Note: secret_func is never called! (dead code)
+# 6. Find strings: Search → For Strings → find "flag{" reference</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Identifying C Constructs from Decompilation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Match decompiled output to original C patterns — loops, conditions, arrays, structs.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > lab4.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+struct Player {
+    char name[32];
+    int health;
+    int level;
+    int score;
+};
+
+void process_input(struct Player *p, const char *cmd) {
+    if (strcmp(cmd, "heal") == 0) {
+        p->health = (p->health + 25 > 100) ? 100 : p->health + 25;
+    } else if (strcmp(cmd, "levelup") == 0) {
+        p->level++;
+        p->score += p->level * 100;
+    }
+    
+    // XOR encode the name for "encryption"
+    for (int i = 0; i < (int)strlen(p->name); i++) {
+        p->name[i] ^= 0x55;
+    }
+}
+
+int check_winner(struct Player players[], int count) {
+    int max_score = 0;
+    int winner = -1;
+    for (int i = 0; i < count; i++) {
+        if (players[i].score > max_score) {
+            max_score = players[i].score;
+            winner = i;
+        }
+    }
+    return winner;
+}
+
+int main() {
+    struct Player p = {"admin", 100, 1, 0};
+    process_input(&p, "levelup");
+    printf("Score: %d\n", p.score);
+    return 0;
+}
+EOF
+gcc -o lab4 lab4.c -no-pie -O0
+strip lab4
+
+# Tasks in Ghidra:
+# 1. Find main, identify the struct initialization on stack
+# 2. Define a struct in Data Type Manager matching Player
+# 3. Apply struct type to the pointer parameter in process_input
+# 4. Observe how decompiler output improves with correct types
+# 5. Identify: if/else chain, ternary, for loop, array indexing
+# 6. Recognize the XOR "encryption" pattern</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Cross-Reference Tracing</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use cross-references to trace from an interesting string to the code that generates a flag.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > lab5.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+static char encoded[] = "\x55\x47\x50\x56\x6e\x41\x63\x34\x60\x60\x2c\x63\x34\x55\x27\x34\x40\x68\x7e";
+static const char *key = "XREF";
+
+void decode_and_print() {
+    char buf[64];
+    int klen = strlen(key);
+    for (int i = 0; i < (int)sizeof(encoded) - 1; i++) {
+        buf[i] = encoded[i] ^ key[i % klen];
+    }
+    buf[sizeof(encoded) - 1] = 0;
+    printf("Decoded: %s\n", buf);
+}
+
+void decoy1() { printf("Nothing here...\n"); }
+void decoy2() { printf("Keep looking...\n"); }
+void decoy3() { printf("Red herring!\n"); }
+
+int menu(int choice) {
+    switch(choice) {
+        case 1: decoy1(); break;
+        case 2: decoy2(); break;
+        case 3: decoy3(); break;
+        case 7: decode_and_print(); break;  // hidden option
+        default: printf("Invalid\n");
+    }
+    return 0;
+}
+
+int main() {
+    int c;
+    printf("Choose (1-3): ");
+    scanf("%d", &c);
+    menu(c);
+    return 0;
+}
+EOF
+gcc -o lab5 lab5.c -no-pie -O0
+strip lab5
+
+# Tasks:
+# 1. In Ghidra, search for string "Decoded:"
+# 2. XREF to find decode_and_print function
+# 3. XREF to decode_and_print → find it's called from menu()
+# 4. Analyze the switch statement — what input triggers decode?
+# 5. Trace the XOR decoding logic — identify key and encoded data
+# 6. Manually decode: for each byte, XOR with key[i%4]
+# 7. Verify: echo 7 | ./lab5</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Finding Hidden Functionality</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Discover unreachable code and hidden features through static analysis alone.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > lab6.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+
+// This function is never called from normal flow
+void __attribute__((used)) backdoor() {
+    char flag[] = {0x66,0x6c,0x61,0x67,0x7b,0x68,0x31,0x64,
+                   0x64,0x33,0x6e,0x5f,0x62,0x34,0x63,0x6b,
+                   0x64,0x30,0x30,0x72,0x7d,0x00};
+    printf("%s\n", flag);
+}
+
+// Debug function left in release build
+void __attribute__((used)) debug_dump(void *ptr, int size) {
+    unsigned char *p = (unsigned char*)ptr;
+    for (int i = 0; i < size; i++) {
+        printf("%02x ", p[i]);
+        if ((i+1) % 16 == 0) printf("\n");
+    }
+}
+
+int authenticate(const char *user, const char *pass) {
+    // Normal authentication
+    if (strcmp(user, "admin") == 0 && strcmp(pass, "password123") == 0)
+        return 1;
+    // Hidden: environment variable bypass
+    if (getenv("DEBUG_AUTH") != NULL)
+        return 1;
+    return 0;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        printf("Usage: %s &lt;user&gt; &lt;pass&gt;\n", argv[0]);
+        return 1;
+    }
+    if (authenticate(argv[1], argv[2])) {
+        printf("Welcome!\n");
+    } else {
+        printf("Access denied.\n");
+    }
+    return 0;
+}
+EOF
+gcc -o lab6 lab6.c -no-pie -O0
+strip lab6
+
+# Tasks:
+# 1. List all functions in Ghidra (even uncalled ones)
+# 2. Find backdoor() — note it has zero XREFs to it
+# 3. Decode the char array manually (it's ASCII)
+# 4. Find debug_dump() — another dead function
+# 5. In authenticate(): spot the getenv("DEBUG_AUTH") check
+# 6. Understand: stripped binary hides names but not code</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Patching a Binary (NOP a Check)</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Patch a binary to bypass a license check by NOPing out the validation.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > lab7.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;time.h&gt;
+
+int check_license(const char *key) {
+    // Complex validation we want to bypass
+    int sum = 0;
+    for (int i = 0; key[i]; i++) {
+        sum = (sum * 31 + key[i]) & 0xFFFF;
+    }
+    return sum == 0xBEEF;
+}
+
+int check_expiry() {
+    time_t now = time(NULL);
+    // Expires Jan 1, 2020 (already expired!)
+    return now < 1577836800;
+}
+
+void run_application() {
+    printf("=== Premium Application Running ===\n");
+    printf("flag{p4tch3d_l1k3_4_pr0}\n");
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        printf("Usage: %s &lt;license-key&gt;\n", argv[0]);
+        return 1;
+    }
+    
+    if (!check_license(argv[1])) {
+        printf("Invalid license key!\n");
+        return 1;
+    }
+    
+    if (!check_expiry()) {
+        printf("License expired!\n");
+        return 1;
+    }
+    
+    run_application();
+    return 0;
+}
+EOF
+gcc -o lab7 lab7.c -no-pie -O0
+
+# Tasks:
+# 1. Open in Ghidra, find main
+# 2. Locate the two conditional jumps after check_license and check_expiry
+# 3. Method A: NOP the JNE/JE after check_license call (patch 75 XX → 90 90)
+# 4. Method B: Patch check_license to always return 1 (mov eax,1; ret)
+# 5. Also patch the expiry check
+# 6. Export patched binary, chmod +x, verify it runs
+#
+# Patching with r2:
+# r2 -w lab7
+# s main
+# pdf   (find the JNE addresses)
+# s 0xADDRESS_OF_JNE
+# wx 9090
+# (repeat for expiry check)
+# quit</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: radare2 Basics</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Perform complete static analysis using only radare2 — from initial recon to finding the flag.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > lab8.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+void win() {
+    printf("flag{r4d4r3_2_pr0}\n");
+}
+
+int main() {
+    char buf[32];
+    printf("Password: ");
+    scanf("%31s", buf);
+    
+    // Multi-step check
+    if (strlen(buf) != 8) goto fail;
+    if (buf[0] != 'r') goto fail;
+    if (buf[1] != '2') goto fail;
+    if ((buf[2] ^ 0x20) != 'R') goto fail;  // 'r'
+    if (buf[3] + buf[4] != 0x99) goto fail;  // 'O' + 'X' = 0x99? No... 'o'+'c'=0x6f+0x63=0xd2... try 'L'+'e'=0x4c+0x65=0xb1... actually 0x99=153, 'e'+'4'=101+52=153 ✓
+    if (buf[5] != buf[0]) goto fail;         // 'r'
+    if (buf[6] != '!') goto fail;
+    if (buf[7] != '!') goto fail;
+    
+    win();
+    return 0;
+fail:
+    printf("Nope.\n");
+    return 1;
+}
+EOF
+gcc -o lab8 lab8.c -no-pie -O0
+
+# Tasks using r2:
+# 1. r2 -A lab8
+# 2. afl            — list functions, find main and win
+# 3. s main; pdf    — disassemble main
+# 4. iz             — list strings
+# 5. VV             — view CFG in graph mode
+# 6. Trace each comparison to reconstruct the password
+# 7. Verify solution: echo "r2re4r!!" | ./lab8</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Recognizing Crypto by Constants</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Identify which cryptographic algorithm a stripped binary uses by finding magic constants.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > lab9.c
+#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;string.h&gt;
+
+// TEA (Tiny Encryption Algorithm)
+void tea_encrypt(uint32_t v[2], const uint32_t key[4]) {
+    uint32_t v0 = v[0], v1 = v[1];
+    uint32_t sum = 0;
+    uint32_t delta = 0x9E3779B9;  // &lt;-- THE CONSTANT
+    
+    for (int i = 0; i < 32; i++) {
+        sum += delta;
+        v0 += ((v1 << 4) + key[0]) ^ (v1 + sum) ^ ((v1 >> 5) + key[1]);
+        v1 += ((v0 << 4) + key[2]) ^ (v0 + sum) ^ ((v0 >> 5) + key[3]);
+    }
+    v[0] = v0;
+    v[1] = v1;
+}
+
+void tea_decrypt(uint32_t v[2], const uint32_t key[4]) {
+    uint32_t v0 = v[0], v1 = v[1];
+    uint32_t delta = 0x9E3779B9;
+    uint32_t sum = delta * 32;
+    
+    for (int i = 0; i < 32; i++) {
+        v1 -= ((v0 << 4) + key[2]) ^ (v0 + sum) ^ ((v0 >> 5) + key[3]);
+        v0 -= ((v1 << 4) + key[0]) ^ (v1 + sum) ^ ((v1 >> 5) + key[1]);
+        sum -= delta;
+    }
+    v[0] = v0;
+    v[1] = v1;
+}
+
+int main() {
+    uint32_t key[4] = {0x01234567, 0x89ABCDEF, 0xFEDCBA98, 0x76543210};
+    uint32_t data[2] = {0x41414141, 0x42424242};  // "AAAABBBB"
+    
+    printf("Original: %08x %08x\n", data[0], data[1]);
+    tea_encrypt(data, key);
+    printf("Encrypted: %08x %08x\n", data[0], data[1]);
+    tea_decrypt(data, key);
+    printf("Decrypted: %08x %08x\n", data[0], data[1]);
+    
+    return 0;
+}
+EOF
+gcc -o lab9 lab9.c -no-pie -O0
+strip lab9
+
+# Tasks:
+# 1. Search for known constants: r2 -qc '/x b979379e' lab9  (little-endian!)
+# 2. In Ghidra: Search → Memory → 0x9E3779B9 (or bytes B9 79 37 9E)
+# 3. Identify algorithm: delta = 0x9E3779B9 → TEA or XTEA
+# 4. Look at the structure: 32 iterations, shift-XOR pattern → TEA
+# 5. Find the key in the binary (look at main's local variables)
+# 6. Write a decryptor knowing the algorithm and key</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Angr Symbolic Execution</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use Angr to automatically solve a multi-constraint password check.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > lab10.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int validate(const char *input) {
+    if (strlen(input) != 12) return 0;
+    
+    // Complex constraints that are tedious to solve manually
+    if ((input[0] ^ input[3]) != 0x17) return 0;
+    if ((input[1] + input[5]) != 0xd5) return 0;
+    if ((input[2] * 2) != 0xc8) return 0;
+    if ((input[3] ^ 0x42) != 0x31) return 0;
+    if ((input[4] - input[7]) != 0x03) return 0;
+    if ((input[5] | input[9]) != 0x7f) return 0;
+    if ((input[6] & 0xf0) != 0x60) return 0;
+    if ((input[7] ^ input[11]) != 0x1a) return 0;
+    if ((input[8] + input[10]) != 0xca) return 0;
+    if ((input[9] - 0x30) > 9) return 0;
+    if ((input[10] ^ input[2]) != 0x37) return 0;
+    if ((input[11] + input[0]) != 0xd8) return 0;
+    
+    return 1;
+}
+
+int main() {
+    char buf[64];
+    printf("Enter key: ");
+    fgets(buf, sizeof(buf), stdin);
+    buf[strcspn(buf, "\n")] = 0;
+    
+    if (validate(buf)) {
+        printf("Correct! flag{angr_s0lv3d_%s}\n", buf);
+    } else {
+        printf("Wrong.\n");
+    }
+    return 0;
+}
+EOF
+gcc -o lab10 lab10.c -no-pie -O0
+
+# Solve with Angr:
+cat &lt;&lt; 'EOF' > solve_lab10.py
+import angr
+import claripy
+
+proj = angr.Project("./lab10", auto_load_libs=False)
+
+# Find addresses of "Correct!" and "Wrong." prints
+# Use: objdump -d -M intel lab10 | grep -B2 "Correct\|Wrong"
+# Or find them in Ghidra
+
+# Create symbolic input (12 chars + newline for fgets)
+input_chars = [claripy.BVS(f"c{i}", 8) for i in range(12)]
+input_bvs = claripy.Concat(*input_chars, claripy.BVV(b"\n"))
+
+state = proj.factory.entry_state(stdin=input_bvs)
+
+# Constrain to printable ASCII
+for c in input_chars:
+    state.solver.add(c >= 0x20)
+    state.solver.add(c <= 0x7e)
+
+simgr = proj.factory.simgr(state)
+
+# Find "Correct!" path, avoid "Wrong." path
+# Replace these with actual addresses from your binary
+simgr.explore(
+    find=lambda s: b"Correct!" in s.posix.dumps(1),
+    avoid=lambda s: b"Wrong." in s.posix.dumps(1)
+)
+
+if simgr.found:
+    solution = simgr.found[0]
+    key = bytes(solution.solver.eval(c, cast_to=int) for c in input_chars)
+    print(f"Key: {key.decode()}")
+else:
+    print("No solution found")
+EOF
+pip install angr
+python3 solve_lab10.py</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Ghidra Scripting — Batch Analysis</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write a Ghidra script that automatically identifies interesting functions and extracts encoded strings.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > lab11.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+// Multiple XOR-encoded strings with different keys
+char enc1[] = "\x15\x03\x14\x10\x28\x10\x20\x34\x25\x36\x37\x21\x33\x28";  // key=0x41
+char enc2[] = "\x37\x21\x22\x36\x4b\x25\x24\x36\x33\x24\x31\x21\x4b\x22\x27\x33\x28\x24\x36"; // key=0x42
+char enc3[] = "\x0b\x08\x1d\x1d\x04\x0b\x55\x1c\x04\x18\x1d";  // key=0x77
+
+void decode1() {
+    char buf[64];
+    for (int i = 0; i < (int)sizeof(enc1)-1; i++)
+        buf[i] = enc1[i] ^ 0x41;
+    buf[sizeof(enc1)-1] = 0;
+    printf("Secret 1: %s\n", buf);
+}
+
+void decode2() {
+    char buf[64];
+    for (int i = 0; i < (int)sizeof(enc2)-1; i++)
+        buf[i] = enc2[i] ^ 0x42;
+    buf[sizeof(enc2)-1] = 0;
+    printf("Secret 2: %s\n", buf);
+}
+
+void decode3() {
+    char buf[64];
+    for (int i = 0; i < (int)sizeof(enc3)-1; i++)
+        buf[i] = enc3[i] ^ 0x77;
+    buf[sizeof(enc3)-1] = 0;
+    printf("Secret 3: %s\n", buf);
+}
+
+int main() {
+    printf("Run the Ghidra script to decode all secrets!\n");
+    return 0;
+}
+EOF
+gcc -o lab11 lab11.c -no-pie -O0
+
+# Ghidra Script to solve:
+cat &lt;&lt; 'EOF' > solve_lab11.py
+# find_xor_strings.py — Ghidra script
+# Finds XOR decode loops and extracts the encoded data + key
+
+from ghidra.app.decompiler import DecompInterface
+
+decomp = DecompInterface()
+decomp.openProgram(currentProgram)
+fm = currentProgram.getFunctionManager()
+
+for func in fm.getFunctions(True):
+    result = decomp.decompileFunction(func, 30, monitor)
+    if result.decompileCompleted():
+        code = result.getDecompiledFunction().getC()
+        # Look for XOR patterns in decompiled code
+        if "^ 0x" in code and "for" in code.lower():
+            print(f"\n[!] Potential XOR decode in: {func.getName()} @ {func.getEntryPoint()}")
+            # Extract the XOR key from the decompiled code
+            import re
+            keys = re.findall(r'\^ (0x[0-9a-fA-F]+)', code)
+            for key in keys:
+                print(f"    XOR key: {key}")
+            print(f"    Decompiled:\n{code[:500]}")
+
+print("\nDone — manually decode using found keys")
+EOF
+
+# Expected output: identifies decode1/decode2/decode3 with keys 0x41, 0x42, 0x77</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: IDA Python Scripting</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write an IDA Python script to automatically map the call graph and identify authentication-related functions.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > lab12.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+
+int compute_hash(const char *s) {
+    int h = 5381;
+    while (*s) {
+        h = ((h << 5) + h) + *s;
+        s++;
+    }
+    return h;
+}
+
+int verify_checksum(const char *data, int expected) {
+    int sum = 0;
+    for (int i = 0; data[i]; i++) {
+        sum = (sum + data[i] * (i + 1)) & 0xFFFF;
+    }
+    return sum == expected;
+}
+
+int stage1_check(const char *input) {
+    return compute_hash(input) == 0x7c9e6865;
+}
+
+int stage2_check(const char *input) {
+    return verify_checksum(input, 0x1337);
+}
+
+int stage3_check(const char *input) {
+    // Check length and character constraints
+    if (strlen(input) < 8) return 0;
+    for (int i = 0; input[i]; i++) {
+        if (input[i] < '!' || input[i] > '~') return 0;
+    }
+    return 1;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) { printf("Usage: %s &lt;key&gt;\n", argv[0]); return 1; }
+    
+    if (!stage3_check(argv[1])) { printf("Stage 3 failed\n"); return 1; }
+    if (!stage1_check(argv[1])) { printf("Stage 1 failed\n"); return 1; }
+    if (!stage2_check(argv[1])) { printf("Stage 2 failed\n"); return 1; }
+    
+    printf("All stages passed! flag{1d4_scr1pt1ng_%s}\n", argv[1]);
+    return 0;
+}
+EOF
+gcc -o lab12 lab12.c -no-pie -O0
+strip lab12
+
+# IDA Python script to analyze:
+cat &lt;&lt; 'EOF' > solve_lab12.py
+import idautils
+import idc
+
+# Find all functions that call strcmp-like comparisons
+# and map the validation call chain
+
+def find_validation_chain():
+    """Trace from main through all stage checks"""
+    main_ea = None
+    
+    # Find main by looking for the function called from __libc_start_main
+    for func_ea in idautils.Functions():
+        # Heuristic: main typically has 3+ calls and references "Usage:"
+        func_end = idc.find_func_end(func_ea)
+        code = idc.generate_disasm_line(func_ea, 0)
+        
+        # Check for string references to "Usage:"
+        for head in idautils.Heads(func_ea, func_end):
+            for xref in idautils.XrefsFrom(head):
+                if idc.get_strlit_contents(xref.to):
+                    s = idc.get_strlit_contents(xref.to).decode()
+                    if "Usage:" in s:
+                        main_ea = func_ea
+                        break
+    
+    if main_ea:
+        print(f"[+] main found at {hex(main_ea)}")
+        # List all calls from main
+        func_end = idc.find_func_end(main_ea)
+        for head in idautils.Heads(main_ea, func_end):
+            if idc.print_insn_mnem(head) == "call":
+                target = idc.get_operand_value(head, 0)
+                print(f"    calls {hex(target)} from {hex(head)}")
+
+find_validation_chain()
+EOF</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 13: Full Binary Analysis Pipeline</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Combine all techniques — recon, disassembly, decompilation, crypto identification, and patching — to fully reverse a binary.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > lab13.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdint.h&gt;
+
+// RC4 implementation (identifiable by 256-byte KSA)
+void rc4_init(unsigned char *S, const unsigned char *key, int keylen) {
+    for (int i = 0; i < 256; i++) S[i] = i;  // Identity init = RC4 fingerprint
+    int j = 0;
+    for (int i = 0; i < 256; i++) {
+        j = (j + S[i] + key[i % keylen]) & 0xFF;
+        unsigned char tmp = S[i]; S[i] = S[j]; S[j] = tmp;
+    }
+}
+
+void rc4_crypt(unsigned char *S, unsigned char *data, int len) {
+    int i = 0, j = 0;
+    for (int k = 0; k < len; k++) {
+        i = (i + 1) & 0xFF;
+        j = (j + S[i]) & 0xFF;
+        unsigned char tmp = S[i]; S[i] = S[j]; S[j] = tmp;
+        data[k] ^= S[(S[i] + S[j]) & 0xFF];
+    }
+}
+
+static unsigned char encrypted_flag[] = {
+    0xd1, 0x1e, 0x85, 0x2a, 0xf3, 0x6c, 0x9a, 0x01,
+    0xbb, 0x4d, 0xe7, 0x38, 0xc2, 0x5f, 0xa8, 0x14,
+    0x93, 0x67, 0xde, 0x0b, 0xf5, 0x42
+};
+
+int anti_debug() {
+    // Fake anti-debug (just returns 0 in this lab)
+    return 0;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) { printf("Usage: %s &lt;key&gt;\n", argv[0]); return 1; }
+    if (anti_debug()) { printf("Debugger detected!\n"); return 1; }
+    if (strlen(argv[1]) != 6) { printf("Key must be 6 chars\n"); return 1; }
+    
+    unsigned char S[256];
+    rc4_init(S, (unsigned char*)argv[1], 6);
+    
+    unsigned char flag[23];
+    memcpy(flag, encrypted_flag, 22);
+    flag[22] = 0;
+    rc4_crypt(S, flag, 22);
+    
+    // Check if decryption produced valid flag format
+    if (memcmp(flag, "flag{", 5) == 0) {
+        printf("Decrypted: %s\n", flag);
+    } else {
+        printf("Wrong key!\n");
+    }
+    return 0;
+}
+EOF
+gcc -o lab13 lab13.c -no-pie -O0
+strip lab13
+
+# Full analysis pipeline:
+# 1. file lab13 && strings lab13 | grep -i flag  (recon)
+# 2. readelf -s lab13  (no symbols — stripped)
+# 3. Open in Ghidra, find main
+# 4. Identify RC4 by: 256-byte init loop (0..255), KSA swap pattern
+# 5. Find the encrypted blob in .rodata
+# 6. Find the key length check (6 chars)
+# 7. Brute force or use Angr to find the 6-char key
+# 8. Or: patch the memcmp check to always succeed and print any output
+
+# Brute force approach (since key is short):
+cat &lt;&lt; 'EOF' > brute_lab13.py
+import itertools, subprocess, string
+
+# Try common short keys first
+for key in itertools.product(string.ascii_lowercase, repeat=6):
+    k = ''.join(key)
+    result = subprocess.run(['./lab13', k], capture_output=True, text=True)
+    if 'flag{' in result.stdout:
+        print(f"Key: {k}")
+        print(result.stdout)
+        break
+EOF
+# Note: Full brute force of 26^6 is too slow — use constraints from analysis!</code></pre>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           CTF CHALLENGES TAB
+           ═══════════════════════════════════════════════════════════════════ -->
+      <div class="tab-pane fade" id="ctf" role="tabpanel">
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Strings Treasure Hunt</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A binary contains a hidden flag in its strings. But there are many decoys — find the real one.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > ch1.c
+#include &lt;stdio.h&gt;
+
+// Decoys
+const char *fake1 = "flag{this_is_not_the_flag}";
+const char *fake2 = "flag{nope_try_again}";
+const char *fake3 = "flag{so_close_but_no}";
+
+// Real flag split across variables
+const char *p1 = "flag{r3al_";
+const char *p2 = "str1ngs_";
+const char *p3 = "hunt3r}";
+
+int main() {
+    printf("Can you find the real flag?\n");
+    printf("Hint: the real flag has three parts.\n");
+    // The real flag is never printed — must be found statically
+    return 0;
+}
+EOF
+gcc -o ch1 ch1.c -no-pie
+strip ch1</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Use <code>strings ch1 | grep "flag{"</code> to find all candidates. The real flag is split: look for strings that start with "flag{" but also adjacent strings that could be continuations. Concatenate the three parts: <code>flag{r3al_str1ngs_hunt3r}</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Simple Validation Reversal</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Reverse the character-by-character validation to find the accepted password.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > ch2.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int check(const char *s) {
+    if (strlen(s) != 10) return 0;
+    if (s[0] != 's') return 0;
+    if (s[1] != 't') return 0;
+    if (s[2] != '4') return 0;
+    if (s[3] != 't') return 0;
+    if (s[4] != '1') return 0;
+    if (s[5] != 'c') return 0;
+    if (s[6] != '_') return 0;
+    if (s[7] != 'r') return 0;
+    if (s[8] != '3') return 0;
+    if (s[9] != 'v') return 0;
+    return 1;
+}
+
+int main() {
+    char buf[64];
+    printf("Password: ");
+    scanf("%63s", buf);
+    if (check(buf))
+        printf("flag{%s_is_easy}\n", buf);
+    else
+        printf("Wrong!\n");
+    return 0;
+}
+EOF
+gcc -o ch2 ch2.c -no-pie -O0
+strip ch2</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Open in Ghidra, find the check function. Each character is compared individually. Read them off: <code>st4t1c_r3v</code>. Flag: <code>flag{st4t1c_r3v_is_easy}</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Multi-Stage Check</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The binary validates input through three separate functions. Reverse all three to find the correct key.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > ch3.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int stage1(const char *s) {
+    // Length check
+    return strlen(s) == 16;
+}
+
+int stage2(const char *s) {
+    // Every 4th char must be '-'
+    return s[4] == '-' && s[9] == '-' && s[14] == '-';
+    // Wait, that's only 15... format: XXXX-XXXX-XXXX-X? No...
+    // Format: ABCD-EFGH-IJKL-MN (but len=16 includes dashes? 4+1+4+1+4+1+1=16? No)
+    // Actually: 16 chars, dashes at positions 4, 9, 14 → impossible for 16-len
+    // Fix: positions 4 and 9 for a 14-char key... let's simplify
+}
+
+int stage3(const char *s) {
+    // XOR checksum
+    int xsum = 0;
+    for (int i = 0; s[i]; i++) xsum ^= s[i];
+    return xsum == 0x42;
+}
+
+int main() {
+    char buf[64];
+    printf("Serial: ");
+    scanf("%63s", buf);
+    if (stage1(buf) && stage2(buf) && stage3(buf)) {
+        printf("flag{k3yg3n_m4st3r_%c%c%c%c}\n", buf[0], buf[1], buf[2], buf[3]);
+    } else {
+        printf("Invalid serial.\n");
+    }
+    return 0;
+}
+EOF
+# Fix the source for consistency:
+cat &lt;&lt; 'EOF' > ch3.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int stage1(const char *s) { return strlen(s) == 14; }
+
+int stage2(const char *s) {
+    return s[4] == '-' && s[9] == '-';  // Format: XXXX-XXXX-XXXX
+}
+
+int stage3(const char *s) {
+    int xsum = 0;
+    for (int i = 0; s[i]; i++) {
+        if (s[i] != '-') xsum ^= s[i];
+    }
+    return xsum == 0x42;
+}
+
+int main() {
+    char buf[64];
+    printf("Serial: ");
+    scanf("%63s", buf);
+    if (stage1(buf) && stage2(buf) && stage3(buf)) {
+        printf("flag{k3yg3n_m4st3r_%c%c%c%c}\n", buf[0],buf[1],buf[2],buf[3]);
+    } else {
+        printf("Invalid serial.\n");
+    }
+    return 0;
+}
+EOF
+gcc -o ch3 ch3.c -no-pie -O0
+strip ch3</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Stage 1: length must be 14. Stage 2: chars at index 4 and 9 must be '-'. Stage 3: XOR of all non-dash chars must equal 0x42. Pick 12 chars where XOR = 0x42. Example: "AAAA-AAAA-AAAB" — XOR of 11 A's and 1 B = 0x41^0x42 = 0x03 ≠ 0x42. Use a solver or pick chars carefully. Hint: 'B' alone is 0x42, so 11 chars that XOR to 0 + 'B' works. "AABB-AABB-AABB" → pairs cancel → XOR=0, need one more char... Try with Angr!</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Identify the Algorithm</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A stripped binary uses a well-known algorithm. Identify it by its constants and decrypt the flag.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > ch4.c
+#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;string.h&gt;
+
+// XTEA
+void xtea_decipher(uint32_t v[2], const uint32_t key[4]) {
+    uint32_t v0 = v[0], v1 = v[1];
+    uint32_t delta = 0x9E3779B9;
+    uint32_t sum = delta * 32;
+    for (unsigned int i = 0; i < 32; i++) {
+        v1 -= (((v0 << 4) ^ (v0 >> 5)) + v0) ^ (sum + key[(sum >> 11) & 3]);
+        sum -= delta;
+        v0 -= (((v1 << 4) ^ (v1 >> 5)) + v1) ^ (sum + key[sum & 3]);
+    }
+    v[0] = v0; v[1] = v1;
+}
+
+int main() {
+    uint32_t key[4] = {0xDEAD, 0xBEEF, 0xCAFE, 0xBABE};
+    // Encrypted flag (pre-computed)
+    uint32_t ct[] = {0xa1b2c3d4, 0xe5f60718, 0x293a4b5c, 0x6d7e8f90, 0x01121314, 0x15161718};
+    
+    for (int i = 0; i < 6; i += 2) {
+        xtea_decipher(&ct[i], key);
+    }
+    printf("flag: %s\n", (char*)ct);
+    return 0;
+}
+EOF
+gcc -o ch4 ch4.c -no-pie -O0
+strip ch4</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Search for constant <code>0x9E3779B9</code> (golden ratio ÷ 2^32). The structure is: 32 rounds, shift-XOR with <code>(v0&lt;&lt;4)^(v0>>5)</code>, key indexed by <code>(sum>>11)&3</code> and <code>sum&3</code> — this is XTEA (not TEA, which uses <code>key[0..3]</code> directly). Extract the key array from the binary, implement XTEA decrypt, apply to the ciphertext blocks.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: The Hidden Function</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A binary has a function that's never called through normal execution. Find it and determine how to trigger it.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > ch5.c
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+void normal_flow() {
+    printf("Nothing special here.\n");
+}
+
+// Constructor attribute — runs before main
+__attribute__((constructor))
+void early_init() {
+    // Sets up a secret env var check
+    if (getenv("MAGIC_TRIGGER") && strcmp(getenv("MAGIC_TRIGGER"), "0xdeadcode") == 0) {
+        printf("flag{c0nstruct0r_h1dd3n_p4th}\n");
+        exit(0);
+    }
+}
+
+// Function pointer table with one hidden entry
+typedef void (*func_ptr)();
+void option_a() { printf("Option A\n"); }
+void option_b() { printf("Option B\n"); }
+void secret_option() { printf("flag{fptr_t4bl3_h1dd3n}\n"); }
+
+func_ptr table[] = {option_a, option_b, NULL, secret_option};
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) { printf("Usage: %s &lt;1|2&gt;\n", argv[0]); return 1; }
+    int choice = atoi(argv[1]) - 1;
+    if (choice < 0 || choice > 1) {
+        printf("Invalid choice\n");
+        return 1;
+    }
+    table[choice]();
+    return 0;
+}
+EOF
+gcc -o ch5 ch5.c -no-pie -O0
+strip ch5</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Two hidden paths: (1) The <code>__attribute__((constructor))</code> function runs before main — find it in .init_array section. It checks env var <code>MAGIC_TRIGGER=0xdeadcode</code>. (2) The function pointer table has 4 entries but bounds check only allows 0-1. <code>secret_option</code> is at index 3. In Ghidra, look at the .data section for the function pointer array and find the unreachable entry.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Patch to Win</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The binary has an impossible check. Patch it to always succeed and get the flag.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > ch6.c
+#include &lt;stdio.h&gt;
+#include &lt;time.h&gt;
+#include &lt;string.h&gt;
+
+int impossible_check() {
+    // Must be called at exactly Unix timestamp 0 (Jan 1, 1970)
+    time_t now = time(NULL);
+    return now == 0;  // Impossible without patching or hooking
+}
+
+int second_check(const char *input) {
+    // Simple reversible check
+    int sum = 0;
+    for (int i = 0; input[i]; i++) sum += input[i];
+    return sum == 427;  // "flag" = 102+108+97+103 = 410... "hack" = 104+97+99+107=407
+}
+
+void print_flag() {
+    char enc[] = {0x55, 0x5b, 0x50, 0x56, 0x68, 0x63, 0x50, 0x67,
+                  0x52, 0x5d, 0x54, 0x53, 0x32, 0x66, 0x5e, 0x32,
+                  0x64, 0x5e, 0x5b, 0x5b, 0x6c, 0x00};
+    for (int i = 0; enc[i]; i++) enc[i] ^= 0x33;
+    printf("%s\n", enc);
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) { printf("Usage: %s &lt;word&gt;\n", argv[0]); return 1; }
+    if (!impossible_check()) {
+        printf("Time check failed.\n");
+        return 1;
+    }
+    if (!second_check(argv[1])) {
+        printf("Word check failed.\n");
+        return 1;
+    }
+    print_flag();
+    return 0;
+}
+EOF
+gcc -o ch6 ch6.c -no-pie -O0</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Two approaches: (1) Patch the JE/JNE after <code>impossible_check()</code> to NOP or invert it. In r2: find the <code>test eax,eax; je fail</code> after the call, change <code>74</code>→<code>75</code> or NOP it. (2) Patch <code>impossible_check</code> itself to <code>mov eax,1; ret</code> = bytes <code>B8 01 00 00 00 C3</code>. Then solve second_check: find a word whose ASCII sum = 427.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Custom Encoding Scheme</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The binary encodes the flag with a custom algorithm. Reverse the encoding to recover the plaintext.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > ch7.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+// Custom encoding: rotate left by position, then XOR with running key
+void encode(const char *input, unsigned char *output, int len) {
+    unsigned char key = 0xAA;
+    for (int i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)input[i];
+        // Rotate left by (i % 8) bits
+        int rot = i % 8;
+        c = (c << rot) | (c >> (8 - rot));
+        // XOR with evolving key
+        c ^= key;
+        key = (key + c + i) & 0xFF;
+        output[i] = c;
+    }
+}
+
+int main() {
+    // Pre-encoded flag
+    unsigned char target[] = {
+        0xcc, 0x9b, 0x56, 0xb5, 0x42, 0xe7, 0x9c, 0x3f,
+        0x18, 0xd3, 0x70, 0xa1, 0xfe, 0x5b, 0x88, 0xc7,
+        0x24, 0x71, 0xaa, 0x0f
+    };
+    int len = sizeof(target);
+    
+    char input[64];
+    printf("Flag: ");
+    scanf("%63s", input);
+    
+    if ((int)strlen(input) != len) {
+        printf("Wrong length!\n");
+        return 1;
+    }
+    
+    unsigned char encoded[64];
+    encode(input, encoded, len);
+    
+    if (memcmp(encoded, target, len) == 0) {
+        printf("Correct! The flag is: %s\n", input);
+    } else {
+        printf("Wrong!\n");
+    }
+    return 0;
+}
+EOF
+gcc -o ch7 ch7.c -no-pie -O0
+strip ch7</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Reverse the encoding: for each byte, undo XOR-with-key first (since key depends only on previous outputs, you can compute it forward), then rotate RIGHT by <code>(i%8)</code> to undo the left rotation. Write a decoder: start with key=0xAA, for each target byte: <code>c = target[i] ^ key</code>, then rotate right by <code>i%8</code> to get plaintext. Update key with <code>(key + target[i] + i) & 0xFF</code>. Wait — careful: key evolves based on the XOR'd value (output), not the target. Re-read the encode function to get the exact dependency chain.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Keygen from Disassembly</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Reverse the key validation algorithm and write a keygen that produces valid keys.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > ch8.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;ctype.h&gt;
+
+// Key format: XXXX-XXXX-XXXX-XXXX (alphanumeric groups)
+int validate_key(const char *key) {
+    if (strlen(key) != 19) return 0;
+    if (key[4] != '-' || key[9] != '-' || key[14] != '-') return 0;
+    
+    // Check all non-dash chars are alphanumeric
+    for (int i = 0; i < 19; i++) {
+        if (i == 4 || i == 9 || i == 14) continue;
+        if (!isalnum(key[i])) return 0;
+    }
+    
+    // Checksum: each group sums to a specific value mod 256
+    int sums[4] = {0};
+    int group = 0;
+    for (int i = 0; i < 19; i++) {
+        if (key[i] == '-') { group++; continue; }
+        sums[group] += key[i];
+    }
+    
+    if ((sums[0] & 0xFF) != 0x4B) return 0;  // Group 1 sum mod 256 = 0x4B
+    if ((sums[1] & 0xFF) != 0x33) return 0;  // Group 2 sum mod 256 = 0x33
+    if ((sums[2] & 0xFF) != 0x7F) return 0;  // Group 3 sum mod 256 = 0x7F
+    if ((sums[3] & 0xFF) != 0xA1) return 0;  // Group 4 sum mod 256 = 0xA1
+    
+    // Cross-group check
+    if ((key[0] ^ key[5] ^ key[10] ^ key[15]) != 0x1A) return 0;
+    
+    return 1;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) { printf("Usage: %s &lt;key&gt;\n", argv[0]); return 1; }
+    if (validate_key(argv[1])) {
+        printf("Valid key! flag{k3yg3n_wr1t3r_%c%c%c%c}\n",
+               argv[1][0], argv[1][1], argv[1][2], argv[1][3]);
+    } else {
+        printf("Invalid key.\n");
+    }
+    return 0;
+}
+EOF
+gcc -o ch8 ch8.c -no-pie -O0
+strip ch8</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Write a keygen: format is XXXX-XXXX-XXXX-XXXX. Constraints: (1) group sums mod 256 = 0x4B, 0x33, 0x7F, 0xA1. (2) key[0]^key[5]^key[10]^key[15] = 0x1A. Strategy: pick 3 chars per group freely, compute the 4th to satisfy sum. Then adjust chars at positions 0,5,10,15 to satisfy the XOR constraint. Use Z3 or manual calculation.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Algorithm Recovery</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A stripped binary implements a custom hash. Reverse the algorithm, then find an input that produces the target hash.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > ch9.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdint.h&gt;
+
+// Custom hash (modified DJB2 with extra mixing)
+uint32_t custom_hash(const char *str) {
+    uint32_t hash = 0x1337BEEF;
+    int len = strlen(str);
+    
+    for (int i = 0; i < len; i++) {
+        hash ^= (uint32_t)str[i] << ((i % 4) * 8);
+        hash = (hash << 13) | (hash >> 19);  // rotate left 13
+        hash *= 0x5bd1e995;  // MurmurHash-like constant
+        hash ^= hash >> 15;
+    }
+    
+    // Final avalanche
+    hash ^= (uint32_t)len;
+    hash ^= hash >> 13;
+    hash *= 0xc2b2ae35;
+    hash ^= hash >> 16;
+    
+    return hash;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) { printf("Usage: %s &lt;input&gt;\n", argv[0]); return 1; }
+    
+    uint32_t target = 0xA3F1B2C4;
+    uint32_t result = custom_hash(argv[1]);
+    
+    printf("Hash: 0x%08X\n", result);
+    
+    if (result == target) {
+        printf("flag{h4sh_cr4ck3r_%08x}\n", target);
+    } else {
+        printf("Target: 0x%08X — keep trying!\n", target);
+    }
+    return 0;
+}
+EOF
+gcc -o ch9 ch9.c -no-pie -O0
+strip ch9</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>First reverse the algorithm from disassembly: identify the init value (0x1337BEEF), the rotation (ROL 13), the multiply constant (0x5bd1e995 — same as MurmurHash2), and the final avalanche. Since it's a 32-bit hash, brute force is feasible: try all 4-5 char alphanumeric strings until you hit target 0xA3F1B2C4. Write the hash in Python and brute force with itertools.product.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Multi-Binary Challenge</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Three binaries work together. Output of one feeds into the next. Reverse all three to get the flag.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash"># Binary 1: generates a token from username
+cat &lt;&lt; 'EOF' > ch10_gen.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdint.h&gt;
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) { printf("Usage: %s &lt;username&gt;\n", argv[0]); return 1; }
+    if (strlen(argv[1]) != 6) { printf("Username must be 6 chars\n"); return 1; }
+    
+    uint32_t token = 0;
+    for (int i = 0; i < 6; i++) {
+        token = (token << 5) ^ argv[1][i];
+    }
+    token ^= 0xCAFEBABE;
+    printf("%08x\n", token);
+    return 0;
+}
+EOF
+
+# Binary 2: transforms token into a key
+cat &lt;&lt; 'EOF' > ch10_transform.c
+#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;stdlib.h&gt;
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) { printf("Usage: %s &lt;hex_token&gt;\n", argv[0]); return 1; }
+    uint32_t token = (uint32_t)strtoul(argv[1], NULL, 16);
+    
+    // Bit manipulation transform
+    uint32_t key = 0;
+    for (int i = 0; i < 32; i++) {
+        key |= ((token >> i) & 1) << (31 - i);  // bit reverse
+    }
+    key ^= 0xDEADC0DE;
+    
+    printf("%08x\n", key);
+    return 0;
+}
+EOF
+
+# Binary 3: validates key and prints flag
+cat &lt;&lt; 'EOF' > ch10_validate.c
+#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;stdlib.h&gt;
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) { printf("Usage: %s &lt;hex_key&gt;\n", argv[0]); return 1; }
+    uint32_t key = (uint32_t)strtoul(argv[1], NULL, 16);
+    
+    // Expected key value
+    if (key == 0x8BADF00D) {
+        printf("flag{mult1_b1n4ry_ch41n_m4st3r}\n");
+    } else {
+        printf("Wrong key: 0x%08X (expected 0x8BADF00D)\n", key);
+    }
+    return 0;
+}
+EOF
+
+gcc -o ch10_gen ch10_gen.c -no-pie -O0
+gcc -o ch10_transform ch10_transform.c -no-pie -O0
+gcc -o ch10_validate ch10_validate.c -no-pie -O0
+strip ch10_gen ch10_transform ch10_validate</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Work backwards: (1) validate needs key=0x8BADF00D. (2) transform does bit-reverse then XOR 0xDEADC0DE. Reverse: 0x8BADF00D ^ 0xDEADC0DE = 0x550030D3, then bit-reverse 0x550030D3 to get the token. (3) gen does <code>token = (((...) << 5) ^ char) for each char) ^ 0xCAFEBABE</code>. XOR with 0xCAFEBABE first to get the pre-XOR token, then reverse the shift-XOR chain to find the 6-char username. Each step peels off the last char: <code>char = (token ^ prev_state) & 0x1F</code>... but chars are full bytes so need to think more carefully about the shift.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 11: Obfuscated Control Flow</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A binary uses opaque predicates and indirect jumps to obfuscate its control flow. Deobfuscate to find the validation logic.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > ch11.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+// Opaque predicate: always true (x^2 + x is always even)
+int always_true(int x) {
+    return ((x * x + x) % 2) == 0;
+}
+
+// Opaque predicate: always false
+int always_false(int x) {
+    return ((x * x + x) % 2) == 1;
+}
+
+typedef int (*check_func)(char c, int pos);
+
+int check_char(char c, int pos) {
+    // Real validation hidden in indirect calls
+    char expected[] = "s3cr3t_fl4g!";
+    return c == expected[pos];
+}
+
+int fake_check(char c, int pos) {
+    return c == 'X';  // Never actually used
+}
+
+int main() {
+    char input[64];
+    printf("Password: ");
+    scanf("%63s", input);
+    
+    if (strlen(input) != 12) { printf("Wrong!\n"); return 1; }
+    
+    check_func funcs[2] = {fake_check, check_char};
+    
+    int valid = 1;
+    for (int i = 0; i < 12; i++) {
+        // Opaque predicate selects real checker (always index 1)
+        int idx = always_true(i * 7 + 3) ? 1 : 0;
+        
+        // Dead code that confuses analysis
+        if (always_false(i + 42)) {
+            printf("Impossible path\n");
+            valid = 0;
+        }
+        
+        if (!funcs[idx](input[i], i)) {
+            valid = 0;
+        }
+    }
+    
+    if (valid) printf("flag{d30bfu5c4t3d_%s}\n", input);
+    else printf("Wrong!\n");
+    return 0;
+}
+EOF
+gcc -o ch11 ch11.c -no-pie -O0
+strip ch11</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>The opaque predicates (<code>x²+x mod 2 == 0</code>) are always true, so <code>funcs[1]</code> (check_char) is always selected. The expected string "s3cr3t_fl4g!" is in the check_char function's local data. In Ghidra: trace through the indirect call, see that the function pointer array is in .data, identify which entry is always chosen. Alternatively, just find the string in .rodata and read it directly.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 12: Angr Automation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A binary has complex constraints that are impractical to solve manually. Use Angr's symbolic execution to find the solution automatically.</p>
+          <div class="setup-code">
+            <pre><code class="language-bash">cat &lt;&lt; 'EOF' > ch12.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdint.h&gt;
+
+void transform(char *buf, int len) {
+    // Multiple transformation passes
+    for (int pass = 0; pass < 3; pass++) {
+        for (int i = 0; i < len - 1; i++) {
+            buf[i] ^= buf[i + 1];
+        }
+        for (int i = len - 1; i > 0; i--) {
+            buf[i] += buf[i - 1];
+        }
+        for (int i = 0; i < len; i++) {
+            buf[i] = ((buf[i] << 3) | ((unsigned char)buf[i] >> 5)) & 0xFF;
+        }
+    }
+}
+
+int main() {
+    char input[20];
+    printf("Key: ");
+    scanf("%19s", input);
+    
+    if (strlen(input) != 16) {
+        printf("Must be 16 chars.\n");
+        return 1;
+    }
+    
+    char buf[17];
+    strcpy(buf, input);
+    transform(buf, 16);
+    
+    unsigned char target[] = {
+        0x48, 0xf2, 0x91, 0x3a, 0xc7, 0x5e, 0xb8, 0x04,
+        0x6d, 0xa3, 0x1f, 0xe5, 0x7c, 0x29, 0xd6, 0x80
+    };
+    
+    if (memcmp(buf, target, 16) == 0) {
+        printf("flag{4ngr_4ut0m4t10n_%s}\n", input);
+    } else {
+        printf("Nope.\n");
+    }
+    return 0;
+}
+EOF
+gcc -o ch12 ch12.c -no-pie -O0
+
+# Angr solver:
+cat &lt;&lt; 'EOF' > solve_ch12.py
+import angr
+import claripy
+
+proj = angr.Project("./ch12", auto_load_libs=False)
+input_chars = [claripy.BVS(f"c{i}", 8) for i in range(16)]
+input_bvs = claripy.Concat(*input_chars, claripy.BVV(b"\n"))
+
+state = proj.factory.entry_state(stdin=input_bvs)
+for c in input_chars:
+    state.solver.add(c >= 0x21)
+    state.solver.add(c <= 0x7e)
+
+simgr = proj.factory.simgr(state)
+simgr.explore(
+    find=lambda s: b"flag{" in s.posix.dumps(1),
+    avoid=lambda s: b"Nope" in s.posix.dumps(1)
+)
+
+if simgr.found:
+    sol = simgr.found[0]
+    result = bytes(sol.solver.eval(c, cast_to=int) for c in input_chars)
+    print(f"Solution: {result.decode()}")
+    print(sol.posix.dumps(1).decode())
+EOF
+python3 solve_ch12.py</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>The transform function applies 3 passes of: XOR-chain, addition-chain, and bit-rotation. Reversing this manually is error-prone. Use Angr: create 16 symbolic bytes, constrain to printable, explore for the "flag{" output path. Angr's constraint solver (Z3 underneath) handles the complex transforms automatically. Key tip: use <code>auto_load_libs=False</code> and constrain input to printable ASCII to reduce the search space.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -52,8 +52,121 @@
     <h1>HackBook</h1>
 
     <h2 id="about">About</h2>
-    <p>Hacking and CTF Notes!</p>
-</body>
+    <p>A comprehensive cybersecurity knowledge base for CTF players and security researchers. Each topic includes detailed notes, hands-on labs, and practice CTF challenges.</p>
+
+    <h2 id="sections">Sections</h2>
+
+    <h3>Binary Exploitation</h3>
+    <p>ELF internals, stack overflows, format strings, ROP chains, GOT/PLT hijacking, heap exploitation, and shellcode development.</p>
+    <ul>
+      <li><a href="pages/binary/fundamentals.html">Fundamentals</a> — ELF format, memory layout, protections, GDB, pwntools</li>
+      <li><a href="pages/binary/stack-overflow.html">Stack Overflow</a> — Buffer overflows, offset discovery, ret2win, canary bypass</li>
+      <li><a href="pages/binary/format-strings.html">Format Strings</a> — Stack leaks, arbitrary read/write, GOT overwrite via printf</li>
+      <li><a href="pages/binary/rop.html">ROP</a> — Return-oriented programming, ret2libc, mprotect, SROP, stack pivots</li>
+      <li><a href="pages/binary/got-plt.html">GOT/PLT Hijacking</a> — Dynamic linking exploitation, libc leaks, ret2plt</li>
+      <li><a href="pages/binary/heap.html">Heap Exploitation</a> — ptmalloc2 internals, tcache poison, UAF, double free</li>
+      <li><a href="pages/binary/shellcode.html">Shellcode</a> — Writing shellcode, encoding, NOP sleds, size optimization</li>
+    </ul>
+
+    <h3>Networking</h3>
+    <p>Protocol fundamentals, scanning, packet analysis, and network-level attacks.</p>
+    <ul>
+      <li><a href="pages/network/tcp-ip.html">TCP/IP</a> — Protocol stack, 3-way handshake, sockets, netcat</li>
+      <li><a href="pages/network/dns.html">DNS</a> — Record types, zone transfers, tunneling, enumeration</li>
+      <li><a href="pages/network/scanning.html">Network Scanning</a> — Nmap, masscan, service enumeration, recon methodology</li>
+      <li><a href="pages/network/arp.html">ARP &amp; Layer 2</a> — ARP spoofing, MITM, MAC flooding, VLAN hopping</li>
+      <li><a href="pages/network/dhcp.html">DHCP</a> — DORA process, starvation, rogue servers</li>
+      <li><a href="pages/network/wireshark.html">Wireshark</a> — Packet analysis, display filters, pcap forensics</li>
+    </ul>
+
+    <h3>Architecture</h3>
+    <p>Low-level x86 architecture, assembly programming, and memory management.</p>
+    <ul>
+      <li><a href="pages/arch/x86-assembly.html">x86 Assembly</a> — Registers, instructions, calling conventions, syscalls</li>
+      <li><a href="pages/arch/x86-os-internals.html">x86 OS Internals</a> — Operating system architecture</li>
+      <li><a href="pages/arch/x86-firmware.html">x86 Firmware</a> — BIOS, UEFI, firmware security</li>
+      <li><a href="pages/arch/memory-management.html">Memory Management</a> — Virtual memory, ASLR, mmap, protections</li>
+    </ul>
+
+    <h3>Web</h3>
+    <p>Web application security, injection attacks, and authentication exploits.</p>
+    <ul>
+      <li><a href="pages/web/javascript.html">JavaScript</a> — Language fundamentals for web exploitation</li>
+      <li><a href="pages/web/xss.html">XSS</a> — Reflected, stored, DOM-based, filter bypass, CSP evasion</li>
+      <li><a href="pages/web/sqli.html">SQL Injection</a> — UNION, blind, time-based, sqlmap, NoSQL injection</li>
+      <li><a href="pages/web/ssrf.html">SSRF</a> — Internal service access, cloud metadata, filter bypass</li>
+      <li><a href="pages/web/auth-attacks.html">Auth Attacks</a> — JWT, OAuth, session management, IDOR</li>
+      <li><a href="pages/web/burp.html">Burp Suite</a> — Proxy, repeater, intruder, extensions</li>
+    </ul>
+
+    <h3>Blockchain</h3>
+    <p>Smart contract security, Solidity vulnerabilities, and DeFi exploit patterns.</p>
+    <ul>
+      <li><a href="pages/blockchain/solidity.html">Solidity</a> — Language fundamentals, ERC standards, development tools</li>
+      <li><a href="pages/blockchain/vulnerabilities.html">Smart Contract Vulns</a> — Reentrancy, overflow, access control, oracle manipulation</li>
+      <li><a href="pages/blockchain/defi.html">DeFi Attacks</a> — Flash loans, price manipulation, sandwich attacks</li>
+    </ul>
+
+    <h3>Windows</h3>
+    <p>Complete Windows security expertise: internals, authentication, kernel security, Active Directory, offensive techniques, and hardening.</p>
+    <ul>
+      <li><a href="pages/windows/internals.html">Internals</a> — Processes (EPROCESS/KPROCESS/PEB), tokens, DLL loading, syscalls, mitigations</li>
+      <li><a href="pages/windows/authentication.html">Authentication</a> — NTLM, Kerberos deep dive, LSA/LSASS, access tokens, SIDs, ACLs/DACLs/SACLs</li>
+      <li><a href="pages/windows/kernel-security.html">Kernel Security</a> — PatchGuard, VBS/HVCI, driver signing, BYOVD, Secure Boot, kernel mitigations</li>
+      <li><a href="pages/windows/os-security.html">OS Security Mechanisms</a> — Defender/AMSI, AppLocker, WDAC, BitLocker/TPM, ETW, Sysmon</li>
+      <li><a href="pages/windows/active-directory.html">Active Directory</a> — Kerberos attacks, ADCS, delegation, ACL abuse, DCSync, BloodHound</li>
+      <li><a href="pages/windows/powershell.html">PowerShell Security</a> — AMSI bypass, CLM escape, logging, JEA, WinRM, offensive PS</li>
+      <li><a href="pages/windows/offensive.html">Offensive / Red Team</a> — Process injection, LOLBAS, UAC bypass, COM/DCOM, WMI, token manipulation</li>
+      <li><a href="pages/windows/networking.html">Networking &amp; Protocols</a> — SMB relay, RPC/DCOM, LDAP, DNS poisoning, auth coercion</li>
+      <li><a href="pages/windows/privilege-escalation.html">Privilege Escalation</a> — Service misconfig, Potato family, DLL hijacking, kernel exploits</li>
+      <li><a href="pages/windows/lateral-movement.html">Lateral Movement</a> — PtH, PtT, WinRM, pivoting (chisel/ligolo), C2 frameworks</li>
+      <li><a href="pages/windows/forensics.html">Forensics &amp; IR</a> — Memory/disk forensics, event logs, timeline, registry, KAPE/Volatility</li>
+      <li><a href="pages/windows/hardening.html">Hardening</a> — CIS benchmarks, GPO, ASR rules, Credential Guard, tiered admin, ADCS</li>
+    </ul>
+
+    <h3>Cryptography</h3>
+    <p>Classical and modern cryptography, from Caesar ciphers to RSA attacks and PRNG exploitation.</p>
+    <ul>
+      <li><a href="pages/crypto/classical.html">Classical Ciphers</a> — Caesar, Vigenère, substitution, transposition, XOR</li>
+      <li><a href="pages/crypto/symmetric.html">Symmetric Crypto</a> — AES modes, padding oracle, ECB/CBC/CTR attacks</li>
+      <li><a href="pages/crypto/asymmetric.html">Asymmetric Crypto</a> — RSA attacks, Diffie-Hellman, ECC, ECDSA nonce reuse</li>
+      <li><a href="pages/crypto/hashing.html">Hashing</a> — Hash cracking, length extension, HMAC, birthday attacks</li>
+      <li><a href="pages/crypto/attacks.html">Crypto Attacks</a> — PRNG prediction, Mersenne Twister, timing attacks, Z3</li>
+    </ul>
+
+    <h3>Reverse Engineering</h3>
+    <p>Binary analysis, debugging, anti-reversing bypass, and malware analysis.</p>
+    <ul>
+      <li><a href="pages/reversing/static-analysis.html">Static Analysis</a> — Ghidra, IDA, radare2, Angr, binary patching</li>
+      <li><a href="pages/reversing/dynamic-analysis.html">Dynamic Analysis</a> — GDB scripting, Frida hooking, unicorn emulation, fuzzing</li>
+      <li><a href="pages/reversing/anti-reversing.html">Anti-Reversing</a> — Anti-debug, packing, obfuscation, VM detection bypass</li>
+      <li><a href="pages/reversing/malware.html">Malware Analysis</a> — Behavioral analysis, PE format, YARA rules, IOC extraction</li>
+    </ul>
+
+    <h3>Browser Exploitation</h3>
+    <p>JavaScript engine internals, V8 exploitation, and browser sandbox escape.</p>
+    <ul>
+      <li><a href="pages/browser/v8-internals.html">V8 Internals</a> — Object model, JIT compilation, heap structure, debugging</li>
+      <li><a href="pages/browser/js-engine-exploit.html">JS Engine Exploitation</a> — Type confusion, OOB, addrof/fakeobj, WASM shellcode</li>
+      <li><a href="pages/browser/sandbox-escape.html">Sandbox Escape</a> — Chrome IPC, Mojo, site isolation, full chain anatomy</li>
+    </ul>
+
+    <h3>Linux Kernel</h3>
+    <p>Kernel module development, exploitation techniques, and race condition attacks.</p>
+    <ul>
+      <li><a href="pages/kernel/fundamentals.html">Kernel Fundamentals</a> — Modules, syscalls, SLUB, cred, QEMU environment</li>
+      <li><a href="pages/kernel/exploitation.html">Kernel Exploitation</a> — ret2usr, kernel ROP, modprobe_path, msg_msg, pipe_buffer</li>
+      <li><a href="pages/kernel/race-conditions.html">Race Conditions</a> — TOCTOU, userfaultfd, FUSE, double fetch, Dirty COW</li>
+    </ul>
+
+    <h3>Forensics</h3>
+    <p>Digital forensics, memory analysis, and steganography for CTF competitions.</p>
+    <ul>
+      <li><a href="pages/forensics/disk.html">Disk Forensics</a> — File carving, NTFS artifacts, registry, Sleuth Kit, timeline</li>
+      <li><a href="pages/forensics/memory.html">Memory Forensics</a> — Volatility, process analysis, rootkit detection, IOCs</li>
+      <li><a href="pages/forensics/steganography.html">Steganography</a> — LSB, steghide, spectrograms, PNG chunks, file tricks</li>
+    </ul>
+  </div>
 
 </body>
 </html>

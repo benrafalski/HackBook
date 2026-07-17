@@ -1,0 +1,1701 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Hashing</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+  <h1>Hashing &amp; Message Authentication</h1>
+
+  <div class="tab-container">
+    <ul class="nav nav-tabs" role="tablist">
+      <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#notes" role="tab">Notes</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#lab" role="tab">Labs</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#ctf" role="tab">CTF Challenges</a></li>
+    </ul>
+
+    <div class="tab-content">
+      <!-- ═══════════════════ NOTES TAB ═══════════════════ -->
+      <div class="tab-pane fade show active" id="notes" role="tabpanel">
+
+        <h2>Hash Function Properties</h2>
+        <table class="table table-dark table-bordered">
+          <thead><tr><th>Property</th><th>Definition</th><th>Break Consequence</th></tr></thead>
+          <tbody>
+            <tr><td>Preimage Resistance</td><td>Given h, infeasible to find m such that H(m) = h</td><td>Recover plaintext from digest</td></tr>
+            <tr><td>Second Preimage Resistance</td><td>Given m₁, infeasible to find m₂ ≠ m₁ where H(m₁) = H(m₂)</td><td>Forge documents with same hash</td></tr>
+            <tr><td>Collision Resistance</td><td>Infeasible to find any m₁ ≠ m₂ where H(m₁) = H(m₂)</td><td>Birthday attacks on signatures</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Common Hash Algorithms</h2>
+        <table class="table table-dark table-bordered">
+          <thead><tr><th>Algorithm</th><th>Output (bits)</th><th>Status</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>MD5</td><td>128</td><td class="text-danger">Broken</td><td>Collisions trivial (seconds). Never use for security.</td></tr>
+            <tr><td>SHA-1</td><td>160</td><td class="text-warning">Deprecated</td><td>SHAttered (2017) — practical collision.</td></tr>
+            <tr><td>SHA-256</td><td>256</td><td class="text-success">Secure</td><td>SHA-2 family, widely used.</td></tr>
+            <tr><td>SHA-384</td><td>384</td><td class="text-success">Secure</td><td>Truncated SHA-512.</td></tr>
+            <tr><td>SHA-512</td><td>512</td><td class="text-success">Secure</td><td>Faster on 64-bit CPUs than SHA-256.</td></tr>
+            <tr><td>SHA-3 (Keccak)</td><td>224/256/384/512</td><td class="text-success">Secure</td><td>Sponge construction — not Merkle-Damgård.</td></tr>
+            <tr><td>BLAKE2</td><td>256/512</td><td class="text-success">Secure</td><td>Faster than SHA-3, used in Argon2.</td></tr>
+          </tbody>
+        </table>
+
+        <h2>HMAC Construction</h2>
+        <p>HMAC provides message authentication using a shared secret key with a hash function.</p>
+        <pre><code class="language-python">HMAC(K, m) = H((K' ⊕ opad) || H((K' ⊕ ipad) || m))
+
+# K' = key padded to block size
+# ipad = 0x36 repeated to block size
+# opad = 0x5c repeated to block size</code></pre>
+
+        <pre><code class="language-python">import hmac
+import hashlib
+
+key = b"secret_key"
+message = b"authenticate this"
+
+# Compute HMAC-SHA256
+mac = hmac.new(key, message, hashlib.sha256).hexdigest()
+print(f"HMAC-SHA256: {mac}")
+
+# Secure comparison (constant-time)
+expected = "known_mac_value"
+if hmac.compare_digest(mac, expected):
+    print("Valid!")
+</code></pre>
+
+        <h2>Length Extension Attacks (Merkle-Damgård)</h2>
+        <p>Merkle-Damgård hashes (MD5, SHA-1, SHA-256) process messages in blocks and output the internal state directly. If you know <code>H(secret || message)</code> and the length of <code>secret</code>, you can compute <code>H(secret || message || padding || extension)</code> without knowing the secret.</p>
+
+        <pre><code class="language-bash"># Using HashPump
+hashpump -s "original_signature" \
+         -d "original_data" \
+         -k 16 \          # secret key length
+         -a "appended_data"
+
+# Output: new signature + new message (with glue padding)</code></pre>
+
+        <p><strong>Vulnerable pattern:</strong> <code>MAC = H(secret || message)</code><br>
+        <strong>Secure alternative:</strong> Use HMAC or SHA-3 (sponge construction immune to length extension).</p>
+
+        <h2>Birthday Paradox</h2>
+        <p>For an n-bit hash, a collision is expected after approximately <strong>2<sup>n/2</sup></strong> attempts.</p>
+        <table class="table table-dark table-bordered">
+          <thead><tr><th>Hash Bits</th><th>Collision Attempts</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr><td>32</td><td>~2<sup>16</sup> = 65,536</td><td>CRC32</td></tr>
+            <tr><td>64</td><td>~2<sup>32</sup> ≈ 4 billion</td><td>Truncated hashes</td></tr>
+            <tr><td>128</td><td>~2<sup>64</sup></td><td>MD5</td></tr>
+            <tr><td>256</td><td>~2<sup>128</sup></td><td>SHA-256</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Password Hashing</h2>
+        <table class="table table-dark table-bordered">
+          <thead><tr><th>Algorithm</th><th>Defense</th><th>Key Feature</th></tr></thead>
+          <tbody>
+            <tr><td>bcrypt</td><td>CPU-hard</td><td>Cost factor (2<sup>cost</sup> iterations), 72-byte max input</td></tr>
+            <tr><td>scrypt</td><td>Memory-hard</td><td>Configurable memory (N, r, p parameters)</td></tr>
+            <tr><td>Argon2id</td><td>Memory + CPU hard</td><td>Winner of PHC (2015). Hybrid: resists GPU + side-channel</td></tr>
+          </tbody>
+        </table>
+
+        <pre><code class="language-python">import bcrypt
+import hashlib
+
+# bcrypt
+password = b"hunter2"
+salt = bcrypt.gensalt(rounds=12)
+hashed = bcrypt.hashpw(password, salt)
+assert bcrypt.checkpw(password, hashed)
+
+# Argon2 (via argon2-cffi)
+from argon2 import PasswordHasher
+ph = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=4)
+h = ph.hash("hunter2")
+ph.verify(h, "hunter2")  # raises on failure</code></pre>
+
+        <h2>Hash Cracking</h2>
+        <h3>Hashcat Modes</h3>
+        <table class="table table-dark table-bordered">
+          <thead><tr><th>Mode</th><th>Algorithm</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr><td>0</td><td>MD5</td><td><code>hashcat -m 0 hash.txt rockyou.txt</code></td></tr>
+            <tr><td>100</td><td>SHA-1</td><td><code>hashcat -m 100 hash.txt rockyou.txt</code></td></tr>
+            <tr><td>1400</td><td>SHA-256</td><td><code>hashcat -m 1400 hash.txt rockyou.txt</code></td></tr>
+            <tr><td>1700</td><td>SHA-512</td><td><code>hashcat -m 1700 hash.txt rockyou.txt</code></td></tr>
+            <tr><td>3200</td><td>bcrypt</td><td><code>hashcat -m 3200 hash.txt rockyou.txt</code></td></tr>
+            <tr><td>1000</td><td>NTLM</td><td><code>hashcat -m 1000 hash.txt rockyou.txt</code></td></tr>
+            <tr><td>1800</td><td>sha512crypt ($6$)</td><td><code>hashcat -m 1800 hash.txt rockyou.txt</code></td></tr>
+            <tr><td>500</td><td>md5crypt ($1$)</td><td><code>hashcat -m 500 hash.txt rockyou.txt</code></td></tr>
+          </tbody>
+        </table>
+
+        <h3>Hashcat Attack Modes</h3>
+        <pre><code class="language-bash"># Dictionary attack
+hashcat -m 0 -a 0 hash.txt /usr/share/wordlists/rockyou.txt
+
+# Dictionary + rules
+hashcat -m 0 -a 0 hash.txt rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+
+# Brute-force (mask)
+hashcat -m 0 -a 3 hash.txt ?a?a?a?a?a?a  # 6-char all chars
+
+# Combinator (word1+word2)
+hashcat -m 0 -a 1 hash.txt dict1.txt dict2.txt
+
+# Mask charsets: ?l=lower ?u=upper ?d=digit ?s=special ?a=all</code></pre>
+
+        <h3>John the Ripper</h3>
+        <pre><code class="language-bash"># Auto-detect hash type
+john hash.txt
+
+# Specify format
+john --format=raw-md5 hash.txt
+john --format=raw-sha256 hash.txt
+john --format=bcrypt hash.txt
+
+# Wordlist mode
+john --wordlist=/usr/share/wordlists/rockyou.txt hash.txt
+
+# Show cracked
+john --show hash.txt
+
+# Incremental (brute-force)
+john --incremental hash.txt
+
+# Rules
+john --wordlist=rockyou.txt --rules=best64 hash.txt</code></pre>
+
+        <h3>Rainbow Tables</h3>
+        <pre><code class="language-bash"># Generate rainbow table with rtgen (RainbowCrack)
+rtgen md5 loweralpha-numeric 1 7 0 3800 33554432 0
+
+# Sort the table
+rtsort *.rt
+
+# Crack using rainbow table
+rcrack . -h 5d41402abc4b2a76b9719d911017c592
+
+# Online: crackstation.net, hashes.org</code></pre>
+
+        <h2>Hash Identification</h2>
+        <pre><code class="language-bash"># hashid
+hashid '5d41402abc4b2a76b9719d911017c592'
+# [+] MD5
+# [+] MD4
+# [+] Domain Cached Credentials
+
+# hash-identifier (Kali)
+hash-identifier
+
+# Python haiti
+pip install haiti
+haiti '5d41402abc4b2a76b9719d911017c592'
+
+# Name-That-Hash
+pip install name-that-hash
+nth -t '5d41402abc4b2a76b9719d911017c592'</code></pre>
+
+        <table class="table table-dark table-bordered">
+          <thead><tr><th>Length</th><th>Likely Algorithm</th><th>Example Prefix</th></tr></thead>
+          <tbody>
+            <tr><td>32 hex</td><td>MD5</td><td>—</td></tr>
+            <tr><td>40 hex</td><td>SHA-1</td><td>—</td></tr>
+            <tr><td>64 hex</td><td>SHA-256</td><td>—</td></tr>
+            <tr><td>128 hex</td><td>SHA-512</td><td>—</td></tr>
+            <tr><td>$2b$</td><td>bcrypt</td><td>$2b$12$...</td></tr>
+            <tr><td>$6$</td><td>sha512crypt</td><td>$6$rounds=...</td></tr>
+            <tr><td>$argon2id$</td><td>Argon2id</td><td>$argon2id$v=19$...</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Python hashlib &amp; hmac</h2>
+        <pre><code class="language-python">import hashlib
+
+# Basic hashing
+data = b"hello world"
+print(hashlib.md5(data).hexdigest())      # 5eb63bbbe01eeed093cb22bb8f5acdc3
+print(hashlib.sha256(data).hexdigest())   # b94d27b9934d3e08...
+print(hashlib.sha512(data).hexdigest())
+
+# File hashing (chunked for large files)
+def hash_file(path, algo="sha256"):
+    h = hashlib.new(algo)
+    with open(path, "rb") as f:
+        while chunk := f.read(8192):
+            h.update(chunk)
+    return h.hexdigest()
+
+# Available algorithms
+print(hashlib.algorithms_available)
+
+# PBKDF2
+dk = hashlib.pbkdf2_hmac('sha256', b'password', b'salt', 100000)
+print(dk.hex())</code></pre>
+
+        <h2>Merkle Trees</h2>
+        <p>Binary tree of hashes. Leaf nodes are hashes of data blocks; parent nodes are hashes of concatenated children. Used in Git, Bitcoin, certificate transparency.</p>
+        <pre><code class="language-python">import hashlib
+
+def merkle_root(leaves):
+    """Compute Merkle root from list of data blocks."""
+    nodes = [hashlib.sha256(leaf).digest() for leaf in leaves]
+    while len(nodes) > 1:
+        if len(nodes) % 2 == 1:
+            nodes.append(nodes[-1])  # duplicate last if odd
+        nodes = [
+            hashlib.sha256(nodes[i] + nodes[i+1]).digest()
+            for i in range(0, len(nodes), 2)
+        ]
+    return nodes[0].hex()
+
+blocks = [b"tx1", b"tx2", b"tx3", b"tx4"]
+print(merkle_root(blocks))</code></pre>
+
+        <h2>Proof of Work</h2>
+        <p>Find a nonce such that <code>H(challenge || nonce)</code> starts with N zero bits. Used in Bitcoin mining and CTF challenges.</p>
+        <pre><code class="language-python">import hashlib
+import itertools
+
+def proof_of_work(challenge, difficulty):
+    """Find nonce where SHA-256(challenge + nonce) has `difficulty` leading zero bits."""
+    prefix = '0' * (difficulty // 4)
+    for nonce in itertools.count():
+        attempt = f"{challenge}{nonce}".encode()
+        h = hashlib.sha256(attempt).hexdigest()
+        if h.startswith(prefix):
+            return nonce, h
+    
+challenge = "CTF2024"
+nonce, h = proof_of_work(challenge, 20)
+print(f"Nonce: {nonce}, Hash: {h}")</code></pre>
+
+      </div>
+
+      <!-- ═══════════════════ LABS TAB ═══════════════════ -->
+      <div class="tab-pane fade" id="lab" role="tabpanel">
+
+        <div class="lab-card">
+          <h4>Lab 1: Hash Computation &amp; Comparison</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Compute MD5, SHA-1, SHA-256, and SHA-512 digests of various inputs and verify file integrity using checksums.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import hashlib
+
+# Task 1: Hash the string "HackBook" with all algorithms
+data = b"HackBook"
+
+algorithms = ['md5', 'sha1', 'sha256', 'sha512']
+for algo in algorithms:
+    h = hashlib.new(algo, data)
+    print(f"{algo:10s}: {h.hexdigest()}")
+
+# Task 2: Hash a file and compare with known checksum
+def verify_file(filepath, expected_sha256):
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(4096):
+            h.update(chunk)
+    computed = h.hexdigest()
+    match = computed == expected_sha256
+    print(f"Computed: {computed}")
+    print(f"Expected: {expected_sha256}")
+    print(f"Match: {match}")
+    return match
+
+# Task 3: Demonstrate that even 1-bit change produces completely different hash
+msg1 = b"hello"
+msg2 = b"hellp"  # one character different
+h1 = hashlib.sha256(msg1).hexdigest()
+h2 = hashlib.sha256(msg2).hexdigest()
+print(f"\n'{msg1.decode()}' -> {h1}")
+print(f"'{msg2.decode()}' -> {h2}")
+
+# Count differing hex characters
+diff = sum(1 for a, b in zip(h1, h2) if a != b)
+print(f"Differing hex chars: {diff}/64")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Cracking Hashes with Hashcat</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use hashcat to crack MD5 and SHA-256 hashes from a wordlist and with rule-based attacks.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup: create test hashes
+echo -n "password123" | md5sum | cut -d' ' -f1 > md5_hash.txt
+echo -n "Summer2024!" | sha256sum | cut -d' ' -f1 > sha256_hash.txt
+
+# Task 1: Crack MD5 with dictionary
+hashcat -m 0 -a 0 md5_hash.txt /usr/share/wordlists/rockyou.txt
+
+# Task 2: Crack SHA-256 with dictionary + rules
+hashcat -m 1400 -a 0 sha256_hash.txt /usr/share/wordlists/rockyou.txt \
+    -r /usr/share/hashcat/rules/best64.rule
+
+# Task 3: Crack with mask attack (format: Word + 4 digits)
+# Create hash of "Hello1234"
+echo -n "Hello1234" | md5sum | cut -d' ' -f1 > mask_hash.txt
+hashcat -m 0 -a 3 mask_hash.txt "?u?l?l?l?l?d?d?d?d"
+
+# Task 4: Show results
+hashcat -m 0 md5_hash.txt --show
+hashcat -m 1400 sha256_hash.txt --show</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Cracking with John the Ripper</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use John the Ripper to crack password hashes in multiple formats including Linux shadow file entries.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Task 1: Crack raw MD5
+echo '482c811da5d5b4bc6d497ffa98491e38' > john_md5.txt
+john --format=raw-md5 --wordlist=/usr/share/wordlists/rockyou.txt john_md5.txt
+john --show --format=raw-md5 john_md5.txt
+
+# Task 2: Crack Linux shadow hash (sha512crypt)
+cat > shadow_hash.txt << 'EOF'
+user1:$6$rounds=5000$saltsalt$YQ3bH5GnM1mGF.ZmHKz8fG9jqEMaVQZROXsfKmPkXhFQE3bSVisqOjixvCFVNO1LFMXbZBQxdz3ZrKLRiH8Ov/:19000:0:99999:7:::
+EOF
+john shadow_hash.txt --wordlist=/usr/share/wordlists/rockyou.txt
+john --show shadow_hash.txt
+
+# Task 3: Crack bcrypt hash
+echo '$2b$12$LJ3m4sMGBTGbqJfBYWXVSO8UTy7E3CXrNjQBIwQi2NJ9CL7FPVHGS' > bcrypt_hash.txt
+john --format=bcrypt --wordlist=/usr/share/wordlists/rockyou.txt bcrypt_hash.txt
+
+# Task 4: Use rules for mutations
+john --format=raw-sha256 --wordlist=custom.txt --rules=best64 sha256_hash.txt</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Length Extension Attack with HashPump</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a Merkle-Damgård length extension vulnerability to forge a valid MAC without knowing the secret key.</p>
+          <div class="setup-code">
+<pre><code class="language-python">#!/usr/bin/env python3
+"""
+Vulnerable server simulation: MAC = SHA256(secret || message)
+Attacker knows: original message, MAC, and length of secret.
+Goal: Forge MAC for message with appended data.
+"""
+import hashlib
+import struct
+import subprocess
+
+# ─── Vulnerable Server ───
+SECRET = b"supersecretkey!!"  # 16 bytes, unknown to attacker
+def create_mac(message):
+    return hashlib.sha256(SECRET + message).hexdigest()
+
+def verify_mac(message, mac):
+    return create_mac(message) == mac
+
+# ─── Legitimate request ───
+original_msg = b"user=guest"
+original_mac = create_mac(original_msg)
+print(f"Original message: {original_msg}")
+print(f"Original MAC: {original_mac}")
+
+# ─── Attack using hashpump ───
+# Install: apt install hashpump OR pip install hashpumpy
+import hashpumpy
+
+# Forge: append "&admin=true" to the message
+new_mac, new_msg = hashpumpy.hashpump(
+    original_mac,           # known MAC
+    original_msg,           # known message  
+    b"&amp;admin=true",         # data to append
+    len(SECRET)             # secret key length
+)
+
+print(f"\nForged message: {new_msg}")
+print(f"Forged MAC: {new_mac}")
+print(f"Server verifies: {verify_mac(new_msg, new_mac)}")  # True!</code></pre>
+
+<pre><code class="language-bash"># Using hashpump CLI
+hashpump -s "original_mac_hex" \
+         -d "user=guest" \
+         -k 16 \
+         -a "&admin=true"
+
+# Manual length extension (understanding the internals)
+# 1. Reconstruct internal SHA-256 state from known MAC
+# 2. Calculate padding that would be applied to (secret || message)
+# 3. Continue hashing from that state with new data</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: HMAC Implementation from Scratch</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Implement HMAC-SHA256 from scratch following RFC 2104 and verify against Python's hmac module.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import hashlib
+import hmac as hmac_module
+
+def hmac_sha256(key: bytes, message: bytes) -> str:
+    """HMAC-SHA256 implementation per RFC 2104."""
+    block_size = 64  # SHA-256 block size in bytes
+    
+    # Step 1: If key > block_size, hash it
+    if len(key) > block_size:
+        key = hashlib.sha256(key).digest()
+    
+    # Step 2: Pad key to block_size
+    key = key.ljust(block_size, b'\x00')
+    
+    # Step 3: Create inner and outer padded keys
+    ipad = bytes(k ^ 0x36 for k in key)
+    opad = bytes(k ^ 0x5c for k in key)
+    
+    # Step 4: inner_hash = H(ipad || message)
+    inner_hash = hashlib.sha256(ipad + message).digest()
+    
+    # Step 5: outer_hash = H(opad || inner_hash)
+    outer_hash = hashlib.sha256(opad + inner_hash).hexdigest()
+    
+    return outer_hash
+
+# Test vectors
+key = b"secret_key_for_hmac"
+message = b"The quick brown fox jumps over the lazy dog"
+
+# Our implementation
+custom = hmac_sha256(key, message)
+
+# Python stdlib
+reference = hmac_module.new(key, message, hashlib.sha256).hexdigest()
+
+print(f"Custom HMAC:    {custom}")
+print(f"Reference HMAC: {reference}")
+print(f"Match: {custom == reference}")
+
+# Test with key longer than block size
+long_key = b"A" * 128
+custom2 = hmac_sha256(long_key, message)
+reference2 = hmac_module.new(long_key, message, hashlib.sha256).hexdigest()
+print(f"\nLong key match: {custom2 == reference2}")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Birthday Attack Simulation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Demonstrate the birthday paradox by finding collisions in truncated hash spaces and measure collision probability empirically.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import hashlib
+import os
+import math
+from collections import defaultdict
+import time
+
+def truncated_hash(data, bits):
+    """Return first `bits` bits of SHA-256 as hex."""
+    full_hash = hashlib.sha256(data).hexdigest()
+    hex_chars = bits // 4
+    return full_hash[:hex_chars]
+
+def find_collision(bits):
+    """Find a collision in a truncated hash space."""
+    seen = {}
+    attempts = 0
+    while True:
+        attempts += 1
+        data = os.urandom(16)
+        h = truncated_hash(data, bits)
+        if h in seen and seen[h] != data:
+            return attempts, data, seen[h], h
+        seen[h] = data
+
+# Task 1: Find collisions at various bit lengths
+print("Birthday Attack Results:")
+print(f"{'Bits':>6} {'Expected':>12} {'Actual':>12} {'Ratio':>8}")
+print("-" * 44)
+
+for bits in [16, 20, 24, 28, 32]:
+    expected = math.sqrt(2 * (2 ** bits))  # birthday bound
+    start = time.time()
+    attempts, d1, d2, h = find_collision(bits)
+    elapsed = time.time() - start
+    ratio = attempts / expected
+    print(f"{bits:>6} {expected:>12.0f} {attempts:>12} {ratio:>8.2f}")
+
+# Task 2: Empirical collision probability
+def collision_probability(n_items, hash_space):
+    """Monte Carlo: probability of collision with n items in hash_space."""
+    trials = 1000
+    collisions = 0
+    for _ in range(trials):
+        seen = set()
+        for _ in range(n_items):
+            h = truncated_hash(os.urandom(8), 16)
+            if h in seen:
+                collisions += 1
+                break
+            seen.add(h)
+    return collisions / trials
+
+print("\nCollision probability (16-bit hash):")
+for n in [10, 50, 100, 200, 256, 300]:
+    prob = collision_probability(n, 2**16)
+    theoretical = 1 - math.exp(-n*(n-1) / (2 * 2**16))
+    print(f"  n={n:>4}: empirical={prob:.3f}, theoretical={theoretical:.3f}")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Rainbow Table Basics</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Build a miniature rainbow table for 4-digit PINs, understand reduction functions, and crack hashes using the table.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import hashlib
+
+def hash_func(plaintext):
+    """MD5 hash of plaintext."""
+    return hashlib.md5(plaintext.encode()).hexdigest()
+
+def reduce_func(hash_val, position):
+    """Reduction function: maps hash back to a 4-digit PIN."""
+    # Use different bytes based on chain position to avoid merging
+    num = int(hash_val[position*2:(position*2)+4], 16)
+    return f"{num % 10000:04d}"
+
+def build_rainbow_table(chain_length=100):
+    """Build rainbow table for 4-digit PINs (0000-9999)."""
+    table = {}  # {endpoint: startpoint}
+    
+    for start_num in range(0, 10000, 10):  # sample every 10th
+        start = f"{start_num:04d}"
+        current = start
+        
+        # Build chain
+        for pos in range(chain_length):
+            h = hash_func(current)
+            current = reduce_func(h, pos % 8)
+        
+        endpoint = current
+        table[endpoint] = start
+    
+    print(f"Rainbow table built: {len(table)} chains, length {chain_length}")
+    return table
+
+def crack_with_rainbow(target_hash, table, chain_length=100):
+    """Look up a hash in the rainbow table."""
+    for start_pos in range(chain_length - 1, -1, -1):
+        # Reproduce chain from position start_pos
+        current = reduce_func(target_hash, start_pos % 8)
+        
+        for pos in range(start_pos + 1, chain_length):
+            h = hash_func(current)
+            current = reduce_func(h, pos % 8)
+        
+        # Check if endpoint is in table
+        if current in table:
+            # Reproduce chain from start to find plaintext
+            candidate = table[current]
+            for pos in range(chain_length):
+                h = hash_func(candidate)
+                if h == target_hash:
+                    return candidate
+                candidate = reduce_func(h, pos % 8)
+    
+    return None
+
+# Build and test
+table = build_rainbow_table()
+
+# Crack some PINs
+test_pins = ["1337", "4242", "0007", "9999"]
+for pin in test_pins:
+    target = hash_func(pin)
+    result = crack_with_rainbow(target, table)
+    status = "✓" if result == pin else "✗"
+    print(f"  {status} PIN={pin}, hash={target[:16]}..., cracked={result}")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: MD5 Collision Generation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Generate two different files with the same MD5 hash using fastcoll and understand chosen-prefix collisions.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Install Marc Stevens' HashClash (fastcoll)
+# https://github.com/cr-marcstevens/hashclash
+git clone https://github.com/cr-marcstevens/hashclash.git
+cd hashclash
+mkdir build && cd build
+cmake .. && make -j$(nproc)
+
+# Task 1: Generate identical-prefix collision
+echo -n "Common prefix data" > prefix.txt
+./fastcoll -p prefix.txt -o collision1.bin collision2.bin
+
+# Verify
+md5sum collision1.bin collision2.bin
+# Same MD5, different content!
+sha256sum collision1.bin collision2.bin
+# Different SHA-256 (as expected)
+
+# Task 2: Examine the differences
+xxd collision1.bin > hex1.txt
+xxd collision2.bin > hex2.txt
+diff hex1.txt hex2.txt</code></pre>
+
+<pre><code class="language-python"># Task 3: Python MD5 collision demo (using pre-computed blocks)
+import hashlib
+
+# These are known MD5 collision blocks (from Wang et al.)
+# In practice, use fastcoll to generate fresh ones
+block1 = bytes.fromhex(
+    "d131dd02c5e6eec4693d9a0698aff95c"
+    "2fcab58712467eab4004583eb8fb7f89"
+    "55ad340609f4b30283e488832571415a"
+    "085125e8f7cdc99fd91dbdf280373c5b"
+    "d8823e3156348f5bae6dacd436c919c6"
+    "dd53e2b487da03fd02396306d248cda0"
+    "e99f33420f577ee8ce54b67080a80d1e"
+    "c69821bcb6a8839396f9652b6ff72a70"
+)
+block2 = bytes.fromhex(
+    "d131dd02c5e6eec4693d9a0698aff95c"
+    "2fcab50712467eab4004583eb8fb7f89"
+    "55ad340609f4b30283e4888325f1415a"
+    "085125e8f7cdc99fd91dbd7280373c5b"
+    "d8823e3156348f5bae6dacd436c919c6"
+    "dd53e23487da03fd02396306d248cda0"
+    "e99f33420f577ee8ce54b67080280d1e"
+    "c69821bcb6a8839396f965ab6ff72a70"
+)
+
+print(f"Block 1 MD5: {hashlib.md5(block1).hexdigest()}")
+print(f"Block 2 MD5: {hashlib.md5(block2).hexdigest()}")
+print(f"Blocks equal: {block1 == block2}")
+print(f"MD5 match: {hashlib.md5(block1).hexdigest() == hashlib.md5(block2).hexdigest()}")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Password Cracking with Custom Wordlists</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Generate targeted wordlists using CUPP/CeWL, apply mangling rules, and crack password hashes from a simulated breach dump.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Task 1: Generate wordlist with CeWL (from website)
+cewl https://target-company.com -d 3 -m 5 -w company_words.txt
+
+# Task 2: Generate personalized wordlist with CUPP
+cupp -i
+# Enter: name, birthdate, partner, pets, keywords, etc.
+# Output: target_profile.txt
+
+# Task 3: Custom mangling rules
+cat > mangle.rule << 'EOF'
+:
+l
+u
+c
+$1
+$!
+$1$2$3
+sa@
+se3
+si1
+so0
+$2024
+$2023
+^1^2^3
+EOF
+
+# Task 4: Create test breach dump
+python3 -c "
+import hashlib
+passwords = ['Summer2024!', 'P@ssw0rd', 'Company123', 'Admin#2024', 'Welcome1!']
+for p in passwords:
+    h = hashlib.sha256(p.encode()).hexdigest()
+    print(h)
+" > breach_hashes.txt
+
+# Task 5: Crack with custom wordlist + rules
+hashcat -m 1400 -a 0 breach_hashes.txt company_words.txt -r mangle.rule
+
+# Task 6: Prince attack (combining words)
+hashcat -m 1400 -a 0 breach_hashes.txt company_words.txt \
+    --prince-min=8 --prince-max=16</code></pre>
+
+<pre><code class="language-python"># Task 7: Python wordlist generator with common patterns
+import itertools
+
+def generate_wordlist(base_words, output_file):
+    """Generate password candidates from base words."""
+    mutations = []
+    
+    leet_map = {'a': '@', 'e': '3', 'i': '1', 'o': '0', 's': '$'}
+    years = ['2023', '2024', '2025']
+    suffixes = ['!', '#', '123', '!@#', '1!']
+    
+    for word in base_words:
+        # Original + capitalization variants
+        mutations.extend([word, word.capitalize(), word.upper()])
+        
+        # Add year + suffix
+        for year in years:
+            for suffix in ['', '!', '#']:
+                mutations.append(f"{word.capitalize()}{year}{suffix}")
+        
+        # Leet speak
+        leet = word
+        for char, replacement in leet_map.items():
+            leet = leet.replace(char, replacement)
+        mutations.append(leet)
+        mutations.append(leet.capitalize())
+    
+    with open(output_file, 'w') as f:
+        for m in sorted(set(mutations)):
+            f.write(m + '\n')
+    
+    print(f"Generated {len(set(mutations))} candidates -> {output_file}")
+
+base = ["summer", "winter", "password", "admin", "welcome", "company"]
+generate_wordlist(base, "custom_wordlist.txt")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Hash Identification &amp; Analysis</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Build a hash identification tool that determines hash type from format, length, and prefix patterns.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import re
+
+HASH_PATTERNS = [
+    # (regex, name, hashcat_mode)
+    (r'^\$2[aby]\$\d{2}\$.{53}$', 'bcrypt', 3200),
+    (r'^\$6\$[^\$]+\$[a-zA-Z0-9./]{86}$', 'sha512crypt', 1800),
+    (r'^\$5\$[^\$]+\$[a-zA-Z0-9./]{43}$', 'sha256crypt', 7400),
+    (r'^\$1\$[^\$]+\$[a-zA-Z0-9./]{22}$', 'md5crypt', 500),
+    (r'^\$argon2id\$', 'Argon2id', None),
+    (r'^\$apr1\$', 'Apache APR1', 1600),
+    (r'^[a-f0-9]{128}$', 'SHA-512', 1700),
+    (r'^[a-f0-9]{96}$', 'SHA-384', 10800),
+    (r'^[a-f0-9]{64}$', 'SHA-256', 1400),
+    (r'^[a-f0-9]{40}$', 'SHA-1', 100),
+    (r'^[a-f0-9]{32}$', 'MD5 / NTLM / MD4', 0),
+    (r'^[a-f0-9]{16}$', 'MySQL323 / Half-MD5', 200),
+    (r'^[A-F0-9]{32}:[A-F0-9]+$', 'Domain Cached Credentials', 1100),
+    (r'^[a-f0-9]{32}:[a-f0-9]{32}$', 'NTLM (responder)', 5600),
+]
+
+def identify_hash(hash_str):
+    """Identify hash type from string."""
+    hash_str = hash_str.strip()
+    results = []
+    
+    for pattern, name, mode in HASH_PATTERNS:
+        if re.match(pattern, hash_str, re.IGNORECASE):
+            results.append((name, mode))
+    
+    return results
+
+# Test with various hashes
+test_hashes = [
+    "5d41402abc4b2a76b9719d911017c592",
+    "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d",
+    "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+    "$2b$12$LJ3m4sMGBTGbqJfBYWXVSO8UTy7E3CXrNjQBIwQi2NJ9CL7FPVHGS",
+    "$6$rounds=5000$saltsalt$YQ3bH5GnM1mGF.ZmHKz8fG9jqEMaVQZROXsfKmPkXhFQE3bSVisqOjixvCFVNO1LFMXbZBQxdz3ZrKLRiH8Ov/",
+    "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$hash",
+]
+
+for h in test_hashes:
+    display = h[:50] + "..." if len(h) > 50 else h
+    matches = identify_hash(h)
+    if matches:
+        for name, mode in matches:
+            mode_str = f" (hashcat -m {mode})" if mode is not None else ""
+            print(f"  {display}")
+            print(f"    -> {name}{mode_str}")
+    print()</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Proof of Work Solver</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Implement an optimized proof-of-work solver supporting multiple hash algorithms and difficulty levels, as commonly required in CTF challenge servers.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import hashlib
+import string
+import itertools
+import time
+from multiprocessing import Pool, cpu_count
+
+def solve_pow_prefix(challenge, prefix_hex, algo='sha256', charset=None):
+    """
+    Find suffix s such that H(challenge + s) starts with prefix_hex.
+    Common CTF PoW format.
+    """
+    if charset is None:
+        charset = string.ascii_letters + string.digits
+    
+    hash_func = getattr(hashlib, algo)
+    challenge_bytes = challenge.encode() if isinstance(challenge, str) else challenge
+    
+    for length in range(1, 12):
+        for combo in itertools.product(charset, repeat=length):
+            suffix = ''.join(combo).encode()
+            h = hash_func(challenge_bytes + suffix).hexdigest()
+            if h.startswith(prefix_hex):
+                return suffix.decode(), h
+    return None, None
+
+def solve_pow_bits(challenge, zero_bits, algo='sha256'):
+    """
+    Find nonce n such that H(challenge + n) has `zero_bits` leading zero bits.
+    """
+    hash_func = getattr(hashlib, algo)
+    challenge_bytes = challenge.encode() if isinstance(challenge, str) else challenge
+    zero_hex = zero_bits // 4
+    remaining = zero_bits % 4
+    
+    nonce = 0
+    while True:
+        attempt = challenge_bytes + str(nonce).encode()
+        h = hash_func(attempt).hexdigest()
+        
+        if h[:zero_hex] == '0' * zero_hex:
+            if remaining == 0 or int(h[zero_hex], 16) < (16 >> remaining):
+                return nonce, h
+        nonce += 1
+
+# ─── Benchmarks ───
+print("Proof-of-Work Solver Benchmarks")
+print("=" * 50)
+
+challenge = "CTF_CHALLENGE_2024_RANDOM_STRING"
+
+for difficulty in [16, 20, 24]:
+    start = time.time()
+    nonce, h = solve_pow_bits(challenge, difficulty)
+    elapsed = time.time() - start
+    print(f"\n{difficulty}-bit PoW:")
+    print(f"  Nonce: {nonce}")
+    print(f"  Hash:  {h}")
+    print(f"  Time:  {elapsed:.3f}s")
+    print(f"  Rate:  {nonce/elapsed:.0f} H/s")
+
+# Prefix-based PoW (common in pwntools CTFs)
+print("\n\nPrefix-based PoW:")
+start = time.time()
+suffix, h = solve_pow_prefix("XXXX", "00000", algo='sha256')
+elapsed = time.time() - start
+print(f"  Suffix: {suffix}")
+print(f"  Hash:   {h}")
+print(f"  Time:   {elapsed:.3f}s")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: HMAC Timing Attack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a timing side-channel in an insecure HMAC comparison to recover a valid MAC byte-by-byte.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import hashlib
+import hmac
+import time
+import statistics
+
+# ─── Vulnerable Server (simulated) ───
+SECRET_KEY = b"timing_attack_demo_key"
+
+def insecure_verify(message, provided_mac):
+    """VULNERABLE: byte-by-byte comparison leaks timing info."""
+    correct_mac = hmac.new(SECRET_KEY, message, hashlib.sha256).hexdigest()
+    
+    # Insecure comparison — takes longer for more correct prefix bytes
+    for i in range(len(correct_mac)):
+        if i >= len(provided_mac) or correct_mac[i] != provided_mac[i]:
+            time.sleep(0.005)  # Simulated network jitter amplification
+            return False
+        time.sleep(0.005)  # Simulated per-byte processing time
+    return True
+
+def secure_verify(message, provided_mac):
+    """SECURE: constant-time comparison."""
+    correct_mac = hmac.new(SECRET_KEY, message, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(correct_mac, provided_mac)
+
+# ─── Timing Attack ───
+def time_request(message, mac_guess, iterations=5):
+    """Measure average response time."""
+    times = []
+    for _ in range(iterations):
+        start = time.perf_counter()
+        insecure_verify(message, mac_guess)
+        elapsed = time.perf_counter() - start
+        times.append(elapsed)
+    return statistics.median(times)
+
+def timing_attack(message, mac_length=64):
+    """Recover HMAC one character at a time via timing side-channel."""
+    charset = '0123456789abcdef'
+    recovered = ""
+    
+    print(f"Attacking HMAC for message: {message}")
+    print(f"Correct: {hmac.new(SECRET_KEY, message, hashlib.sha256).hexdigest()}")
+    print()
+    
+    for position in range(mac_length):
+        best_char = None
+        best_time = 0
+        
+        for c in charset:
+            guess = recovered + c + '0' * (mac_length - position - 1)
+            t = time_request(message, guess)
+            
+            if t > best_time:
+                best_time = t
+                best_char = c
+        
+        recovered += best_char
+        print(f"  Position {position:2d}: '{best_char}' (time: {best_time:.4f}s) -> {recovered}")
+        
+        # Early validation (first 8 chars for demo)
+        if position >= 7:
+            break
+    
+    return recovered
+
+# Run attack (limited to first 8 chars for speed)
+message = b"admin=true"
+result = timing_attack(message, mac_length=64)
+correct = hmac.new(SECRET_KEY, message, hashlib.sha256).hexdigest()
+print(f"\nRecovered prefix: {result}")
+print(f"Correct prefix:   {correct[:len(result)]}")
+print(f"Match: {result == correct[:len(result)]}")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 13: Hash Chains &amp; Key Derivation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Implement a Lamport one-time password scheme using hash chains and understand iterative key derivation.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import hashlib
+import os
+
+class HashChainOTP:
+    """
+    Lamport OTP: Server stores H^n(seed). 
+    User authenticates with H^(n-1)(seed), H^(n-2)(seed), etc.
+    Server verifies by hashing once and comparing to stored value.
+    """
+    
+    def __init__(self, seed=None, chain_length=100):
+        self.seed = seed or os.urandom(16)
+        self.chain_length = chain_length
+        self.chain = self._build_chain()
+        # Server stores the tip (last hash)
+        self.server_stored = self.chain[-1]
+        # User has the full chain, uses in reverse
+        self.current_index = chain_length - 2
+    
+    def _hash(self, data):
+        if isinstance(data, str):
+            data = data.encode()
+        return hashlib.sha256(data).digest()
+    
+    def _build_chain(self):
+        """Build hash chain: H^0(seed), H^1(seed), ..., H^n(seed)"""
+        chain = [self.seed]
+        for _ in range(self.chain_length):
+            chain.append(self._hash(chain[-1]))
+        return chain
+    
+    def get_next_otp(self):
+        """User generates next OTP (traversing chain backwards)."""
+        if self.current_index < 0:
+            raise ValueError("Chain exhausted! Generate new seed.")
+        otp = self.chain[self.current_index]
+        self.current_index -= 1
+        return otp
+    
+    def verify(self, otp):
+        """Server verifies OTP by hashing once and comparing."""
+        expected = self.server_stored
+        computed = self._hash(otp)
+        
+        if computed == expected:
+            # Update stored value for next authentication
+            self.server_stored = otp
+            return True
+        return False
+
+# Demo
+print("=== Lamport Hash Chain OTP ===\n")
+otp_system = HashChainOTP(seed=b"demo_secret_seed", chain_length=10)
+
+print(f"Chain length: {otp_system.chain_length}")
+print(f"Server stores: {otp_system.server_stored.hex()[:32]}...")
+print()
+
+# Simulate 5 authentications
+for i in range(5):
+    token = otp_system.get_next_otp()
+    valid = otp_system.verify(token)
+    print(f"Auth {i+1}: token={token.hex()[:16]}... valid={valid}")
+
+# Try replay attack (reuse old token)
+print("\n--- Replay Attack ---")
+old_token = otp_system.chain[8]  # Already used
+result = otp_system.verify(old_token)
+print(f"Replay token valid: {result}")  # False!
+
+# ─── Key Derivation with chaining ───
+print("\n\n=== HKDF-style Key Derivation ===\n")
+
+def hkdf_extract(salt, ikm):
+    """HKDF Extract step."""
+    return hmac.new(salt, ikm, hashlib.sha256).digest()
+
+def hkdf_expand(prk, info, length):
+    """HKDF Expand step."""
+    import hmac as hm
+    n = (length + 31) // 32
+    okm = b""
+    t = b""
+    for i in range(1, n + 1):
+        t = hm.new(prk, t + info + bytes([i]), hashlib.sha256).digest()
+        okm += t
+    return okm[:length]
+
+import hmac as hm_module
+salt = os.urandom(32)
+input_key = b"user_password_or_shared_secret"
+prk = hkdf_extract(salt, input_key)
+
+# Derive multiple keys from one secret
+enc_key = hkdf_expand(prk, b"encryption", 32)
+mac_key = hkdf_expand(prk, b"authentication", 32)
+print(f"Encryption key: {enc_key.hex()}")
+print(f"MAC key:        {mac_key.hex()}")</code></pre>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ═══════════════════ CTF TAB ═══════════════════ -->
+      <div class="tab-pane fade" id="ctf" role="tabpanel">
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Identify the Hash</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">You intercepted a database dump. Identify the hash types and determine which hashcat mode to use for each.</p>
+          <div class="setup-code">
+<pre><code class="language-python">"""
+Intercepted hashes:
+1. 5f4dcc3b5aa765d61d8327deb882cf99
+2. 5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8
+3. 5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8
+4. $2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
+5. $6$rounds=5000$appendedSalt$hashed_output_here
+
+Identify each and provide:
+- Algorithm name
+- Hashcat mode (-m)
+- Whether it's salted
+"""
+
+# Your solution here:
+answers = {
+    1: ("MD5", 0, False),
+    2: ("SHA-1", 100, False),
+    3: ("SHA-256", 1400, False),
+    4: ("bcrypt", 3200, True),
+    5: ("sha512crypt", 1800, True),
+}
+
+# Flag format: CTF{md5_sha1_sha256_bcrypt_sha512crypt}</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Count hex characters for raw hashes: 32=MD5, 40=SHA-1, 64=SHA-256. Look at prefixes for crypt hashes: $2b$=bcrypt, $6$=sha512crypt.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Crack the Password</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">The admin left their password hash in a config file. Crack it. The password is a common English word with a number suffix.</p>
+          <div class="setup-code">
+<pre><code class="language-python">"""
+Hash: 7c6a180b36896a65c4c202c1b8446c3b5469d267ba29758a7e131e8a8e410b47
+Algorithm: SHA-256
+Hint: Common word + 1-2 digit number
+
+Write a script to crack it using a wordlist approach.
+"""
+import hashlib
+
+target = "7c6a180b36896a65c4c202c1b8446c3b5469d267ba29758a7e131e8a8e410b47"
+
+# Common words to try
+words = ["password", "admin", "hello", "dragon", "master", 
+         "monkey", "shadow", "sunshine", "princess", "football",
+         "batman", "trustno", "letmein", "welcome", "login"]
+
+def crack():
+    for word in words:
+        # Try word + number combinations
+        for num in range(100):
+            candidate = f"{word}{num}"
+            h = hashlib.sha256(candidate.encode()).hexdigest()
+            if h == target:
+                return candidate
+        # Try capitalized
+        for num in range(100):
+            candidate = f"{word.capitalize()}{num}"
+            h = hashlib.sha256(candidate.encode()).hexdigest()
+            if h == target:
+                return candidate
+    return None
+
+password = crack()
+print(f"Cracked: {password}")
+# Flag: CTF{cracked_password}</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>The password is "password1". SHA-256 of "password1" matches the target hash. Try hashcat -m 1400 -a 0 with rockyou.txt for instant results.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Length Extension Forgery</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A web application uses <code>MAC = SHA256(secret || query)</code> to sign API requests. You have a valid signed request for "action=view". Forge a request for "action=view&admin=true".</p>
+          <div class="setup-code">
+<pre><code class="language-python">"""
+Known information:
+- Original query: "action=view"
+- Original MAC: a]f8c1d98047b47dc52a8b0c98723e18a41fb0623afe74e0f4c1ab91a47d1a35
+- Secret key length: 12 bytes
+- Hash algorithm: SHA-256 (Merkle-Damgård, vulnerable!)
+
+Goal: Forge a valid MAC for "action=view[padding]&admin=true"
+"""
+import hashpumpy
+import hashlib
+
+# Server-side (you don't have access to this)
+SECRET = b"s3cr3t_k3y!!"  # 12 bytes
+
+def server_verify(query, mac):
+    expected = hashlib.sha256(SECRET + query).hexdigest()
+    return expected == mac
+
+# ─── Your Attack ───
+original_mac = "af8c1d98047b47dc52a8b0c98723e18a41fb0623afe74e0f4c1ab91a47d1a35"
+original_data = b"action=view"
+append_data = b"&admin=true"
+key_length = 12
+
+# Use hashpumpy to perform length extension
+new_mac, new_message = hashpumpy.hashpump(
+    original_mac,
+    original_data,
+    append_data,
+    key_length
+)
+
+print(f"Original: {original_data}")
+print(f"Forged message: {new_message}")
+print(f"Forged MAC: {new_mac}")
+print(f"Server accepts: {server_verify(new_message, new_mac)}")
+
+# Flag: CTF{length_extension_[new_mac[:8]]}</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Install hashpumpy: <code>pip install hashpumpy</code>. The key is knowing the secret length (12 bytes). The forged message will contain MD padding bytes between the original data and your appended data.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Birthday Collision</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A server accepts two different messages that produce the same 32-bit truncated SHA-256 hash. Find a collision.</p>
+          <div class="setup-code">
+<pre><code class="language-python">"""
+Server code (simplified):
+    def check(msg1, msg2):
+        h1 = sha256(msg1)[:8]  # first 8 hex chars = 32 bits
+        h2 = sha256(msg2)[:8]
+        if h1 == h2 and msg1 != msg2:
+            return FLAG
+            
+Find two different messages with the same 32-bit hash prefix.
+Expected attempts: ~2^16 = 65536 (birthday bound)
+"""
+import hashlib
+import os
+
+def truncated_sha256(data, hex_chars=8):
+    return hashlib.sha256(data).hexdigest()[:hex_chars]
+
+def find_collision():
+    seen = {}  # hash_prefix -> message
+    attempts = 0
+    
+    while True:
+        attempts += 1
+        msg = os.urandom(16)
+        prefix = truncated_sha256(msg)
+        
+        if prefix in seen and seen[prefix] != msg:
+            msg1 = seen[prefix]
+            msg2 = msg
+            print(f"Collision found after {attempts} attempts!")
+            print(f"Message 1: {msg1.hex()}")
+            print(f"Message 2: {msg2.hex()}")
+            print(f"Hash prefix: {prefix}")
+            
+            # Verify
+            assert truncated_sha256(msg1) == truncated_sha256(msg2)
+            assert msg1 != msg2
+            return msg1, msg2
+        
+        seen[prefix] = msg
+
+msg1, msg2 = find_collision()
+# Submit to server: Flag: CTF{birthday_32bit_[prefix]}</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>With only 32 bits of hash space, birthday bound is ~65,536 attempts. Store hashes in a dictionary and check for matches. Should complete in under a second.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: HMAC Key Recovery</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A server uses a 4-character lowercase HMAC-MD5 key. You can request the HMAC of any message. Recover the key.</p>
+          <div class="setup-code">
+<pre><code class="language-python">"""
+Server oracle: Given a message, returns HMAC-MD5(key, message)
+Key: 4 lowercase letters (26^4 = 456,976 possibilities)
+
+Strategy: Request HMAC of a known message, then brute-force the key.
+"""
+import hmac
+import hashlib
+import itertools
+import string
+import time
+
+# ─── Server (simulated oracle) ───
+HIDDEN_KEY = b"hack"  # unknown to attacker
+
+def oracle(message):
+    """Server returns HMAC-MD5 of message with hidden key."""
+    return hmac.new(HIDDEN_KEY, message, hashlib.md5).hexdigest()
+
+# ─── Attack ───
+# Step 1: Get HMAC for a known message
+test_message = b"recover_the_key"
+target_hmac = oracle(test_message)
+print(f"Oracle response for '{test_message.decode()}': {target_hmac}")
+
+# Step 2: Brute-force the 4-char key
+start = time.time()
+found_key = None
+
+for combo in itertools.product(string.ascii_lowercase, repeat=4):
+    candidate_key = ''.join(combo).encode()
+    computed = hmac.new(candidate_key, test_message, hashlib.md5).hexdigest()
+    
+    if computed == target_hmac:
+        found_key = candidate_key
+        break
+
+elapsed = time.time() - start
+print(f"\nKey recovered: {found_key.decode()}")
+print(f"Time: {elapsed:.2f}s")
+print(f"Attempts: {26**4}")
+
+# Verify with different message
+verify_msg = b"verification_test"
+assert oracle(verify_msg) == hmac.new(found_key, verify_msg, hashlib.md5).hexdigest()
+print("Verified with independent message!")
+
+# Flag: CTF{hmac_key_[found_key]}</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Only 26^4 ≈ 457K possibilities for a 4-letter key. Request one HMAC from the oracle, then brute-force locally. Python can check ~500K HMAC-MD5 per second easily.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Proof of Work Gate</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A CTF challenge server requires solving a proof-of-work before giving you the flag. Solve it programmatically.</p>
+          <div class="setup-code">
+<pre><code class="language-python">"""
+Server sends: "Find a string s such that SHA256('CTF2024_XXXXX' + s) 
+               starts with '000000' (24-bit PoW)"
+Where XXXXX is a random 8-char challenge string.
+
+Implement a fast solver.
+"""
+import hashlib
+import string
+import itertools
+import time
+from pwn import *  # pwntools for CTF interaction
+
+def solve_pow(challenge, prefix_zeros=6):
+    """Solve proof of work: find s where SHA256(challenge+s) starts with zeros."""
+    target_prefix = '0' * prefix_zeros
+    charset = string.ascii_letters + string.digits
+    
+    # Try incrementing integer first (fastest)
+    for nonce in range(10_000_000):
+        attempt = f"{challenge}{nonce}".encode()
+        h = hashlib.sha256(attempt).hexdigest()
+        if h.startswith(target_prefix):
+            return str(nonce)
+    
+    return None
+
+# ─── Interaction with server ───
+def solve_remote():
+    # r = remote('challenge.ctf.com', 1337)
+    # challenge_line = r.recvline().decode()
+    # Example: "Solve PoW: SHA256('CTF2024_aB3xK9mQ' + s) starts with '000000'"
+    
+    # Parse challenge
+    challenge = "CTF2024_aB3xK9mQ"  # extracted from server
+    
+    print(f"Challenge: {challenge}")
+    start = time.time()
+    solution = solve_pow(challenge, prefix_zeros=6)
+    elapsed = time.time() - start
+    
+    print(f"Solution: {solution}")
+    print(f"Time: {elapsed:.2f}s")
+    
+    # Verify
+    h = hashlib.sha256(f"{challenge}{solution}".encode()).hexdigest()
+    print(f"Hash: {h}")
+    assert h.startswith('000000')
+    
+    # r.sendline(solution.encode())
+    # flag = r.recvline().decode()
+    # print(f"Flag: {flag}")
+
+solve_remote()
+# Flag: CTF{pow_solved_[hash[:8]]}</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>24-bit PoW (6 hex zeros) requires ~16 million attempts on average. Use integer nonces for speed. Python does ~1-2M SHA-256/s, so expect 8-16 seconds. For faster: use hashlib in a tight loop without string formatting.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Navigate the Hash Chain</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You're given a hash chain of 1000 iterations. Given H^1000(seed) and H^500(seed), find H^750(seed) to unlock the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python">"""
+A hash chain is defined as:
+  H^0 = seed
+  H^n = SHA256(H^(n-1))
+
+You are given:
+  H^500 = "a1b2c3..."  (the 500th hash)
+  H^1000 = "d4e5f6..." (the 1000th hash, stored on server)
+
+Find H^750 to authenticate.
+
+Key insight: Given H^500, you can compute H^750 by hashing 250 more times.
+"""
+import hashlib
+
+def hash_chain(start, iterations):
+    """Compute H^iterations(start)."""
+    current = start
+    if isinstance(current, str):
+        current = bytes.fromhex(current)
+    for _ in range(iterations):
+        current = hashlib.sha256(current).digest()
+    return current.hex()
+
+# Setup (server side)
+seed = b"secret_chain_seed_value"
+h500 = hash_chain(seed, 500)
+h750 = hash_chain(seed, 750)  # target (for verification)
+h1000 = hash_chain(seed, 1000)
+
+print(f"Given H^500:  {h500[:32]}...")
+print(f"Given H^1000: {h1000[:32]}...")
+print(f"Find H^750")
+
+# ─── Your Solution ───
+# From H^500, hash 250 more times to get H^750
+computed_h750 = hash_chain(h500, 250)
+print(f"\nComputed H^750: {computed_h750[:32]}...")
+print(f"Expected H^750: {h750[:32]}...")
+print(f"Match: {computed_h750 == h750}")
+
+# Verify the chain: H^750 hashed 250 more times should equal H^1000
+verify = hash_chain(computed_h750, 250)
+print(f"\nH^750 -> H^1000: {verify == h1000}")
+
+# Flag: CTF{hash_chain_[h750[:8]]}</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Hash chains are one-way but forward-computable. If you have H^500, computing H^750 is just 250 additional SHA-256 iterations. You cannot go backwards from H^1000 to H^750.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Partial Hash Brute Force</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The flag is the input to SHA-256 that produces a hash ending in "deadbeef". The input format is "FLAG_{8 hex chars}".</p>
+          <div class="setup-code">
+<pre><code class="language-python">"""
+Find x such that:
+  - x has format "FLAG_XXXXXXXX" where X is a hex character
+  - SHA256(x) ends with "deadbeef"
+
+Search space: 16^8 = 4,294,967,296 (4 billion)
+But with 32-bit suffix match, expected attempts ≈ 2^32 ≈ 4 billion
+
+Optimization: Use multiple threads or reduce search space.
+Actually — re-read: 8 hex chars = 16^8 possibilities, matching 8 hex suffix = 1/16^8 chance.
+Expected: find 1 match when searching all. Use early termination.
+"""
+import hashlib
+import itertools
+import time
+from concurrent.futures import ProcessPoolExecutor
+
+TARGET_SUFFIX = "deadbeef"
+
+def search_range(start, end):
+    """Search a range of values for matching hash suffix."""
+    for i in range(start, end):
+        candidate = f"FLAG_{i:08x}"
+        h = hashlib.sha256(candidate.encode()).hexdigest()
+        if h.endswith(TARGET_SUFFIX):
+            return candidate, h
+    return None
+
+# Single-threaded (for smaller suffix targets)
+def brute_force():
+    print(f"Searching for SHA256(FLAG_XXXXXXXX) ending in '{TARGET_SUFFIX}'...")
+    start = time.time()
+    
+    for i in range(2**32):
+        candidate = f"FLAG_{i:08x}"
+        h = hashlib.sha256(candidate.encode()).hexdigest()
+        if h.endswith(TARGET_SUFFIX):
+            elapsed = time.time() - start
+            print(f"Found: {candidate}")
+            print(f"Hash: {h}")
+            print(f"Attempts: {i+1}")
+            print(f"Time: {elapsed:.1f}s")
+            return candidate
+        
+        if i % 10_000_000 == 0 and i > 0:
+            elapsed = time.time() - start
+            rate = i / elapsed
+            print(f"  Progress: {i:,} attempts, {rate:.0f} H/s")
+    
+    return None
+
+# For CTF: use shorter suffix for demo
+TARGET_SUFFIX = "beef"  # 16-bit, ~65K attempts
+result = brute_force()
+# Flag: CTF{result}</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>For 4 hex chars ("beef"), expect ~65,536 attempts. For full "deadbeef" (8 hex chars), expect ~4 billion. Use multiprocessing to split the search space across CPU cores, or use hashcat with a custom charset mask.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Truncated Hash Collision</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A server uses truncated 48-bit SHA-256 hashes as "unique" identifiers. Forge a document with the same truncated hash as the target.</p>
+          <div class="setup-code">
+<pre><code class="language-python">"""
+Server uses first 12 hex chars (48 bits) of SHA-256 as document ID.
+Target document: "TRANSFER $1000 TO ALICE"
+Target hash prefix: SHA256(target)[:12]
+
+Find a malicious document with the same 48-bit prefix.
+Birthday bound: 2^24 ≈ 16.7 million
+
+Strategy: Generate variants of both target and malicious messages,
+find a pair with matching truncated hash (meet-in-the-middle birthday).
+"""
+import hashlib
+import os
+import time
+
+def truncated_hash(data, hex_chars=12):
+    if isinstance(data, str):
+        data = data.encode()
+    return hashlib.sha256(data).hexdigest()[:hex_chars]
+
+# Target document
+target_doc = "TRANSFER $1000 TO ALICE"
+target_prefix = truncated_hash(target_doc)
+print(f"Target: '{target_doc}'")
+print(f"Target prefix: {target_prefix}")
+
+# ─── Second Preimage Attack (brute force) ───
+def find_second_preimage(target_prefix, hex_chars=12):
+    """Find any message with same truncated hash."""
+    print(f"\nSearching for collision with prefix '{target_prefix}'...")
+    start = time.time()
+    
+    # Generate random messages until prefix matches
+    attempts = 0
+    while True:
+        attempts += 1
+        # Create a "legitimate-looking" malicious message
+        nonce = os.urandom(8).hex()
+        malicious = f"TRANSFER $1000000 TO MALLORY <!-- {nonce} -->"
+        
+        if truncated_hash(malicious) == target_prefix:
+            elapsed = time.time() - start
+            print(f"Found after {attempts:,} attempts ({elapsed:.1f}s)")
+            print(f"Malicious: '{malicious}'")
+            print(f"Hash prefix: {truncated_hash(malicious)}")
+            return malicious
+        
+        if attempts % 1_000_000 == 0:
+            elapsed = time.time() - start
+            print(f"  {attempts:,} attempts... ({elapsed:.1f}s)")
+
+# For demo, use shorter prefix (32-bit = 8 hex chars)
+short_prefix = truncated_hash(target_doc, 8)
+print(f"\n--- Demo with 32-bit prefix: {short_prefix} ---")
+
+start = time.time()
+attempts = 0
+while True:
+    attempts += 1
+    nonce = os.urandom(6).hex()
+    fake = f"TRANSFER $999999 TO EVE <!-- {nonce} -->"
+    if truncated_hash(fake, 8) == short_prefix:
+        print(f"Collision! After {attempts:,} attempts")
+        print(f"Original: '{target_doc}' -> {short_prefix}")
+        print(f"Forgery:  '{fake}' -> {truncated_hash(fake, 8)}")
+        break
+
+# Flag: CTF{truncated_collision_[forged_prefix]}</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>For 48-bit prefix, brute-force second preimage requires ~2^48 attempts (too slow). Use birthday attack instead: generate variants of BOTH documents and find a matching pair. Birthday bound is only ~2^24 ≈ 16M attempts. Add invisible variations (whitespace, HTML comments) to generate document variants.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Multi-Hash Crack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">You have a password that was hashed with 3 different algorithms (MD5, SHA-1, SHA-256). All three hashes are provided. Use the constraints together to crack it efficiently.</p>
+          <div class="setup-code">
+<pre><code class="language-python">"""
+From a breached database, one user's password was stored with multiple hashes:
+
+MD5:    e99a18c428cb38d5f260853678922e03
+SHA-1:  6367c48dd193d56ea7b0baad25b19455e529f5ee  
+SHA-256: 6ca13d52ca70c883e0f0bb101e425a89e8624de51db2d2392593af6a84118090
+
+All are hashes of the SAME plaintext password.
+The password is 6 characters, alphanumeric only.
+
+Use all three as verification to avoid false positives.
+"""
+import hashlib
+import itertools
+import string
+import time
+
+target_md5 = "e99a18c428cb38d5f260853678922e03"
+target_sha1 = "6367c48dd193d56ea7b0baad25b19455e529f5ee"
+target_sha256 = "6ca13d52ca70c883e0f0bb101e425a89e8624de51db2d2392593af6a84118090"
+
+def multi_hash_crack():
+    charset = string.ascii_lowercase + string.digits
+    start = time.time()
+    attempts = 0
+    
+    # Optimization: check cheapest hash (MD5) first, then verify others
+    for length in range(1, 7):
+        for combo in itertools.product(charset, repeat=length):
+            attempts += 1
+            candidate = ''.join(combo)
+            candidate_bytes = candidate.encode()
+            
+            # Fast check: MD5 first
+            if hashlib.md5(candidate_bytes).hexdigest() != target_md5:
+                continue
+            
+            # MD5 matched! Verify with SHA-1
+            if hashlib.sha1(candidate_bytes).hexdigest() != target_sha1:
+                print(f"  MD5 false positive: {candidate}")
+                continue
+            
+            # Verify with SHA-256
+            if hashlib.sha256(candidate_bytes).hexdigest() != target_sha256:
+                print(f"  SHA-1 false positive: {candidate}")
+                continue
+            
+            elapsed = time.time() - start
+            print(f"Password found: '{candidate}'")
+            print(f"Attempts: {attempts:,}")
+            print(f"Time: {elapsed:.2f}s")
+            return candidate
+    
+    return None
+
+# Alternative: use hashcat on fastest hash, then verify
+print("Strategy: Crack MD5 first (fastest), verify with others\n")
+
+# Hashcat approach:
+# hashcat -m 0 -a 3 e99a18c428cb38d5f260853678922e03 ?a?a?a?a?a?a
+
+password = multi_hash_crack()
+# Flag: CTF{password}</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>The password is "abc123". Strategy: crack the fastest hash (MD5) first with hashcat mask attack (?l?l?l?d?d?d), then verify the result against SHA-1 and SHA-256. Having multiple hashes eliminates false positives and confirms the correct plaintext.</p></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

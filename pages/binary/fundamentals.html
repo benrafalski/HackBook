@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Binary Fundamentals</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-nasm.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Binary Exploitation Fundamentals</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+        <h2>ELF Format</h2>
+        <p>Every Linux binary is an ELF (Executable and Linkable Format) file with three layers:</p>
+
+        <h3>Compilation Pipeline</h3>
+<pre><code class="language-bash">source.c → [Preprocessor] → [Compiler] → [Assembler] → [Linker] → executable
+              cpp              cc1           as            ld
+             .c → .i         .i → .s      .s → .o      .o → ELF
+
+# Compile with protections disabled (for practice)
+gcc -o vuln vuln.c -fno-stack-protector -z execstack -no-pie -Wl,-z,norelro
+
+# Compile normally (all protections on)
+gcc -o vuln vuln.c</code></pre>
+
+        <h3>ELF Header</h3>
+<pre><code class="language-bash">$ readelf -h ./binary
+  Magic:   7f 45 4c 46 02 01 01 ...    # "\x7fELF" magic bytes
+  Class:   ELF64                        # 64-bit
+  Type:    EXEC / DYN (PIE)             # static or position-independent
+  Entry:   0x401060                     # where execution begins (_start)</code></pre>
+
+        <h3>Key Sections</h3>
+        <table>
+          <tr><th>Section</th><th>Purpose</th></tr>
+          <tr><td><code>.text</code></td><td>Executable code (your compiled functions)</td></tr>
+          <tr><td><code>.data</code></td><td>Initialized global/static variables</td></tr>
+          <tr><td><code>.bss</code></td><td>Uninitialized globals (zeroed at load)</td></tr>
+          <tr><td><code>.rodata</code></td><td>Read-only data (string literals, constants)</td></tr>
+          <tr><td><code>.plt</code></td><td>Procedure Linkage Table — stubs for shared library calls</td></tr>
+          <tr><td><code>.got</code> / <code>.got.plt</code></td><td>Global Offset Table — resolved external function addresses</td></tr>
+          <tr><td><code>.dynamic</code></td><td>Dynamic linking info (shared libs, symbol tables)</td></tr>
+          <tr><td><code>.symtab</code> / <code>.dynsym</code></td><td>Symbol tables (function/variable names + addresses)</td></tr>
+        </table>
+
+        <h2>Memory Layout</h2>
+<pre><code class="language-nasm">High addresses (0x7fff...)
+┌───────────────────────┐
+│       Stack           │ ← grows downward (RSP decreases)
+│                       │   local vars, return addrs, args
+├───────────────────────┤
+│         ↓             │
+│    (unmapped gap)     │
+│         ↑             │
+├───────────────────────┤
+│       Heap            │ ← grows upward (brk/mmap)
+│                       │   malloc'd memory
+├───────────────────────┤
+│       .bss            │ ← uninitialized data
+├───────────────────────┤
+│       .data           │ ← initialized globals
+├───────────────────────┤
+│       .text           │ ← code (read + execute)
+├───────────────────────┤
+Low addresses (0x400000)
+</code></pre>
+
+        <h2>Security Protections</h2>
+<pre><code class="language-bash">checksec --file=./binary
+# RELRO:      Full RELRO        # GOT is read-only after startup
+# Stack:      Canary found      # stack buffer overflow detection
+# NX:         NX enabled        # no shellcode on stack/heap
+# PIE:        PIE enabled       # code at random base address
+# FORTIFY:    Enabled           # hardened libc functions</code></pre>
+
+        <table>
+          <tr><th>Protection</th><th>What It Does</th><th>Bypass</th></tr>
+          <tr><td><strong>NX/DEP</strong></td><td>Stack/heap non-executable</td><td>ROP, ret2libc</td></tr>
+          <tr><td><strong>Stack Canary</strong></td><td>Random value before ret addr; checked on return</td><td>Leak canary, brute force (32-bit fork), avoid overwriting it</td></tr>
+          <tr><td><strong>PIE</strong></td><td>Binary loaded at random base</td><td>Leak code address, partial overwrite</td></tr>
+          <tr><td><strong>ASLR</strong></td><td>Stack/heap/libs randomized each run</td><td>Leak addresses, brute force (32-bit)</td></tr>
+          <tr><td><strong>Full RELRO</strong></td><td>GOT read-only after relocation</td><td>Can't overwrite GOT; target __malloc_hook, __free_hook, stack</td></tr>
+          <tr><td><strong>Partial RELRO</strong></td><td>GOT still writable</td><td>GOT overwrite viable</td></tr>
+        </table>
+
+        <h2>GDB Essentials</h2>
+<pre><code class="language-bash"># Start
+gdb ./binary
+gdb -q ./binary                    # quiet mode
+gdb -p &lt;pid&gt;                       # attach to running process
+
+# With pwndbg/GEF (install one!)
+# pwndbg: https://github.com/pwndbg/pwndbg
+# GEF:    https://github.com/hugsy/gef
+
+# Breakpoints
+b main                             # break at main
+b *0x401234                        # break at address
+b *main+42                         # break at offset from function
+
+# Running
+r                                  # run
+r &lt; input.txt                      # run with stdin from file
+c                                  # continue
+ni                                 # next instruction (step over)
+si                                 # step instruction (step into)
+fin                                # finish current function
+
+# Examining
+x/20gx $rsp                        # 20 qwords at RSP (stack)
+x/s 0x402000                       # string at address
+x/10i $rip                         # next 10 instructions
+p $rax                             # print register
+info reg                           # all registers
+vmmap                              # memory map (pwndbg)
+heap                               # heap info (pwndbg)
+bins                               # free bin status (pwndbg)
+
+# Finding things
+search -s "/bin/sh"                # find string in memory
+find &amp;system, +99999, "/bin/sh"    # find in range
+
+# Disassembly
+disas main                         # disassemble function
+set disassembly-flavor intel       # use intel syntax</code></pre>
+
+        <h2>Pwntools Essentials</h2>
+<pre><code class="language-python">from pwn import *
+
+# Setup
+context.arch = 'amd64'
+context.os = 'linux'
+context.log_level = 'debug'     # show all I/O
+
+# Connect
+p = process('./binary')                        # local
+p = remote('challenge.ctf.com', 1337)          # remote
+p = gdb.debug('./binary', 'b main\nc')         # auto-attach GDB
+
+# ELF analysis
+elf = ELF('./binary')
+libc = ELF('./libc.so.6')
+
+# I/O
+p.send(b'data')                  # send raw bytes
+p.sendline(b'data')              # send + newline
+p.sendlineafter(b'> ', b'data')  # wait for prompt, then send
+p.recv(1024)                     # receive up to N bytes
+p.recvline()                     # receive until newline
+p.recvuntil(b'flag{')            # receive until marker
+p.interactive()                  # drop to interactive shell
+
+# Packing (little-endian by default)
+p64(0xdeadbeef)                  # pack to 8 bytes
+u64(b'\xef\xbe\xad\xde\x00\x00\x00\x00')  # unpack
+u64(leaked.ljust(8, b'\x00'))    # partial leak unpack
+
+# ELF symbols
+elf.symbols['main']              # address of main
+elf.got['puts']                  # GOT entry
+elf.plt['puts']                  # PLT entry
+next(elf.search(b'/bin/sh'))     # find string
+
+# ROP
+rop = ROP(elf)
+pop_rdi = rop.find_gadget(['pop rdi', 'ret']).address
+ret = rop.find_gadget(['ret']).address
+
+# Shellcode
+shellcode = asm(shellcraft.sh())          # /bin/sh shellcode
+shellcode = asm(shellcraft.cat('flag'))   # cat flag</code></pre>
+
+        <h2>Data Representation</h2>
+        <table>
+          <tr><th>Concept</th><th>Details</th></tr>
+          <tr><td>Endianness</td><td>x86 = little-endian. <code>0xdeadbeef</code> stored as <code>ef be ad de</code></td></tr>
+          <tr><td>Signed integers</td><td>Two's complement. MSB = sign bit. -1 = <code>0xffffffffffffffff</code></td></tr>
+          <tr><td>Pointers</td><td>64-bit: 8 bytes. Only 48 bits used (canonical addresses). User space: <code>0x0000...</code>, kernel: <code>0xffff...</code></td></tr>
+          <tr><td>Alignment</td><td>x86_64 stack must be 16-byte aligned before <code>call</code>. Misalignment → SIGSEGV in libc functions using SSE (movaps)</td></tr>
+        </table>
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: ELF Analysis</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use readelf, objdump, and checksec to analyze a binary's structure and protections.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-c">// lab1.c - compile: gcc -o lab1 lab1.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+char secret[] = "FLAG{elf_inspector}";
+
+void win() {
+    printf("You found me!\n");
+}
+
+int main() {
+    char buf[32];
+    printf("Enter something: ");
+    fgets(buf, 32, stdin);
+    printf("You said: %s\n", buf);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Use <code>readelf -h lab1</code> to find the entry point address</li>
+              <li>Use <code>readelf -S lab1</code> to find which section contains <code>secret</code></li>
+              <li>Use <code>objdump -d lab1 | grep win</code> to find the address of <code>win()</code></li>
+              <li>Use <code>checksec --file=lab1</code> to identify which protections are enabled</li>
+              <li>Use <code>strings lab1</code> to extract readable strings</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: GDB Navigation</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Navigate a running binary with GDB. Inspect registers, memory, and the stack.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-c">// lab2.c - compile: gcc -o lab2 lab2.c -no-pie -fno-stack-protector
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+void process(char *input) {
+    char local_buf[64];
+    int secret_val = 0xdeadbeef;
+    strcpy(local_buf, input);
+    printf("Processed: %s\n", local_buf);
+}
+
+int main(int argc, char **argv) {
+    if (argc < 2) return 1;
+    process(argv[1]);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Set a breakpoint at <code>process</code> and run with <code>r AAAA</code></li>
+              <li>Use <code>x/20gx $rsp</code> to view the stack after the <code>strcpy</code></li>
+              <li>Identify: local_buf address, secret_val on stack, saved RBP, return address</li>
+              <li>Calculate the offset from <code>local_buf</code> to the return address</li>
+              <li>Verify by running with <code>r $(python3 -c "print('A'*72 + 'BBBBBBBB')")</code> — what's in the return address?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Pwntools Basics</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Write a pwntools script to interact with a binary, send/receive data, and inspect the ELF.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-c">// lab3.c - compile: gcc -o lab3 lab3.c -no-pie -fno-stack-protector
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() {
+    system("/bin/sh");
+}
+
+int main() {
+    char buf[64];
+    printf("Address of win: %p\n", win);
+    printf("Input: ");
+    gets(buf);
+    return 0;
+}</code></pre>
+            <p><strong>Task:</strong> Write a pwntools script that:</p>
+            <ol>
+              <li>Opens the binary with <code>process('./lab3')</code></li>
+              <li>Reads the leaked <code>win</code> address from stdout</li>
+              <li>Calculates the buffer overflow offset</li>
+              <li>Sends a payload to redirect execution to <code>win()</code></li>
+              <li>Calls <code>p.interactive()</code> to use the shell</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Checksec & Protection Identification</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Given multiple binaries compiled with different protections, identify which exploit technique is viable for each.</p>
+          <div class="setup-code">
+            <p><strong>Setup — compile all 4:</strong></p>
+<pre><code class="language-bash"># Binary A: No protections
+gcc -o binA vuln.c -fno-stack-protector -z execstack -no-pie -Wl,-z,norelro
+
+# Binary B: NX only
+gcc -o binB vuln.c -fno-stack-protector -no-pie -Wl,-z,norelro
+
+# Binary C: NX + Canary
+gcc -o binC vuln.c -no-pie -Wl,-z,norelro
+
+# Binary D: Full protections
+gcc -o binD vuln.c</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>checksec</code> on each binary and record the protections</li>
+              <li>For each, determine: Can you inject shellcode? Can you ROP? Can you overwrite GOT? Do you need a leak?</li>
+              <li>Match each to a viable exploit strategy</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Program Headers &amp; Segments</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use readelf to examine program headers, understand how sections map to segments, and identify memory permissions.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-c">// lab5.c - compile: gcc -o lab5 lab5.c -no-pie
+#include &lt;stdio.h&gt;
+
+const char readonly_data[] = "I am read-only";
+char writable_data[] = "I am writable";
+int bss_var;
+
+int main() {
+    static int static_var = 42;
+    printf("rodata: %s\n", readonly_data);
+    printf("data: %s\n", writable_data);
+    printf("bss: %d\n", bss_var);
+    printf("static: %d\n", static_var);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>readelf -l lab5</code> and identify all LOAD segments</li>
+              <li>Match each LOAD segment's permissions (R/W/E) to the sections it contains</li>
+              <li>Use <code>readelf -S lab5</code> to find which section each variable lives in</li>
+              <li>Verify: <code>.rodata</code> is in a read-only segment, <code>.data</code> is in a read-write segment</li>
+              <li>Find the INTERP segment — what dynamic linker does this binary use?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Finding Symbols with nm</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use nm to locate function and variable symbols, and understand symbol types and visibility.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-c">// lab6.c - compile: gcc -o lab6 lab6.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+static int hidden_value = 0x41414141;
+int public_value = 0x42424242;
+const char *message = "Hello from lab6";
+
+static void secret_func() {
+    printf("Secret!\n");
+}
+
+void public_func() {
+    printf("Public!\n");
+}
+
+int main() {
+    char *heap = malloc(64);
+    public_func();
+    free(heap);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>nm lab6</code> and identify symbol types: T (text), D (data), B (BSS), U (undefined)</li>
+              <li>Find the addresses of <code>public_func</code>, <code>secret_func</code>, and <code>main</code></li>
+              <li>Explain why <code>malloc</code> and <code>printf</code> show as <code>U</code> (undefined)</li>
+              <li>Run <code>nm -D lab6</code> to see dynamic symbols — compare to <code>nm lab6</code></li>
+              <li>Strip the binary with <code>strip lab6</code>, then try <code>nm</code> again — what happens? Try <code>nm -D</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Tracing with ltrace &amp; strace</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use ltrace and strace to trace library calls and system calls of a running binary.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-c">// lab7.c - compile: gcc -o lab7 lab7.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+int main() {
+    char *buf = malloc(128);
+    strcpy(buf, "secret_password");
+
+    char input[64];
+    printf("Enter password: ");
+    read(0, input, 63);
+    input[strcspn(input, "\n")] = 0;
+
+    if (strcmp(input, buf) == 0) {
+        printf("Access granted!\n");
+    } else {
+        printf("Access denied!\n");
+    }
+    free(buf);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>ltrace ./lab7</code> and enter any password — find the <code>strcmp</code> call that reveals the secret</li>
+              <li>Run <code>strace ./lab7</code> and identify the <code>write</code> and <code>read</code> syscalls</li>
+              <li>Use <code>strace -e trace=memory ./lab7</code> to see <code>brk</code>/<code>mmap</code> calls from <code>malloc</code></li>
+              <li>Use <code>ltrace -e strcmp ./lab7</code> to filter only <code>strcmp</code> calls</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: GDB Watchpoints &amp; Conditional Breakpoints</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use GDB watchpoints to detect memory writes and conditional breakpoints to break on specific conditions.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-c">// lab8.c - compile: gcc -o lab8 lab8.c -no-pie -g
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int target = 0;
+
+void loop_func() {
+    for (int i = 0; i &lt; 100; i++) {
+        if (i == 42) {
+            target = 0xdeadbeef;
+        }
+    }
+}
+
+int main() {
+    char buf[64];
+    printf("Input: ");
+    fgets(buf, 64, stdin);
+
+    int len = strlen(buf);
+    printf("Length: %d\n", len);
+
+    loop_func();
+    printf("Target: 0x%x\n", target);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Set a hardware watchpoint on <code>target</code>: <code>watch target</code> — run and observe when it triggers</li>
+              <li>Set a conditional breakpoint in the loop: break inside <code>loop_func</code> and add <code>condition N i == 42</code></li>
+              <li>Use <code>rwatch target</code> (read watchpoint) to detect when <code>target</code> is read for the printf</li>
+              <li>Combine: set a breakpoint on <code>strlen</code>, use <code>commands</code> to auto-print the result after it returns</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Pwntools ELF Analysis Scripting</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write pwntools scripts to automate ELF analysis — enumerate symbols, search for strings, and extract section info.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong> Reuse the <code>lab1</code> binary from Lab 1, then write and extend this script:</p>
+<pre><code class="language-python">from pwn import *
+
+elf = ELF('./lab1')
+
+# Task 1: Print all function symbols and addresses
+for sym in elf.symbols:
+    print(f"  {sym}: {hex(elf.symbols[sym])}")
+
+# Task 2: Check protections programmatically
+print(f"\nPIE: {elf.pie}")
+print(f"Arch: {elf.arch}")
+print(f"Bits: {elf.bits}")
+print(f"Endian: {elf.endian}")
+
+# Task 3: Search for strings in the binary
+for addr in elf.search(b'FLAG'):
+    print(f"  Found 'FLAG' at {hex(addr)}")
+
+# Task 4: Read raw bytes from a section
+text_section = elf.get_section_by_name('.text')
+print(f"\n.text: offset={hex(text_section['sh_offset'])}, "
+      f"size={hex(text_section['sh_size'])}")
+
+# Task 5: List GOT and PLT entries
+print("\nGOT entries:")
+for name, addr in elf.got.items():
+    print(f"  {name}: {hex(addr)}")
+print("\nPLT entries:")
+for name, addr in elf.plt.items():
+    print(f"  {name}: {hex(addr)}")</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the script and verify output matches <code>readelf</code>/<code>nm</code> output</li>
+              <li>Extend the script to find <code>win()</code> using <code>elf.symbols['win']</code></li>
+              <li>Use <code>elf.read(addr, length)</code> to read the <code>secret</code> variable's contents</li>
+              <li>Write a function that takes a binary path and prints a full security summary</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Identifying Calling Conventions</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Disassemble functions to identify how arguments are passed via registers (System V AMD64 ABI) and how return values are handled.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-c">// lab10.c - compile: gcc -o lab10 lab10.c -no-pie -O0
+#include &lt;stdio.h&gt;
+
+int add(int a, int b) {
+    return a + b;
+}
+
+long multiply(long x, long y, long z) {
+    return x * y * z;
+}
+
+void many_args(int a, int b, int c, int d, int e, int f, int g, int h) {
+    printf("%d %d %d %d %d %d %d %d\n", a, b, c, d, e, f, g, h);
+}
+
+int main() {
+    int result = add(10, 20);
+    long product = multiply(3, 4, 5);
+    many_args(1, 2, 3, 4, 5, 6, 7, 8);
+    printf("Sum: %d, Product: %ld\n", result, product);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Disassemble <code>main</code> with <code>objdump -d -M intel lab10</code></li>
+              <li>For <code>add(10, 20)</code>: confirm args go into <code>EDI</code> and <code>ESI</code></li>
+              <li>For <code>multiply(3, 4, 5)</code>: confirm args go into <code>RDI</code>, <code>RSI</code>, <code>RDX</code></li>
+              <li>For <code>many_args</code>: identify which args use registers (RDI–R9) and which go on the stack (7th, 8th)</li>
+              <li>In GDB, break at each <code>call</code> and verify register values match the arguments</li>
+              <li>Check <code>RAX</code> after <code>add</code> returns — it should hold 30</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Stack Frame Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use GDB to walk the call stack, inspect stack frames, and understand function prologue/epilogue.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-c">// lab11.c - compile: gcc -o lab11 lab11.c -no-pie -fno-omit-frame-pointer -O0
+#include &lt;stdio.h&gt;
+
+void func_c(int val) {
+    char local[16] = "CCCC";
+    printf("func_c: val=%d\n", val);
+    // Break here and examine the stack
+}
+
+void func_b(int x) {
+    int y = x * 2;
+    func_c(y);
+}
+
+void func_a() {
+    int a = 0x41414141;
+    func_b(a);
+}
+
+int main() {
+    func_a();
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Break at <code>func_c</code> and use <code>bt</code> (backtrace) to see the full call chain</li>
+              <li>Use <code>info frame</code> to examine the current stack frame details</li>
+              <li>Walk frames manually: <code>frame 0</code>, <code>frame 1</code>, <code>frame 2</code> — examine <code>$rbp</code> and return address in each</li>
+              <li>At <code>func_c</code>: dump the stack with <code>x/30gx $rsp</code> and label each value: local vars, saved RBP, return address, parent's locals</li>
+              <li>Verify the frame chain: <code>*($rbp)</code> → previous RBP, <code>*($rbp+8)</code> → return address</li>
+              <li>Disassemble <code>func_c</code> and identify the prologue (<code>push rbp; mov rbp, rsp; sub rsp, N</code>) and epilogue (<code>leave; ret</code>)</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Analyzing a PIE Binary</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Understand how PIE affects addresses, and learn to work with base addresses and offsets.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-c">// lab12.c - compile: gcc -o lab12 lab12.c -fno-stack-protector -pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() {
+    system("/bin/sh");
+}
+
+int main() {
+    printf("main is at: %p\n", main);
+    char buf[64];
+    printf("Input: ");
+    gets(buf);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the binary multiple times — observe that <code>main</code>'s address changes each run (ASLR + PIE)</li>
+              <li>Use <code>readelf -h lab12</code> — note the type is <code>DYN</code> (shared object) not <code>EXEC</code></li>
+              <li>Use <code>objdump -d lab12</code> — note addresses are small offsets, not absolute</li>
+              <li>In GDB: <code>set disable-randomization off</code>, then run and observe address randomization</li>
+              <li>Calculate: if leaked <code>main</code> is at runtime address X and its offset from <code>readelf</code> is Y, base = X - Y</li>
+              <li>Write a pwntools script that leaks <code>main</code>, calculates the base, and derives <code>win()</code>'s runtime address:
+<pre><code class="language-python">from pwn import *
+elf = ELF('./lab12')
+p = process('./lab12')
+p.recvuntil(b'main is at: ')
+leaked = int(p.recvline().strip(), 16)
+base = leaked - elf.symbols['main']
+win = base + elf.symbols['win']
+log.info(f"Base: {hex(base)}, win: {hex(win)}")</code></pre></li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Baby Overflow</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A binary prints "Try harder!" but has a hidden <code>win()</code> function. Overflow the buffer to call it.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// challenge1.c
+// gcc -o challenge1 challenge1.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() {
+    FILE *f = fopen("flag.txt", "r");
+    char flag[64];
+    fgets(flag, 64, f);
+    printf("%s\n", flag);
+}
+
+int main() {
+    char buf[32];
+    printf("What's your name? ");
+    gets(buf);
+    printf("Try harder, %s!\n", buf);
+    return 0;
+}</code></pre>
+            <p>Create a <code>flag.txt</code> with any content, then exploit.</p>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>checksec</code> — NX is on but no PIE, no canary. Find <code>win()</code> address with <code>objdump -d</code> or pwntools <code>elf.symbols['win']</code>. Overflow buf (32 bytes) + saved RBP (8 bytes) = 40 bytes padding, then the address of win.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Variable Overwrite</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Change a local variable's value through a buffer overflow to pass a check.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// challenge2.c
+// gcc -o challenge2 challenge2.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+int main() {
+    int auth = 0;
+    char buf[32];
+    printf("Password: ");
+    gets(buf);
+    if (auth == 0x1337) {
+        printf("Access granted! Flag: CTF{stack_smash_101}\n");
+    } else {
+        printf("Denied. auth = 0x%x\n", auth);
+    }
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The <code>auth</code> variable is adjacent to <code>buf</code> on the stack. Overflow <code>buf</code> until you hit <code>auth</code>, then write <code>0x1337</code>. Check in GDB where <code>auth</code> lives relative to <code>buf</code>. Note: compiler may reorder — debug to confirm layout.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: GDB Detective</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A binary checks a "license key" against a value computed at runtime. Use GDB to extract it.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// challenge3.c
+// gcc -o challenge3 challenge3.c -no-pie -s (stripped)
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;time.h&gt;
+
+int main() {
+    srand(time(NULL) / 100);
+    int key = rand() % 999999;
+    char expected[16];
+    snprintf(expected, 16, "KEY-%06d", key);
+
+    char input[32];
+    printf("Enter license key: ");
+    fgets(input, 32, stdin);
+    input[strcspn(input, "\n")] = 0;
+
+    if (strcmp(input, expected) == 0) {
+        printf("Valid! Flag: CTF{gdb_runtime_inspector}\n");
+    } else {
+        printf("Invalid key.\n");
+    }
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Break after <code>snprintf</code>. Examine the <code>expected</code> buffer on the stack: <code>x/s $rbp-0x20</code> (adjust offset). Or break at <code>strcmp</code> and check RDI/RSI to see both strings being compared.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Hidden Function</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A stripped binary has a hidden function that prints the flag. Find it and redirect execution to it.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// challenge4.c
+// gcc -o challenge4 challenge4.c -no-pie -fno-stack-protector -s
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void __attribute__((used)) print_flag() {
+    printf("CTF{hidden_in_plain_sight}\n");
+}
+
+int main() {
+    char buf[32];
+    printf("Nothing to see here: ");
+    gets(buf);
+    return 0;
+}</code></pre>
+            <p>The binary is stripped — no symbol names. Find the hidden function and call it.</p>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>objdump -d challenge4</code> to disassemble. Look for a function that references a string or calls <code>puts</code>/<code>printf</code> but isn't <code>main</code>. Get its address, then overflow <code>buf</code> (32 bytes) + saved RBP (8 bytes) = 40 bytes padding, then overwrite the return address.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Rodata Secrets</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">The flag is XOR-encoded in the <code>.rodata</code> section. Extract and decode it.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// challenge5.c
+// gcc -o challenge5 challenge5.c -no-pie
+#include &lt;stdio.h&gt;
+
+// XOR key = 0x37
+const unsigned char encoded[] = {
+    0x74, 0x63, 0x71, 0x4C, 0x4F, 0x58, 0x45, 0x68,
+    0x53, 0x52, 0x54, 0x58, 0x53, 0x52, 0x4A, 0x00
+};
+
+int main() {
+    printf("The secret is encoded in .rodata\n");
+    printf("Can you decode it?\n");
+    printf("Hint: single-byte XOR\n");
+    return 0;
+}</code></pre>
+            <p>Extract the encoded data and decode it to recover the flag.</p>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Dump <code>.rodata</code> with <code>objdump -s -j .rodata challenge5</code> or use pwntools: <code>elf.symbols['encoded']</code> to find the address, then <code>elf.read(addr, 16)</code>. XOR each byte with <code>0x37</code>. Or brute-force all 256 keys and look for output starting with "CTF".</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Protection Puzzle</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Five binaries compiled with different protections. Determine which exploit technique works on each and exploit the easiest one.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Compile 5 variants of the same vulnerable binary:
+cat &lt;&lt;'EOF' &gt; vuln.c
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+void win() { system("cat flag.txt"); }
+int main() { char buf[64]; gets(buf); return 0; }
+EOF
+
+gcc -o bin1 vuln.c -fno-stack-protector -z execstack -no-pie -Wl,-z,norelro
+gcc -o bin2 vuln.c -fno-stack-protector -no-pie -Wl,-z,norelro
+gcc -o bin3 vuln.c -fno-stack-protector -no-pie
+gcc -o bin4 vuln.c -fno-stack-protector -pie
+gcc -o bin5 vuln.c -no-pie</code></pre>
+            <p>Run <code>checksec</code> on each. Map: bin1=?, bin2=?, bin3=?, bin4=?, bin5=? to: shellcode, ret2win, ret2win+RELRO, needs PIE leak, has canary.</p>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>bin1: NX off → shellcode on stack. bin2: NX on, no canary, no PIE → ret2win directly. bin3: same as bin2 but Full RELRO (GOT overwrite blocked, but ret2win still works). bin4: PIE enabled → need to leak a code address first. bin5: canary present → can't overflow without leaking or bypassing the canary. Exploit bin1 or bin2 first.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Multi-Part Key Recovery</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A binary computes a key from multiple function return values XOR'd together. Use GDB to recover all parts and reconstruct the key.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// challenge7.c
+// gcc -o challenge7 challenge7.c -no-pie -O0
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+
+int part1() { return 0xCAFE; }
+int part2() { return 0xBEEF; }
+int part3() { return 0xDEAD; }
+
+int main() {
+    int p1 = part1();
+    int p2 = part2();
+    int p3 = part3();
+    int key = p1 ^ p2 ^ p3;
+
+    char expected[32];
+    snprintf(expected, 32, "KEY-%X", key);
+
+    char input[32];
+    printf("Enter the key: ");
+    fgets(input, 32, stdin);
+    input[strcspn(input, "\n")] = 0;
+
+    if (strcmp(input, expected) == 0) {
+        printf("CTF{gdb_multi_break_%X}\n", key);
+    } else {
+        printf("Wrong! Try GDB.\n");
+    }
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Break after each <code>call</code> and check <code>$eax</code> for the return value: 0xCAFE, 0xBEEF, 0xDEAD. XOR them: <code>0xCAFE ^ 0xBEEF ^ 0xDEAD = 0x6E5C</code> (verify in GDB or Python). Or break at <code>strcmp</code> and inspect <code>RSI</code> to read the <code>expected</code> string directly.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Automated Exploit</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A binary leaks a custom canary value. Write a pwntools script that parses the leak and crafts a payload to call <code>win()</code> while preserving the canary.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// challenge8.c
+// gcc -o challenge8 challenge8.c -fno-stack-protector -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;time.h&gt;
+
+void win() {
+    printf("CTF{pwntools_automation_ftw}\n");
+}
+
+int main() {
+    srand(time(NULL));
+    unsigned long custom_canary = ((unsigned long)rand() &lt;&lt; 32) | rand();
+
+    printf("Debug: canary = 0x%lx\n", custom_canary);
+
+    char buf[48];
+    unsigned long check = custom_canary;
+    printf("Input: ");
+    fgets(buf, 256, stdin);  // intentional overflow
+
+    if (check != custom_canary) {
+        printf("Canary corrupted!\n");
+        exit(1);
+    }
+    return 0;
+}</code></pre>
+            <p>Write a pwntools script that reads the leaked canary, overflows the buffer while preserving the canary at the correct offset, and redirects to <code>win()</code>.</p>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Parse canary: <code>p.recvuntil(b'canary = ')</code> then <code>int(p.recvline().strip(), 16)</code>. Use GDB to find the offset from <code>buf</code> to <code>check</code> (48 bytes). Payload: <code>b'A'*48 + p64(canary) + p64(0) + p64(elf.symbols['win'])</code>. The <code>p64(0)</code> overwrites saved RBP.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Memory Map Explorer</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A binary prints six addresses from different memory regions. Identify which region each belongs to and verify via <code>/proc/PID/maps</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// challenge9.c
+// gcc -o challenge9 challenge9.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+
+int global_var = 42;
+int bss_var;
+const char *rodata = "read-only string";
+
+int main() {
+    int stack_var = 1;
+    char *heap_var = malloc(64);
+
+    printf("Address A: %p\n", &amp;stack_var);
+    printf("Address B: %p\n", &amp;global_var);
+    printf("Address C: %p\n", heap_var);
+    printf("Address D: %p\n", main);
+    printf("Address E: %p\n", &amp;bss_var);
+    printf("Address F: %p\n", printf);
+
+    printf("\nMap A-F to: stack, .data, heap, .text, .bss, libc\n");
+    printf("Verify: cat /proc/%d/maps\n", getpid());
+    sleep(30);
+
+    free(heap_var);
+    return 0;
+}</code></pre>
+            <p>Run the binary, map each address to its memory region, then verify with <code>/proc/PID/maps</code>.</p>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>A = stack (high address near <code>0x7fff...</code>), B = <code>.data</code> (near <code>0x40xxxx</code>), C = heap (above binary, below stack), D = <code>.text</code> (near <code>0x40xxxx</code>), E = <code>.bss</code> (right after <code>.data</code>), F = libc (high random address from ASLR). Open another terminal and run <code>cat /proc/PID/maps</code> to confirm each range.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Binary Identification Gauntlet</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Given 4 mystery binaries, determine the architecture, endianness, linking, and protections of each. Then exploit the most vulnerable one to get the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup: create 4 mystery binaries
+cat &lt;&lt;'EOF' &gt; mystery.c
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+void flag() { printf("CTF{binary_gauntlet_master}\n"); }
+int main() { char buf[32]; gets(buf); return 0; }
+EOF
+
+# Binary A: x86_64, not stripped, zero protections
+gcc -o mysteryA mystery.c -fno-stack-protector -no-pie -z execstack -Wl,-z,norelro
+
+# Binary B: x86_64, stripped, full protections
+gcc -o mysteryB mystery.c -s
+
+# Binary C: x86 (32-bit), not stripped, partial protections
+gcc -m32 -o mysteryC mystery.c -fno-stack-protector -no-pie 2&gt;/dev/null
+
+# Binary D: x86_64, statically linked, stripped
+gcc -o mysteryD mystery.c -static -s -fno-stack-protector -no-pie</code></pre>
+            <p>For each binary use <code>file</code>, <code>readelf -h</code>, <code>checksec</code>, and <code>nm</code> to build a profile. Identify the easiest target and exploit it.</p>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><code>file mystery*</code> reveals arch and linking. <code>checksec</code> shows protections. <code>nm</code> only works on non-stripped binaries. Binary A has zero protections — find <code>flag()</code> with <code>objdump -d mysteryA | grep -A3 flag</code> and overflow to it. Binary D is static (no PLT/GOT) but large — good for ROP. Binary B is hardest (all protections + stripped). Binary C is 32-bit — remember args go on the stack, not registers.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

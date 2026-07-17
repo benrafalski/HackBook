@@ -1,0 +1,1497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | x86 Assembly</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-nasm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+
+  <div class="content">
+    <h1>x86-64 Assembly</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <h2>Registers</h2>
+        <h3>General Purpose Registers</h3>
+        <table>
+          <tr><th>64-bit</th><th>32-bit</th><th>16-bit</th><th>8-bit (low)</th><th>8-bit (high)</th><th>Typical Use</th></tr>
+          <tr><td><code>RAX</code></td><td><code>EAX</code></td><td><code>AX</code></td><td><code>AL</code></td><td><code>AH</code></td><td>Accumulator, return value, syscall number</td></tr>
+          <tr><td><code>RBX</code></td><td><code>EBX</code></td><td><code>BX</code></td><td><code>BL</code></td><td><code>BH</code></td><td>Base register (callee-saved)</td></tr>
+          <tr><td><code>RCX</code></td><td><code>ECX</code></td><td><code>CX</code></td><td><code>CL</code></td><td><code>CH</code></td><td>Counter (loop/shift), arg4 (SysV)</td></tr>
+          <tr><td><code>RDX</code></td><td><code>EDX</code></td><td><code>DX</code></td><td><code>DL</code></td><td><code>DH</code></td><td>Data, arg3 (SysV), mul/div extension</td></tr>
+          <tr><td><code>RSI</code></td><td><code>ESI</code></td><td><code>SI</code></td><td><code>SIL</code></td><td>—</td><td>Source index, arg2 (SysV)</td></tr>
+          <tr><td><code>RDI</code></td><td><code>EDI</code></td><td><code>DI</code></td><td><code>DIL</code></td><td>—</td><td>Destination index, arg1 (SysV)</td></tr>
+          <tr><td><code>R8</code></td><td><code>R8D</code></td><td><code>R8W</code></td><td><code>R8B</code></td><td>—</td><td>arg5 (SysV)</td></tr>
+          <tr><td><code>R9</code></td><td><code>R9D</code></td><td><code>R9W</code></td><td><code>R9B</code></td><td>—</td><td>arg6 (SysV)</td></tr>
+          <tr><td><code>R10</code></td><td><code>R10D</code></td><td><code>R10W</code></td><td><code>R10B</code></td><td>—</td><td>Scratch, syscall arg4</td></tr>
+          <tr><td><code>R11</code></td><td><code>R11D</code></td><td><code>R11W</code></td><td><code>R11B</code></td><td>—</td><td>Scratch (clobbered by syscall)</td></tr>
+          <tr><td><code>R12–R15</code></td><td><code>R12D–R15D</code></td><td><code>R12W–R15W</code></td><td><code>R12B–R15B</code></td><td>—</td><td>Callee-saved general purpose</td></tr>
+        </table>
+
+        <h3>Special Purpose Registers</h3>
+        <table>
+          <tr><th>Register</th><th>Purpose</th></tr>
+          <tr><td><code>RSP</code></td><td>Stack pointer — top of stack. Modified by <code>push</code>, <code>pop</code>, <code>call</code>, <code>ret</code></td></tr>
+          <tr><td><code>RBP</code></td><td>Base/frame pointer — bottom of current stack frame (callee-saved)</td></tr>
+          <tr><td><code>RIP</code></td><td>Instruction pointer — address of next instruction (not directly writable)</td></tr>
+          <tr><td><code>RFLAGS</code></td><td>Status flags: ZF (zero), CF (carry), SF (sign), OF (overflow), DF (direction), PF (parity)</td></tr>
+        </table>
+
+        <p><strong>Key rule:</strong> Writing to a 32-bit register (e.g. <code>EAX</code>) zero-extends into the upper 32 bits of the 64-bit register. Writing to 8/16-bit sub-registers does <em>not</em> zero-extend.</p>
+
+        <h2>Intel vs AT&amp;T Syntax</h2>
+        <table>
+          <tr><th>Feature</th><th>Intel (NASM, IDA, WinDbg)</th><th>AT&amp;T (GAS, GDB default, objdump)</th></tr>
+          <tr><td>Operand order</td><td><code>mov dst, src</code></td><td><code>mov src, dst</code></td></tr>
+          <tr><td>Register prefix</td><td><code>rax</code></td><td><code>%rax</code></td></tr>
+          <tr><td>Immediate prefix</td><td><code>42</code></td><td><code>$42</code></td></tr>
+          <tr><td>Size suffix</td><td>Inferred or <code>BYTE/WORD/DWORD/QWORD</code></td><td><code>b/w/l/q</code> suffix on instruction</td></tr>
+          <tr><td>Memory</td><td><code>[rbp-8]</code></td><td><code>-8(%rbp)</code></td></tr>
+          <tr><td>SIB</td><td><code>[rax+rcx*4+8]</code></td><td><code>8(%rax,%rcx,4)</code></td></tr>
+        </table>
+<pre><code class="language-nasm">; Intel:  mov  QWORD [rbp-8], rax
+; AT&T:   movq %rax, -8(%rbp)</code></pre>
+<pre><code class="language-bash"># GDB: switch to Intel syntax
+set disassembly-flavor intel
+
+# objdump in Intel syntax
+objdump -d -M intel ./binary</code></pre>
+
+        <h2>Data Movement</h2>
+<pre><code class="language-nasm">mov  rax, rbx          ; rax = rbx
+mov  rax, [rbx]        ; rax = *(uint64_t*)rbx   (load from memory)
+mov  [rbx], rax        ; *(uint64_t*)rbx = rax   (store to memory)
+mov  rax, 0x41         ; rax = immediate value
+
+lea  rax, [rbx+rcx*4]  ; rax = rbx + rcx*4  (address calculation, NO memory access)
+lea  rax, [rip+0x200]  ; RIP-relative addressing (common in PIE binaries)
+
+push rax               ; RSP -= 8; *(RSP) = rax
+pop  rbx               ; rbx = *(RSP); RSP += 8
+
+xchg rax, rbx          ; swap rax and rbx
+
+; movzx / movsx — extend smaller values
+movzx eax, BYTE [rbx]  ; zero-extend byte to 32-bit
+movsx rax, DWORD [rbx]  ; sign-extend dword to 64-bit</code></pre>
+
+        <p><code>lea</code> vs <code>mov</code>: <code>lea</code> computes the address but does NOT dereference it. Compilers often use <code>lea</code> for arithmetic: <code>lea rax, [rdi+rdi*2]</code> computes <code>rdi * 3</code>.</p>
+
+        <h2>Arithmetic</h2>
+<pre><code class="language-nasm">add  rax, rbx          ; rax += rbx
+sub  rax, 10           ; rax -= 10
+inc  rcx               ; rcx++ (does NOT set CF)
+dec  rcx               ; rcx-- (does NOT set CF)
+neg  rax               ; rax = -rax (two's complement)
+
+; Multiplication
+imul rax, rbx          ; rax = rax * rbx (signed, truncated to 64-bit)
+imul rax, rbx, 5       ; rax = rbx * 5   (three-operand form)
+mul  rbx               ; RDX:RAX = RAX * RBX (unsigned, 128-bit result)
+imul rbx               ; RDX:RAX = RAX * RBX (signed, 128-bit result)
+
+; Division — divides RDX:RAX by operand
+; MUST zero/sign-extend RAX into RDX first!
+xor  rdx, rdx          ; zero RDX for unsigned division
+div  rbx               ; RAX = RDX:RAX / RBX, RDX = remainder (unsigned)
+
+cqo                    ; sign-extend RAX into RDX for signed division
+idiv rbx               ; RAX = quotient, RDX = remainder (signed)</code></pre>
+
+        <h2>Logic &amp; Bitwise</h2>
+<pre><code class="language-nasm">and  rax, rbx          ; rax &= rbx
+or   rax, rbx          ; rax |= rbx
+xor  rax, rax          ; rax = 0  (common idiom, shorter than mov rax, 0)
+not  rax               ; rax = ~rax (bitwise complement)
+
+; Shifts
+shl  rax, 3            ; rax <<= 3   (logical left shift, = multiply by 8)
+shr  rax, 1            ; rax >>= 1   (logical right shift, = unsigned divide by 2)
+sal  rax, 2            ; arithmetic left shift (same as shl)
+sar  rax, 1            ; arithmetic right shift (preserves sign bit)
+
+; Rotates
+rol  rax, 4            ; rotate left 4 bits
+ror  rax, 4            ; rotate right 4 bits</code></pre>
+
+        <h2>Comparison &amp; Jumps</h2>
+<pre><code class="language-nasm">cmp  rax, rbx          ; sets flags based on (rax - rbx) without storing result
+test rax, rax          ; sets flags based on (rax AND rax) — common zero check</code></pre>
+
+        <h3>Conditional Jumps</h3>
+        <table>
+          <tr><th>Instruction</th><th>Condition</th><th>Flags</th><th>Use Case</th></tr>
+          <tr><td><code>jmp label</code></td><td>Always</td><td>—</td><td>Unconditional jump</td></tr>
+          <tr><td><code>je / jz</code></td><td>Equal / Zero</td><td>ZF=1</td><td>After <code>cmp a, b</code> → a == b</td></tr>
+          <tr><td><code>jne / jnz</code></td><td>Not equal / Not zero</td><td>ZF=0</td><td>a != b</td></tr>
+          <tr><td><code>jg / jnle</code></td><td>Greater (signed)</td><td>ZF=0, SF=OF</td><td>a &gt; b (signed)</td></tr>
+          <tr><td><code>jge / jnl</code></td><td>Greater or equal (signed)</td><td>SF=OF</td><td>a &gt;= b (signed)</td></tr>
+          <tr><td><code>jl / jnge</code></td><td>Less (signed)</td><td>SF≠OF</td><td>a &lt; b (signed)</td></tr>
+          <tr><td><code>jle / jng</code></td><td>Less or equal (signed)</td><td>ZF=1 or SF≠OF</td><td>a &lt;= b (signed)</td></tr>
+          <tr><td><code>ja / jnbe</code></td><td>Above (unsigned)</td><td>CF=0, ZF=0</td><td>a &gt; b (unsigned)</td></tr>
+          <tr><td><code>jae / jnb</code></td><td>Above or equal (unsigned)</td><td>CF=0</td><td>a &gt;= b (unsigned)</td></tr>
+          <tr><td><code>jb / jnae</code></td><td>Below (unsigned)</td><td>CF=1</td><td>a &lt; b (unsigned)</td></tr>
+          <tr><td><code>jbe / jna</code></td><td>Below or equal (unsigned)</td><td>CF=1 or ZF=1</td><td>a &lt;= b (unsigned)</td></tr>
+          <tr><td><code>js</code></td><td>Sign (negative)</td><td>SF=1</td><td>Result is negative</td></tr>
+          <tr><td><code>jo</code></td><td>Overflow</td><td>OF=1</td><td>Signed overflow occurred</td></tr>
+          <tr><td><code>jc</code></td><td>Carry</td><td>CF=1</td><td>Unsigned overflow / borrow</td></tr>
+        </table>
+
+        <p><strong>Signed vs unsigned:</strong> After <code>cmp</code>, use <code>jg/jl/jge/jle</code> for signed comparisons and <code>ja/jb/jae/jbe</code> for unsigned. This matters for reverse engineering — the jump type tells you if the variable is signed or unsigned.</p>
+
+        <h2>Stack Operations</h2>
+<pre><code class="language-nasm">push rax               ; RSP -= 8; [RSP] = rax
+pop  rbx               ; rbx = [RSP]; RSP += 8
+
+call func              ; push RIP (return addr); jmp func
+ret                    ; pop RIP (jump to saved return address)
+
+; enter/leave — frame setup/teardown (leave is common, enter is slow/rare)
+enter 32, 0            ; push rbp; mov rbp, rsp; sub rsp, 32
+leave                  ; mov rsp, rbp; pop rbp</code></pre>
+
+        <h3>Function Prologue / Epilogue</h3>
+<pre><code class="language-nasm">; Prologue — sets up stack frame
+my_function:
+    push rbp             ; save caller's frame pointer
+    mov  rbp, rsp        ; set frame pointer to current stack top
+    sub  rsp, 0x20       ; allocate 32 bytes for local variables
+
+; ... function body ...
+; locals accessed via [rbp-8], [rbp-16], etc.
+; args (if on stack) via [rbp+16], [rbp+24], etc.
+
+; Epilogue — tears down stack frame
+    leave                ; mov rsp, rbp; pop rbp
+    ret                  ; return to caller</code></pre>
+
+        <h2>Calling Conventions</h2>
+        <h3>System V AMD64 ABI (Linux, macOS, BSD)</h3>
+        <table>
+          <tr><th>Argument #</th><th>Integer/Pointer</th><th>Float (SSE)</th></tr>
+          <tr><td>1</td><td><code>RDI</code></td><td><code>XMM0</code></td></tr>
+          <tr><td>2</td><td><code>RSI</code></td><td><code>XMM1</code></td></tr>
+          <tr><td>3</td><td><code>RDX</code></td><td><code>XMM2</code></td></tr>
+          <tr><td>4</td><td><code>RCX</code></td><td><code>XMM3</code></td></tr>
+          <tr><td>5</td><td><code>R8</code></td><td><code>XMM4</code></td></tr>
+          <tr><td>6</td><td><code>R9</code></td><td><code>XMM5</code></td></tr>
+          <tr><td>7+</td><td>Stack (right to left)</td><td><code>XMM6–7</code>, then stack</td></tr>
+        </table>
+        <table>
+          <tr><th>Category</th><th>Registers</th></tr>
+          <tr><td><strong>Return value</strong></td><td><code>RAX</code> (integer), <code>RDX:RAX</code> (128-bit), <code>XMM0</code> (float)</td></tr>
+          <tr><td><strong>Caller-saved</strong> (volatile)</td><td><code>RAX, RCX, RDX, RSI, RDI, R8–R11</code>, <code>XMM0–15</code></td></tr>
+          <tr><td><strong>Callee-saved</strong> (non-volatile)</td><td><code>RBX, RBP, R12–R15</code></td></tr>
+        </table>
+        <p><strong>Stack alignment:</strong> RSP must be 16-byte aligned <em>before</em> <code>call</code>. After <code>call</code> pushes the return address (8 bytes), RSP is misaligned — the prologue's <code>push rbp</code> re-aligns it.</p>
+
+        <h3>Recognizing Function Calls in Disassembly</h3>
+<pre><code class="language-nasm">; printf("x = %d, y = %d\n", x, y)
+lea  rdi, [rip+0x...]    ; arg1 = format string (RIP-relative)
+mov  esi, DWORD [rbp-4]  ; arg2 = x
+mov  edx, DWORD [rbp-8]  ; arg3 = y
+xor  eax, eax            ; AL = 0 (no float args for variadic)
+call printf</code></pre>
+
+        <h2>Syscall Convention (Linux x86-64)</h2>
+        <table>
+          <tr><th>Register</th><th>Purpose</th></tr>
+          <tr><td><code>RAX</code></td><td>Syscall number</td></tr>
+          <tr><td><code>RDI</code></td><td>Arg 1</td></tr>
+          <tr><td><code>RSI</code></td><td>Arg 2</td></tr>
+          <tr><td><code>RDX</code></td><td>Arg 3</td></tr>
+          <tr><td><code>R10</code></td><td>Arg 4 (NOT RCX — <code>syscall</code> clobbers RCX)</td></tr>
+          <tr><td><code>R8</code></td><td>Arg 5</td></tr>
+          <tr><td><code>R9</code></td><td>Arg 6</td></tr>
+          <tr><td><code>RAX</code></td><td>Return value (negative = -errno)</td></tr>
+        </table>
+        <p><strong>Clobbered by <code>syscall</code>:</strong> RCX (saved RIP) and R11 (saved RFLAGS).</p>
+
+        <h3>Common Syscall Numbers (x86-64)</h3>
+        <table>
+          <tr><th>#</th><th>Name</th><th>Signature</th></tr>
+          <tr><td>0</td><td><code>read</code></td><td><code>read(fd, buf, count)</code></td></tr>
+          <tr><td>1</td><td><code>write</code></td><td><code>write(fd, buf, count)</code></td></tr>
+          <tr><td>2</td><td><code>open</code></td><td><code>open(filename, flags, mode)</code></td></tr>
+          <tr><td>3</td><td><code>close</code></td><td><code>close(fd)</code></td></tr>
+          <tr><td>9</td><td><code>mmap</code></td><td><code>mmap(addr, len, prot, flags, fd, off)</code></td></tr>
+          <tr><td>10</td><td><code>mprotect</code></td><td><code>mprotect(addr, len, prot)</code></td></tr>
+          <tr><td>11</td><td><code>munmap</code></td><td><code>munmap(addr, len)</code></td></tr>
+          <tr><td>33</td><td><code>dup2</code></td><td><code>dup2(oldfd, newfd)</code></td></tr>
+          <tr><td>41</td><td><code>socket</code></td><td><code>socket(domain, type, protocol)</code></td></tr>
+          <tr><td>42</td><td><code>connect</code></td><td><code>connect(fd, addr, addrlen)</code></td></tr>
+          <tr><td>57</td><td><code>fork</code></td><td><code>fork()</code></td></tr>
+          <tr><td>59</td><td><code>execve</code></td><td><code>execve(filename, argv, envp)</code></td></tr>
+          <tr><td>60</td><td><code>exit</code></td><td><code>exit(status)</code></td></tr>
+          <tr><td>231</td><td><code>exit_group</code></td><td><code>exit_group(status)</code></td></tr>
+        </table>
+<pre><code class="language-nasm">; Example: write(1, msg, 13)
+mov  rax, 1            ; syscall number = write
+mov  rdi, 1            ; fd = stdout
+lea  rsi, [rel msg]    ; buf = address of msg
+mov  rdx, 13           ; count = 13
+syscall
+
+; Example: execve("/bin/sh", NULL, NULL)
+xor  rdx, rdx          ; envp = NULL
+xor  rsi, rsi          ; argv = NULL
+lea  rdi, [rel binsh]  ; filename = "/bin/sh"
+mov  rax, 59           ; syscall number = execve
+syscall</code></pre>
+
+        <h2>String Operations</h2>
+<pre><code class="language-nasm">; String ops use RSI (source), RDI (destination), RCX (count)
+; Direction: DF=0 → forward (cld), DF=1 → backward (std)
+
+cld                    ; clear direction flag (forward)
+
+; rep prefix — repeat RCX times
+rep movsb              ; memcpy: copy RCX bytes from [RSI] to [RDI]
+rep stosb              ; memset: fill RCX bytes at [RDI] with AL
+rep lodsb              ; load RCX bytes from [RSI] into AL (one at a time)
+
+; repz / repnz — repeat while condition
+repz cmpsb             ; strcmp: compare [RSI] vs [RDI], stop on mismatch or RCX=0
+repnz scasb            ; strchr: scan [RDI] for AL, stop on match or RCX=0
+
+; After rep cmpsb: ZF=1 means strings are equal (up to RCX bytes)
+; After repnz scasb: ZF=1 means AL was found, RDI points past it</code></pre>
+
+        <h2>Addressing Modes</h2>
+<pre><code class="language-nasm">mov rax, [rbx]                ; Direct: *(rbx)
+mov rax, [rbx + 8]            ; Base + displacement: *(rbx + 8)
+mov rax, [rbx + rcx]          ; Base + index: *(rbx + rcx)
+mov rax, [rbx + rcx*8]        ; Base + scaled index: *(rbx + rcx*8)
+mov rax, [rbx + rcx*4 + 0x10] ; Full SIB: *(rbx + rcx*4 + 0x10)
+mov rax, [rip + 0x2000]       ; RIP-relative (PIE/PIC code)
+mov rax, [0x601040]            ; Absolute address (non-PIE only)
+
+; Common patterns in compiled code:
+; Array access:    arr[i]       → [rax + rcx*ELEMENT_SIZE]
+; Struct field:    s->field     → [rax + FIELD_OFFSET]
+; Stack local:     local_var    → [rbp - OFFSET]
+; Stack argument:  arg7+        → [rbp + 16 + N*8]</code></pre>
+
+        <h2>Assembly &amp; Linking (NASM)</h2>
+<pre><code class="language-bash"># Assemble to object file (ELF64 format)
+nasm -f elf64 -o program.o program.asm
+
+# Link to create executable
+ld -o program program.o
+
+# With libc (need dynamic linker)
+nasm -f elf64 -o program.o program.asm
+gcc -o program program.o -no-pie    # link with gcc for libc access
+
+# Debug: include DWARF info
+nasm -f elf64 -g -F dwarf -o program.o program.asm
+ld -o program program.o</code></pre>
+
+        <h3>NASM Program Structure</h3>
+<pre><code class="language-nasm">section .data
+    msg db "Hello, world!", 10    ; string + newline
+    msg_len equ $ - msg           ; length = current pos - start
+
+section .bss
+    buffer resb 256               ; reserve 256 uninitialized bytes
+
+section .text
+    global _start
+
+_start:
+    ; write(1, msg, msg_len)
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [rel msg]
+    mov rdx, msg_len
+    syscall
+
+    ; exit(0)
+    mov rax, 60
+    xor rdi, rdi
+    syscall</code></pre>
+
+        <h2>Reading Compiler Output</h2>
+<pre><code class="language-bash"># Generate assembly from C
+gcc -S -O0 -masm=intel -o output.s source.c
+gcc -S -O2 -masm=intel -o output.s source.c   # with optimization
+
+# Disassemble compiled binary
+objdump -d -M intel ./binary
+objdump -d -M intel -j .text ./binary          # .text section only
+
+# With source interleaving
+gcc -g -o binary source.c
+objdump -d -S -M intel ./binary
+
+# Quick function disassembly in GDB
+gdb ./binary -batch -ex "disas main"</code></pre>
+
+        <h3>Recognizing C Constructs in Assembly</h3>
+<pre><code class="language-nasm">; if (x > 5) { body } else { alt }
+cmp  DWORD [rbp-4], 5
+jle  .else_branch        ; jump if x <= 5 (inverted condition)
+; ... body ...
+jmp  .end_if
+.else_branch:
+; ... alt ...
+.end_if:
+
+; for (int i = 0; i < n; i++) { body }
+mov  DWORD [rbp-4], 0     ; i = 0
+jmp  .loop_cond
+.loop_body:
+; ... body ...
+add  DWORD [rbp-4], 1     ; i++
+.loop_cond:
+mov  eax, DWORD [rbp-4]
+cmp  eax, DWORD [rbp-8]   ; i < n
+jl   .loop_body
+
+; while (cond) { body }
+jmp  .while_cond
+.while_body:
+; ... body ...
+.while_cond:
+; ... evaluate cond ...
+jne  .while_body
+
+; switch — typically a jump table
+; Compiler may use a table of addresses at [base + rax*8]
+; or a chain of cmp/je for small switches
+
+; arr[i] = value
+mov  eax, DWORD [rbp-4]         ; eax = i
+cdqe                              ; sign-extend to rax
+mov  DWORD [rbp-48+rax*4], 42   ; arr[i] = 42</code></pre>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Hello World in NASM</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Write, assemble, and link a program that prints "Hello, World!" using raw syscalls.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; hello.asm
+section .data
+    msg db "Hello, World!", 10
+    msg_len equ $ - msg
+
+section .text
+    global _start
+
+_start:
+    ; TODO: use write syscall to print msg to stdout
+    ;   syscall number for write = 1
+    ;   fd for stdout = 1
+    ;   buf = msg
+    ;   count = msg_len
+
+    ; TODO: use exit syscall to exit cleanly
+    ;   syscall number for exit = 60
+    ;   status = 0</code></pre>
+            <p><strong>Steps:</strong></p>
+            <ol>
+              <li>Fill in the syscall instructions (set RAX, RDI, RSI, RDX, then <code>syscall</code>)</li>
+              <li>Assemble: <code>nasm -f elf64 -o hello.o hello.asm</code></li>
+              <li>Link: <code>ld -o hello hello.o</code></li>
+              <li>Run: <code>./hello</code></li>
+              <li>Verify with <code>strace ./hello</code> — you should see <code>write(1, "Hello, World!\n", 14)</code> and <code>exit(0)</code></li>
+            </ol>
+            <p><strong>Solution:</strong></p>
+<pre><code class="language-nasm">_start:
+    mov rax, 1          ; write
+    mov rdi, 1          ; stdout
+    lea rsi, [rel msg]  ; buffer
+    mov rdx, msg_len    ; length
+    syscall
+
+    mov rax, 60         ; exit
+    xor rdi, rdi        ; status 0
+    syscall</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Read Assembly from Compiled C</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Compile C code and identify control flow constructs (if/else, loops, function calls) in the disassembly.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// constructs.c
+// gcc -O0 -o constructs constructs.c -no-pie
+#include &lt;stdio.h&gt;
+
+int sum_array(int *arr, int n) {
+    int total = 0;
+    for (int i = 0; i &lt; n; i++) {
+        if (arr[i] &gt; 0)
+            total += arr[i];
+    }
+    return total;
+}
+
+int main() {
+    int data[] = {3, -1, 4, -1, 5, 9, -2, 6};
+    int result = sum_array(data, 8);
+    printf("Sum of positives: %d\n", result);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compile: <code>gcc -O0 -o constructs constructs.c -no-pie</code></li>
+              <li>Disassemble <code>sum_array</code>: <code>objdump -d -M intel constructs | grep -A 40 "&lt;sum_array&gt;"</code></li>
+              <li>Identify the prologue/epilogue</li>
+              <li>Find the loop counter variable (which stack offset is <code>i</code>?)</li>
+              <li>Find the conditional — which jump implements <code>if (arr[i] &gt; 0)</code>?</li>
+              <li>Where is the array indexed? Look for <code>[reg+reg*4]</code> pattern</li>
+              <li>Recompile with <code>-O2</code> and compare — how does the optimizer change the code?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Write an Assembly Function Called from C</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write a NASM function <code>my_strlen</code> that follows the System V calling convention, and call it from C.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; my_strlen.asm — implement strlen in assembly
+section .text
+    global my_strlen
+
+; size_t my_strlen(const char *s)
+; arg1 (s) is in RDI per System V ABI
+; return value in RAX
+my_strlen:
+    ; TODO: walk the string byte-by-byte until you find a null terminator
+    ; Return the count in RAX
+    ;
+    ; Approach 1: loop with counter
+    ;   xor rax, rax          ; counter = 0
+    ; .loop:
+    ;   cmp BYTE [rdi+rax], 0 ; check for null
+    ;   je .done
+    ;   inc rax
+    ;   jmp .loop
+    ; .done:
+    ;   ret
+    ;
+    ; Approach 2: use repnz scasb
+    ;   Save RDI, set RCX=-1, AL=0, repnz scasb, compute length from RCX
+    ret</code></pre>
+
+<pre><code class="language-c">// main.c
+#include &lt;stdio.h&gt;
+
+extern size_t my_strlen(const char *s);
+
+int main() {
+    const char *tests[] = {"", "hello", "x86-64 assembly is fun!"};
+    for (int i = 0; i &lt; 3; i++) {
+        printf("strlen(\"%s\") = %zu\n", tests[i], my_strlen(tests[i]));
+    }
+    return 0;
+}</code></pre>
+
+<pre><code class="language-bash"># Build and test
+nasm -f elf64 -o my_strlen.o my_strlen.asm
+gcc -o test_strlen main.c my_strlen.o -no-pie
+./test_strlen</code></pre>
+            <p><strong>Verify:</strong> Output should match <code>strlen()</code> results: 0, 5, 23. Test edge cases: empty string, very long string.</p>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Reverse a Function from Disassembly</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Given only the disassembly of a function, determine what it computes and write the equivalent C code.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; What does this function do?
+; Prototype: int mystery(int *arr, int n)
+; arr → RDI, n → ESI
+
+mystery:
+    push rbx
+    test esi, esi
+    jle  .L_zero
+    mov  ecx, esi         ; ecx = n
+    xor  eax, eax         ; eax = 0
+    xor  edx, edx         ; edx = 0
+.L_loop:
+    mov  ebx, DWORD [rdi+rdx*4]
+    cmp  ebx, eax
+    cmovg eax, ebx        ; conditional move: if ebx > eax, eax = ebx
+    inc  rdx
+    cmp  rdx, rcx
+    jl   .L_loop
+    pop  rbx
+    ret
+.L_zero:
+    mov  eax, 0x80000000  ; INT_MIN
+    pop  rbx
+    ret</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Trace through the function with a sample input, e.g. <code>arr = {3, 7, 2, 9, 1}, n = 5</code></li>
+              <li>What is the loop counter? What does <code>eax</code> track?</li>
+              <li>What does <code>cmovg</code> do? (conditional move if greater — signed)</li>
+              <li>What happens when <code>n &lt;= 0</code>? Why <code>0x80000000</code>?</li>
+              <li>Write the equivalent C function</li>
+              <li>Verify: compile your C version with <code>-O2</code> and compare the disassembly</li>
+            </ol>
+            <p><strong>Answer:</strong> The function finds the <strong>maximum value</strong> in an integer array. Returns <code>INT_MIN</code> for empty arrays.</p>
+<pre><code class="language-c">int mystery(int *arr, int n) {
+    if (n <= 0) return INT_MIN;
+    int max = 0;  // note: this is a bug if all elements are negative!
+    for (int i = 0; i < n; i++) {
+        if (arr[i] > max)
+            max = arr[i];
+    }
+    return max;
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Instruction Encoding — Manual Byte Assembly</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Understand x86-64 instruction encoding by manually constructing machine code bytes and verifying them with <code>ndisasm</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># x86-64 instruction format:
+# [Prefix] [REX] [Opcode] [ModR/M] [SIB] [Displacement] [Immediate]
+#
+# REX prefix (0x40-0x4F): extends registers to 64-bit
+#   REX.W (bit 3): 64-bit operand size
+#   REX.R (bit 2): extends ModR/M reg field
+#   REX.X (bit 1): extends SIB index field
+#   REX.B (bit 0): extends ModR/M r/m or SIB base
+
+# Task 1: Encode "mov rax, 0x42" by hand
+# Opcode for mov r64, imm64 = REX.W + B8+rd
+# REX.W = 0x48, B8+0 (rax=0) = 0xB8
+# Answer: 48 B8 42 00 00 00 00 00 00 00
+
+echo -ne '\x48\xB8\x42\x00\x00\x00\x00\x00\x00\x00' > test.bin
+ndisasm -b64 test.bin
+# Expected: mov rax, 0x42
+
+# Task 2: Encode "xor rdi, rdi"
+# Opcode: 0x31 (xor r/m64, r64), REX.W=0x48
+# ModR/M: mod=11, reg=rdi(7), rm=rdi(7) = 0xFF
+echo -ne '\x48\x31\xFF' > test2.bin
+ndisasm -b64 test2.bin
+
+# Task 3: Encode these instructions manually, then verify:
+#   a) mov rcx, rsi
+#   b) add rax, [rbx+0x10]
+#   c) push r12
+#   d) syscall (hint: 0F 05)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Encode each instruction. Use the Intel SDM Vol 2 or <a href="https://www.felixcloutier.com/x86/">felixcloutier.com/x86</a> for opcode tables.</li>
+              <li>Verify with <code>ndisasm -b64</code>.</li>
+              <li>What's the minimum encoding size for <code>nop</code>? For <code>mov rax, 1</code>? For <code>syscall</code>?</li>
+              <li>How does a REX prefix change a 32-bit instruction to 64-bit?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: SIMD/SSE Basics</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use SSE2 instructions to perform vector operations — add four 32-bit integers in parallel using XMM registers.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; simd_add.asm — add two arrays of 4 ints using SSE2
+section .data
+    align 16
+    arr1 dd 10, 20, 30, 40
+    arr2 dd 1, 2, 3, 4
+    result dd 0, 0, 0, 0
+
+section .text
+    global _start
+
+_start:
+    ; Load 128 bits (4 x 32-bit ints) into XMM registers
+    movdqa xmm0, [rel arr1]     ; xmm0 = {10, 20, 30, 40}
+    movdqa xmm1, [rel arr2]     ; xmm1 = {1, 2, 3, 4}
+
+    ; Packed integer add (4 DWORDs at once)
+    paddd  xmm0, xmm1           ; xmm0 = {11, 22, 33, 44}
+
+    ; Store result
+    movdqa [rel result], xmm0
+
+    ; Print result[0] to verify (use write syscall)
+    ; Exit
+    mov rax, 60
+    xor rdi, rdi
+    syscall</code></pre>
+<pre><code class="language-bash"># Build and run
+nasm -f elf64 -o simd_add.o simd_add.asm
+ld -o simd_add simd_add.o
+./simd_add
+
+# Verify in GDB:
+gdb ./simd_add
+(gdb) b _start
+(gdb) r
+(gdb) si 3           # step past the loads and add
+(gdb) p/x $xmm0.v4_int32   # should show {11, 22, 33, 44}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the code and inspect XMM registers in GDB</li>
+              <li>Modify to use <code>pmulld</code> (SSE4.1) for packed multiply</li>
+              <li>Try <code>movdqu</code> (unaligned load) instead of <code>movdqa</code> — remove <code>align 16</code> and see what happens</li>
+              <li>Write a dot product of two 4-element float vectors using <code>mulps</code> and <code>haddps</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Inline Assembly in C (GCC Extended Asm)</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use GCC inline assembly to read CPU registers (CR0, CPUID) and perform operations that C can't express directly.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// inline_asm.c — gcc -O0 -o inline_asm inline_asm.c
+#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+
+// Basic: read the timestamp counter
+uint64_t rdtsc_inline() {
+    uint32_t lo, hi;
+    __asm__ __volatile__ (
+        "rdtsc"
+        : "=a"(lo), "=d"(hi)  // outputs: EAX → lo, EDX → hi
+        :                       // no inputs
+        :                       // no clobbers
+    );
+    return ((uint64_t)hi &lt;&lt; 32) | lo;
+}
+
+// CPUID: get processor brand string
+void get_cpu_vendor(char vendor[13]) {
+    uint32_t eax, ebx, ecx, edx;
+    __asm__ __volatile__ (
+        "cpuid"
+        : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+        : "a"(0)    // input: EAX = 0 (get vendor)
+    );
+    *(uint32_t *)&amp;vendor[0] = ebx;
+    *(uint32_t *)&amp;vendor[4] = edx;
+    *(uint32_t *)&amp;vendor[8] = ecx;
+    vendor[12] = '\0';
+}
+
+// Atomic compare-and-swap
+int cas(int *ptr, int expected, int desired) {
+    int result;
+    __asm__ __volatile__ (
+        "lock cmpxchg %[desired], %[ptr]"
+        : "=a"(result), [ptr] "+m"(*ptr)
+        : "a"(expected), [desired] "r"(desired)
+        : "cc"
+    );
+    return result == expected;
+}
+
+int main() {
+    uint64_t t1 = rdtsc_inline();
+    uint64_t t2 = rdtsc_inline();
+    printf("RDTSC delta: %lu cycles\n", t2 - t1);
+
+    char vendor[13];
+    get_cpu_vendor(vendor);
+    printf("CPU Vendor: %s\n", vendor);
+
+    int val = 42;
+    int ok = cas(&amp;val, 42, 99);
+    printf("CAS(42→99): %s, val=%d\n", ok ? "success" : "fail", val);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compile and run. What CPU vendor does your machine report?</li>
+              <li>Add a function that reads the FLAGS register using <code>pushfq; pop</code></li>
+              <li>Write an inline asm version of <code>strlen</code> using <code>repnz scasb</code></li>
+              <li>What does <code>__volatile__</code> prevent the compiler from doing?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Position-Independent Code (PIC/PIE)</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write position-independent assembly that works at any load address. Understand RIP-relative addressing and GOT/PLT.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; pic_example.asm — position-independent code
+; nasm -f elf64 -o pic.o pic_example.asm
+; gcc -shared -o pic.so pic.o  OR  gcc -pie -o pic pic.o
+
+section .data
+    msg db "PIC works!", 10
+    msg_len equ $ - msg
+
+section .text
+    global _start
+
+_start:
+    ; RIP-relative addressing — works at any base address
+    lea rsi, [rel msg]       ; lea rsi, [rip + msg - $ - 7] internally
+    mov rax, 1               ; write
+    mov rdi, 1               ; stdout
+    mov rdx, msg_len
+    syscall
+
+    mov rax, 60
+    xor rdi, rdi
+    syscall</code></pre>
+<pre><code class="language-bash"># Build as PIE and non-PIE, compare
+nasm -f elf64 -o pic.o pic_example.asm
+ld -o pic_nopie pic.o
+gcc -pie -nostdlib -o pic_pie pic.o
+
+# Run both — both should print "PIC works!"
+./pic_nopie
+./pic_pie
+
+# Compare addressing:
+objdump -d -M intel pic_nopie | grep msg
+objdump -d -M intel pic_pie | grep -A2 "lea"
+
+# The PIE version uses RIP-relative; non-PIE uses absolute addresses</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compile both versions and verify they work</li>
+              <li>Change <code>[rel msg]</code> to <code>[msg]</code> (absolute) — does PIE still link?</li>
+              <li>Run the PIE version multiple times with ASLR on — use <code>/proc/self/maps</code> to see the base change</li>
+              <li>Write a PIC function that accesses a global variable via <code>[rip + var]</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Code Caves — Injecting Code into a Binary</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Find unused space (code cave) in a compiled binary and inject custom assembly instructions that execute before <code>main()</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// target.c — gcc -O0 -o target target.c -no-pie
+#include &lt;stdio.h&gt;
+int main() {
+    printf("Normal execution\n");
+    return 0;
+}</code></pre>
+<pre><code class="language-bash"># Step 1: Find a code cave (block of 00s or CC padding in .text)
+objdump -d -M intel target | grep -A1 "cc cc cc"
+# Or look at section sizes vs alignment padding
+readelf -S target | grep ".text"
+# The gap between .text end and next section is often usable
+
+# Step 2: Write your payload
+# Shellcode: write(1, "INJECTED\n", 9) then jump back to original entry
+echo -ne '\x48\xc7\xc0\x01\x00\x00\x00'  # mov rax, 1
+echo -ne '\x48\xc7\xc7\x01\x00\x00\x00'  # mov rdi, 1
+# ... (lea rsi to embedded string, mov rdx 9, syscall)
+# ... (jmp back to original _start or main)
+
+# Step 3: Patch the entry point to jump to your cave
+# Read original entry: readelf -h target | grep Entry
+# Patch ELF entry to point to cave address
+
+# Step 4: Verify
+./target
+# Should print: "INJECTED" then "Normal execution"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Use <code>readelf -S</code> to find gaps between sections</li>
+              <li>Write the injection shellcode including a jump back to the original entry</li>
+              <li>Use Python or <code>dd</code> to patch the bytes into the binary</li>
+              <li>Patch the ELF entry point to redirect to your injected code</li>
+              <li>Verify the binary still works normally after injection</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Self-Modifying Assembly</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write assembly that modifies its own instructions at runtime — change a <code>mov</code> immediate to alter program behavior dynamically.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; selfmod.asm — self-modifying code
+; Must be on a writable+executable page
+section .text
+    global _start
+
+_start:
+    ; Make .text writable: mprotect(page, 4096, RWX)
+    mov rax, 10              ; mprotect
+    lea rdi, [rel _start]
+    and rdi, ~0xFFF          ; page-align
+    mov rsi, 4096
+    mov rdx, 7               ; PROT_READ|WRITE|EXEC
+    syscall
+
+    ; Original instruction at 'target': mov eax, 1 (write syscall)
+    ; We'll patch it to mov eax, 60 (exit syscall)
+
+    ; Patch: overwrite the immediate of the mov instruction
+    lea rdi, [rel target + 1]   ; point to the immediate byte
+    mov BYTE [rdi], 60          ; change 1 → 60
+
+target:
+    mov eax, 1               ; THIS GETS PATCHED to mov eax, 60
+    ; If patched: exit(42) instead of write
+    mov edi, 42
+    syscall</code></pre>
+<pre><code class="language-bash"># Build and run
+nasm -f elf64 -o selfmod.o selfmod.asm
+ld -o selfmod selfmod.o
+./selfmod
+echo $?    # Should be 42 (exit code), proving the patch worked</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run and verify the exit code is 42 (instruction was modified)</li>
+              <li>Comment out the mprotect — what happens? (SEGFAULT on write to .text)</li>
+              <li>Modify the code to toggle between two behaviors on each run</li>
+              <li>Why do packers and malware use self-modifying code? What makes it hard to analyze?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Interrupt Handling — INT 0x80 vs SYSCALL</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Compare the legacy <code>int 0x80</code> 32-bit syscall interface with the modern <code>syscall</code> instruction. Understand why 64-bit binaries should never use <code>int 0x80</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; int80_vs_syscall.asm
+section .data
+    msg1 db "via syscall", 10
+    len1 equ $ - msg1
+    msg2 db "via int 0x80", 10
+    len2 equ $ - msg2
+
+section .text
+    global _start
+
+_start:
+    ; Method 1: modern syscall instruction (64-bit ABI)
+    mov rax, 1             ; sys_write (64-bit number)
+    mov rdi, 1             ; fd = stdout
+    lea rsi, [rel msg1]
+    mov rdx, len1
+    syscall
+
+    ; Method 2: legacy int 0x80 (32-bit ABI, even in 64-bit mode!)
+    ; WARNING: uses 32-bit syscall numbers and truncates addresses to 32-bit
+    mov eax, 4             ; sys_write (32-bit number = 4, not 1!)
+    mov ebx, 1             ; fd (arg1 in ebx for 32-bit)
+    lea ecx, [rel msg2]   ; buf (arg2 in ecx) — FAILS if addr > 4GB!
+    mov edx, len2          ; count (arg3 in edx)
+    int 0x80
+
+    ; Exit
+    mov rax, 60
+    xor rdi, rdi
+    syscall</code></pre>
+<pre><code class="language-bash"># Build and test
+nasm -f elf64 -o int80.o int80_vs_syscall.asm
+ld -o int80 int80.o
+./int80
+
+# The int 0x80 call may FAIL if msg2 is mapped above 4GB (ASLR)
+# This is why int 0x80 should never be used in 64-bit code</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the binary — does <code>int 0x80</code> work? If not, why?</li>
+              <li>Use <code>strace</code> to see both syscalls. Note the different syscall numbers.</li>
+              <li>Compile with <code>ld --no-pie</code> to force low addresses — does <code>int 0x80</code> work then?</li>
+              <li>What are the performance differences? (hint: <code>syscall</code> doesn't go through IDT)</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: LOCK Prefix and Atomic Operations</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Demonstrate the necessity of the <code>LOCK</code> prefix for atomicity by creating a multi-threaded counter that breaks without it, then fix it.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// atomic_counter.c — gcc -O2 -o atomic_counter atomic_counter.c -lpthread
+#include &lt;stdio.h&gt;
+#include &lt;pthread.h&gt;
+
+volatile int counter = 0;
+#define ITERATIONS 1000000
+
+// Non-atomic increment (BROKEN under concurrency)
+void inc_normal(volatile int *p) {
+    __asm__ __volatile__ ("incl %0" : "+m"(*p));
+}
+
+// Atomic increment with LOCK prefix
+void inc_atomic(volatile int *p) {
+    __asm__ __volatile__ ("lock incl %0" : "+m"(*p));
+}
+
+void *thread_func(void *arg) {
+    int use_lock = *(int *)arg;
+    for (int i = 0; i &lt; ITERATIONS; i++) {
+        if (use_lock)
+            inc_atomic(&amp;counter);
+        else
+            inc_normal(&amp;counter);
+    }
+    return NULL;
+}
+
+int main(int argc, char **argv) {
+    int use_lock = (argc > 1);  // pass any arg to use LOCK
+    printf("Mode: %s\n", use_lock ? "LOCK (atomic)" : "no LOCK (racy)");
+
+    pthread_t t1, t2;
+    pthread_create(&amp;t1, NULL, thread_func, &amp;use_lock);
+    pthread_create(&amp;t2, NULL, thread_func, &amp;use_lock);
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+
+    printf("Expected: %d\n", 2 * ITERATIONS);
+    printf("Actual:   %d\n", counter);
+    printf("Lost:     %d\n", 2 * ITERATIONS - counter);
+    return 0;
+}</code></pre>
+<pre><code class="language-bash"># Run without LOCK — observe lost increments
+./atomic_counter
+# Run with LOCK — should be exact
+./atomic_counter 1
+
+# Also try: lock cmpxchg, lock xadd, lock bts</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run both modes multiple times — how many increments are lost without LOCK?</li>
+              <li>Replace <code>lock incl</code> with <code>lock xadd</code> — what's the difference?</li>
+              <li>Implement a spinlock using <code>lock cmpxchg</code> (compare-and-swap)</li>
+              <li>Why does LOCK work across cores? (hint: cache coherence, MESI protocol)</li>
+            </ol>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: What's the Output?</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Given the following assembly, determine the value in RAX when the function returns.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">compute:
+    mov  rax, 0x10       ; rax = 16
+    mov  rbx, 0x3        ; rbx = 3
+    xor  rcx, rcx        ; rcx = 0
+
+.loop:
+    add  rcx, rax        ; rcx += rax
+    sub  rax, 5          ; rax -= 5
+    cmp  rax, 0
+    jg   .loop           ; if rax > 0, keep looping
+
+    mov  rax, rcx        ; return value = rcx
+    ret</code></pre>
+            <p><strong>Task:</strong> Trace through each iteration manually. What value is in RAX when <code>ret</code> executes?</p>
+            <table>
+              <tr><th>Iteration</th><th>RAX (start)</th><th>RCX after add</th><th>RAX after sub</th><th>Continue?</th></tr>
+              <tr><td>1</td><td>16</td><td>?</td><td>?</td><td>?</td></tr>
+              <tr><td>2</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
+              <tr><td>3</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
+              <tr><td>...</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
+            </table>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Iteration trace: (1) rcx=16, rax=11; (2) rcx=27, rax=6; (3) rcx=33, rax=1; (4) rcx=34, rax=-4 → loop ends. <strong>RAX = 34</strong>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Patch the Binary</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A binary checks a license key and rejects it. Patch the binary to accept any key.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// license.c
+// gcc -O0 -o license license.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int check_license(const char *key) {
+    // complex validation...
+    return strcmp(key, "REAL-KEY-12345") == 0;
+}
+
+int main() {
+    char key[64];
+    printf("Enter license key: ");
+    scanf("%63s", key);
+
+    if (check_license(key)) {
+        printf("License valid! FLAG{patched_binary}\n");
+    } else {
+        printf("Invalid license.\n");
+    }
+    return 0;
+}</code></pre>
+
+<pre><code class="language-bash"># Compile and find the conditional jump
+gcc -O0 -o license license.c -no-pie
+objdump -d -M intel license | grep -A5 "check_license"
+# Look in main for:
+#   call check_license
+#   test eax, eax
+#   je   &lt;invalid_branch&gt;    ← this is the jump to patch</code></pre>
+
+            <p><strong>Approach 1: Patch je → jne</strong></p>
+<pre><code class="language-bash"># je  = opcode 0x74
+# jne = opcode 0x75
+# Find offset of the 0x74 byte and change it to 0x75
+
+# Using python to patch:
+python3 -c "
+import sys
+data = open('license','rb').read()
+# Find the exact offset from objdump output
+offset = data.find(b'\x74\xNN')  # replace NN with actual displacement
+data = data[:offset] + b'\x75' + data[offset+1:]
+open('license_patched','wb').write(data)
+"</code></pre>
+
+            <p><strong>Approach 2: NOP out the jump</strong></p>
+<pre><code class="language-bash"># Replace je (2 bytes: 74 XX) with NOPs (90 90)
+# This makes execution always fall through to the success branch</code></pre>
+
+            <p><strong>Approach 3: Patch test → xor (force EAX=0 or force nonzero)</strong></p>
+<pre><code class="language-bash"># If the logic is: test eax,eax; je fail
+# Patch "test eax,eax" → "xor eax,eax; inc eax" or just force eax=1
+# Or patch je to jmp over the success code</code></pre>
+            <p><strong>Task:</strong> Use <code>objdump</code> to find the exact offset, then use <code>xxd</code> or Python to make the patch. Verify with <code>objdump</code> after patching.</p>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Disassemble <code>main</code> and find the <code>test eax, eax</code> / <code>je</code> sequence after the <code>call check_license</code>. The <code>je</code> opcode is <code>0x74</code>. Change it to <code>0x75</code> (<code>jne</code>) so invalid keys pass. Use: <code>printf '\x75' | dd of=license bs=1 seek=OFFSET conv=notrunc</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Crackme — Write the Keygen</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Reverse engineer the validation algorithm and write assembly (or C) that generates a valid key.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// crackme.c
+// gcc -O0 -o crackme crackme.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int validate(const char *key) {
+    if (strlen(key) != 16) return 0;
+
+    // Each group of 4 chars must satisfy a constraint
+    unsigned int a = *(unsigned int *)&amp;key[0];
+    unsigned int b = *(unsigned int *)&amp;key[4];
+    unsigned int c = *(unsigned int *)&amp;key[8];
+    unsigned int d = *(unsigned int *)&amp;key[12];
+
+    if ((a ^ b) != 0xDEADBEEF) return 0;
+    if ((b + c) != 0x13371337) return 0;
+    if ((c ^ d) != 0xCAFEBABE) return 0;
+    if ((a &amp; 0xFF) != 0x41) return 0;     // first byte must be 'A'
+
+    return 1;
+}
+
+int main() {
+    char key[64];
+    printf("Key: ");
+    scanf("%63s", key);
+
+    if (validate(key)) {
+        printf("FLAG{keygen_master_%s}\n", key);
+    } else {
+        printf("Wrong key.\n");
+    }
+    return 0;
+}</code></pre>
+            <p><strong>Task:</strong> Without looking at the source, disassemble <code>validate</code> and:</p>
+            <ol>
+              <li>Determine the key length requirement</li>
+              <li>Identify the four 32-bit groups and the constraints between them</li>
+              <li>Solve the constraint system (work backwards from the known values)</li>
+              <li>Write a keygen in assembly or C that outputs a valid key</li>
+            </ol>
+<pre><code class="language-bash"># Start reverse engineering
+objdump -d -M intel crackme | grep -A 60 "&lt;validate&gt;"
+
+# Or use GDB
+gdb ./crackme
+(gdb) disas validate</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Work backwards: <code>a &amp; 0xFF = 0x41</code>, so pick <code>a = 0x____0041</code> (e.g., <code>0x12340041</code>). Then <code>b = a ^ 0xDEADBEEF</code>. Then <code>c = 0x13371337 - b</code>. Then <code>d = c ^ 0xCAFEBABE</code>. Write each 4-byte int as little-endian characters. Watch out: the resulting bytes must be printable if <code>scanf</code> stops at whitespace — you may need to choose <code>a</code> carefully.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Assembly Puzzle — Constrained Registers</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Write assembly that computes <code>rax = rdi * 7 + 3</code> without using <code>imul</code>, <code>mul</code>, or any immediate larger than 8. You may only use <code>lea</code>, <code>add</code>, <code>sub</code>, <code>shl</code>, and <code>mov</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; puzzle.asm — compute rax = rdi * 7 + 3
+; Constraints: no imul/mul, no immediate > 8
+section .text
+    global compute
+compute:
+    ; TODO: your solution here
+    ; Hint: 7 = 8 - 1, or 7 = 4 + 2 + 1
+    ; lea can compute base + index*scale for scale in {1,2,4,8}
+    ret</code></pre>
+<pre><code class="language-c">// test_puzzle.c
+#include &lt;stdio.h&gt;
+#include &lt;assert.h&gt;
+extern long compute(long x);
+int main() {
+    for (long x = -10; x &lt;= 10; x++) {
+        long result = compute(x);
+        assert(result == x * 7 + 3);
+    }
+    printf("All tests passed!\n");
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><code>lea rax, [rdi+rdi*2]</code> gives <code>rdi*3</code>. Then <code>lea rax, [rax+rdi*4]</code> gives <code>rdi*3 + rdi*4 = rdi*7</code>. Finally <code>add rax, 3</code>. Or: <code>shl</code> by 3 for <code>rdi*8</code>, then <code>sub rax, rdi</code> for <code>rdi*7</code>, then <code>add rax, 3</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Decode Obfuscated Assembly</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The following assembly uses junk instructions, opaque predicates, and register shuffling to hide its real purpose. Deobfuscate it and determine the return value for input <code>rdi = 10</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">obfuscated:
+    push rbx
+    push rcx
+    mov  rax, rdi          ; rax = input
+    xor  rbx, rbx
+    mov  rcx, rax
+    add  rcx, 0            ; junk: adding 0
+    test rcx, rcx
+    jz   .end
+.loop:
+    mov  rdx, rcx
+    and  rdx, 1            ; rdx = rcx & 1
+    xor  rdx, 0            ; junk: xor with 0
+    add  rbx, rdx          ; rbx += (rcx & 1)
+    shr  rcx, 1            ; rcx >>= 1
+    lea  rsi, [rcx+0]     ; junk: rsi = rcx (unused)
+    test rcx, rcx
+    jnz  .loop
+.end:
+    mov  rax, rbx          ; return value
+    pop  rcx
+    pop  rbx
+    ret</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Remove the junk instructions and rewrite the clean version</li>
+              <li>What does this function actually compute?</li>
+              <li>What is the return value for <code>rdi = 10</code> (binary: 1010)?</li>
+              <li>Write the equivalent one-line C expression</li>
+            </ol>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Strip the junk: it loops through each bit of the input, adds <code>bit &amp; 1</code> to a counter, then shifts right. It counts the number of set bits (<strong>popcount</strong>). For input 10 (binary 1010), the answer is <strong>2</strong>. C equivalent: <code>__builtin_popcount(x)</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Shortest Program — Code Golf</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Write the shortest possible x86-64 Linux program (in bytes) that prints "Hi" and exits cleanly. Your program must be a valid ELF that runs on Linux x86-64.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; golf.asm — minimize total binary size
+; Current baseline: standard NASM approach ≈ ~8.5 KB with ld
+; Challenge: get under 200 bytes total (ELF header + code)
+;
+; Rules:
+;   - Must print "Hi\n" to stdout
+;   - Must exit with code 0
+;   - Must be a valid ELF64 executable
+;
+; Hints for size reduction:
+;   - Overlap ELF header with program header
+;   - Use shorter instruction encodings (e.g., push imm8 + pop)
+;   - xor eax,eax is 2 bytes; mov eax,0 is 5 bytes
+;   - push 1; pop rax is 3 bytes vs mov rax,1 which is 7 bytes</code></pre>
+<pre><code class="language-bash"># Measure your binary
+nasm -f bin -o golf golf.asm
+chmod +x golf
+wc -c golf        # target: under 200 bytes
+./golf            # must print "Hi\n"</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The minimum ELF64 header is 64 bytes + 56 bytes program header = 120 bytes overhead. Your syscall code needs ~25 bytes (write + exit). Overlap the string "Hi\n" into the ELF header padding bytes. Use <code>push 1; pop rax</code> instead of <code>mov rax, 1</code>. A skilled golfer can get this under 140 bytes total.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Shellcode Golf — execve in Minimal Bytes</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Write the smallest possible x86-64 shellcode that spawns <code>/bin/sh</code> via <code>execve</code>. No null bytes allowed. Target: under 30 bytes.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; shellcode_golf.asm — execve("/bin/sh", NULL, NULL) without null bytes
+; Standard approach: ~27 bytes
+;
+; Rules:
+;   - No null bytes (0x00) in the shellcode
+;   - Must call execve("/bin/sh", NULL, NULL)
+;   - Measure: nasm -f bin -o sc.bin shellcode_golf.asm && xxd sc.bin
+
+; Reference (standard ~27 byte version):
+;   xor  rdx, rdx          ; envp = NULL
+;   xor  rsi, rsi          ; argv = NULL
+;   push rdx               ; null terminator on stack
+;   mov  rdi, 0x68732f6e69622f  ; "/bin/sh" in little-endian
+;   push rdi
+;   mov  rdi, rsp           ; rdi → "/bin/sh\0"
+;   push 59
+;   pop  rax                ; syscall 59 = execve
+;   syscall</code></pre>
+<pre><code class="language-bash"># Test shellcode
+nasm -f bin -o sc.bin shellcode_golf.asm
+# Check for null bytes:
+xxd sc.bin | grep " 00"
+# Size:
+wc -c sc.bin
+# Test execution (wraps shellcode in a C harness):
+cat &lt;&lt;'EOF' > test_sc.c
+#include &lt;string.h&gt;
+#include &lt;sys/mman.h&gt;
+char sc[] = "PASTE_HEX_HERE";
+int main() {
+    void *p = mmap(0, 4096, 7, 0x22, -1, 0);
+    memcpy(p, sc, sizeof(sc)-1);
+    ((void(*)())p)();
+}
+EOF</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>push</code>/<code>pop</code> for small values instead of <code>mov</code>. The string "/bin/sh" is 7 bytes — push it as a 64-bit immediate after a null terminator push. Use <code>cdq</code> (1 byte) to zero RDX instead of <code>xor rdx, rdx</code> (3 bytes) if RAX is positive. Combine <code>xor esi, esi</code> (2 bytes) with <code>mul esi</code> (2 bytes) to zero both RAX and RDX. Record: ~22 bytes.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Implement Bubble Sort in Assembly</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Write a NASM function <code>bubble_sort(int *arr, int n)</code> that sorts an integer array in-place. Call it from C and verify against <code>qsort()</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; bubble_sort.asm
+section .text
+    global bubble_sort
+
+; void bubble_sort(int *arr, int n)
+; arr → rdi, n → esi
+bubble_sort:
+    ; TODO: Implement bubble sort
+    ; Outer loop: i = 0 to n-1
+    ;   swapped = false
+    ;   Inner loop: j = 0 to n-i-2
+    ;     if arr[j] > arr[j+1]: swap, swapped = true
+    ;   if !swapped: break (optimization)
+    ; Use xchg or mov+mov for swapping
+    ; Use cmp + jle to skip swap
+    ret</code></pre>
+<pre><code class="language-c">// test_sort.c
+#include &lt;stdio.h&gt;
+extern void bubble_sort(int *arr, int n);
+int main() {
+    int arr[] = {64, 34, 25, 12, 22, 11, 90};
+    int n = 7;
+    bubble_sort(arr, n);
+    for (int i = 0; i &lt; n; i++) printf("%d ", arr[i]);
+    printf("\n");  // Expected: 11 12 22 25 34 64 90
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Outer loop decrements a counter from n-1. Inner loop compares <code>[rdi+rcx*4]</code> with <code>[rdi+rcx*4+4]</code>. Use <code>mov</code>+<code>mov</code> for swap (or <code>xchg</code> which has an implicit LOCK and is slow). Track a "swapped" flag in a register (e.g., <code>r8</code>) for early termination.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Reverse a Custom ISA</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A CTF challenge uses a custom bytecode VM. Given the interpreter source and a bytecode program, determine the flag. The VM has 4 registers (r0-r3), a stack, and 8 opcodes.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// vm.c — custom ISA interpreter
+#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+uint8_t regs[4] = {0};
+uint8_t stack[256]; int sp = 0;
+
+void run(uint8_t *code, int len) {
+    for (int ip = 0; ip &lt; len;) {
+        uint8_t op = code[ip++];
+        switch (op) {
+            case 0x01: regs[code[ip]&amp;3] = code[ip+1]; ip+=2; break; // MOV rX, imm
+            case 0x02: regs[code[ip]&amp;3] += regs[code[ip+1]&amp;3]; ip+=2; break; // ADD rX, rY
+            case 0x03: regs[code[ip]&amp;3] ^= regs[code[ip+1]&amp;3]; ip+=2; break; // XOR rX, rY
+            case 0x04: stack[sp++] = regs[code[ip]&amp;3]; ip++; break; // PUSH rX
+            case 0x05: regs[code[ip]&amp;3] = stack[--sp]; ip++; break; // POP rX
+            case 0x06: putchar(regs[code[ip]&amp;3]); ip++; break; // PRINT rX
+            case 0x07: regs[code[ip]&amp;3] = regs[code[ip]&amp;3] &lt;&lt; (code[ip+1]&amp;7); ip+=2; break; // SHL
+            case 0xFF: return; // HALT
+        }
+    }
+}
+
+int main() {
+    uint8_t program[] = {
+        0x01, 0x00, 0x46,  // MOV r0, 0x46 ('F')
+        0x06, 0x00,        // PRINT r0
+        0x01, 0x00, 0x4C,  // MOV r0, 0x4C ('L')
+        0x06, 0x00,        // PRINT r0
+        0x01, 0x00, 0x41,  // MOV r0, 0x41 ('A')
+        0x06, 0x00,        // PRINT r0
+        0x01, 0x00, 0x47,  // MOV r0, 0x47 ('G')
+        0x06, 0x00,        // PRINT r0
+        0x01, 0x01, 0x7B,  // MOV r1, 0x7B ('{')
+        0x06, 0x01,        // PRINT r1
+        0x01, 0x00, 0x10,  // MOV r0, 0x10
+        0x01, 0x01, 0x06,  // MOV r1, 6
+        0x07, 0x00, 0x02,  // SHL r0, 2
+        0x02, 0x00, 0x01,  // ADD r0, r1
+        0x06, 0x00,        // PRINT r0 — what char?
+        // ... more instructions to decode
+        0x01, 0x00, 0x7D,  // MOV r0, 0x7D ('}')
+        0x06, 0x00,        // PRINT r0
+        0xFF
+    };
+    run(program, sizeof(program));
+    printf("\n");
+}</code></pre>
+            <p><strong>Task:</strong> Trace the bytecode manually OR write a disassembler for this custom ISA. What flag does the program print?</p>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Trace the arithmetic: <code>r0 = 0x10</code>, <code>SHL r0, 2</code> → <code>0x40</code>, <code>r1 = 6</code>, <code>ADD r0, r1</code> → <code>0x46</code> = 'F'. But wait — the program already printed 'F' earlier. The partial flag is "FLAG{" + computed chars + "}". Build a disassembler that converts each opcode to readable output, then trace the register state.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: REP Prefix Optimization</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Optimize the following naive memory copy function to use <code>rep movsb</code> and then <code>rep movsq</code>. Benchmark both against <code>memcpy</code> and measure the throughput difference.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; memcpy_versions.asm
+section .text
+    global my_memcpy_naive
+    global my_memcpy_rep_byte
+    global my_memcpy_rep_qword
+
+; Naive: byte-by-byte loop
+my_memcpy_naive:             ; (rdi=dst, rsi=src, rdx=n)
+    mov rcx, rdx
+    test rcx, rcx
+    jz .done_naive
+.loop_naive:
+    mov al, [rsi]
+    mov [rdi], al
+    inc rsi
+    inc rdi
+    dec rcx
+    jnz .loop_naive
+.done_naive:
+    ret
+
+; Fast: rep movsb (ERMS-optimized on modern CPUs)
+my_memcpy_rep_byte:
+    mov rcx, rdx
+    cld
+    rep movsb
+    ret
+
+; Fastest: rep movsq for bulk, rep movsb for remainder
+my_memcpy_rep_qword:
+    mov rcx, rdx
+    shr rcx, 3              ; rcx = n / 8
+    cld
+    rep movsq               ; copy 8 bytes at a time
+    mov rcx, rdx
+    and rcx, 7              ; remainder
+    rep movsb               ; copy remaining bytes
+    ret</code></pre>
+<pre><code class="language-c">// bench.c — gcc -O2 -o bench bench.c memcpy_versions.o
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;time.h&gt;
+extern void my_memcpy_naive(void*, void*, size_t);
+extern void my_memcpy_rep_byte(void*, void*, size_t);
+extern void my_memcpy_rep_qword(void*, void*, size_t);
+
+int main() {
+    char src[1024*1024], dst[1024*1024];
+    memset(src, 'A', sizeof(src));
+    // Benchmark each version 1000 times, print elapsed ns
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>On modern Intel CPUs with ERMS (Enhanced REP MOVSB), <code>rep movsb</code> is hardware-optimized and can match or beat <code>rep movsq</code>. Check CPUID for ERMS support (leaf 7, EBX bit 9). The naive loop will be 5-10x slower due to branch misprediction and lack of memory bus optimization. Use <code>clock_gettime(CLOCK_MONOTONIC, ...)</code> for benchmarking.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

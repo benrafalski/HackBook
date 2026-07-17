@@ -1,0 +1,1948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Sandbox Escape</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+
+  <div class="content">
+    <h1>Browser Sandbox Escape</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ================================================================ -->
+      <!-- NOTES TAB                                                        -->
+      <!-- ================================================================ -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== CHROME ARCHITECTURE ==================== -->
+        <h2>Chrome Multi-Process Architecture</h2>
+        <p>Chrome splits work across multiple OS processes with different privilege levels. Compromising one process doesn't automatically give you access to others.</p>
+
+<pre><code class="language-bash">Chrome Process Model:
+┌─────────────────────────────────────────────────────┐
+│                    BROWSER PROCESS                   │
+│  - Full OS access, file system, network              │
+│  - UI (tabs, omnibox, bookmarks)                     │
+│  - Manages all child processes                       │
+│  - Cookie/password storage                           │
+│  - Highest privilege                                 │
+├─────────────────────────────────────────────────────┤
+│ RENDERER        │ GPU PROCESS     │ UTILITY PROCESS  │
+│ (per-site)      │ (single)        │ (network, etc.)  │
+│ - V8 / Blink    │ - GL/Vulkan     │ - DNS resolution │
+│ - DOM, layout   │ - Compositing   │ - Audio service  │
+│ - JS execution  │ - Video decode  │ - Storage        │
+│ - SANDBOXED     │ - SANDBOXED     │ - SANDBOXED      │
+│ - No file I/O   │ - Limited GPU   │ - Limited scope  │
+│ - No network    │   access        │                  │
+└─────────────────────────────────────────────────────┘</code></pre>
+
+        <table>
+          <tr><th>Process</th><th>Privilege Level</th><th>Sandbox</th><th>Attack Value</th></tr>
+          <tr><td>Browser</td><td>Full (user-level)</td><td>None (it IS the supervisor)</td><td>Highest — full user access</td></tr>
+          <tr><td>Renderer</td><td>Minimal</td><td>seccomp-bpf (Linux), sandbox (Win)</td><td>Starting point after V8 exploit</td></tr>
+          <tr><td>GPU</td><td>Limited</td><td>Reduced sandbox</td><td>Alternative escalation target</td></tr>
+          <tr><td>Utility (Network)</td><td>Network only</td><td>seccomp-bpf</td><td>Network data access</td></tr>
+        </table>
+
+<pre><code class="language-bash"># View Chrome processes:
+ps aux | grep chrome
+# Or in Chrome: chrome://system → mem_usage
+
+# Process hierarchy:
+chrome --type=                    # Browser process (no --type flag)
+chrome --type=renderer            # Renderer (one per site)
+chrome --type=gpu-process         # GPU process
+chrome --type=utility             # Utility processes
+
+# View sandbox status:
+chrome://sandbox</code></pre>
+
+        <!-- ==================== CHROME SANDBOX ==================== -->
+        <h2>Chrome Sandbox (Linux)</h2>
+        <p>The renderer process is heavily sandboxed. After exploiting V8, you're trapped inside this sandbox.</p>
+
+        <h3>seccomp-bpf</h3>
+        <p>Syscall filter — only a whitelist of syscalls are allowed. All others are killed with SIGSYS.</p>
+
+<pre><code class="language-bash">Renderer Sandbox Restrictions (seccomp-bpf on Linux):
+┌────────────────────────────────────────────────┐
+│ ALLOWED syscalls (~40 out of 300+):            │
+│  read, write, close, mmap, mprotect,           │
+│  futex, clock_gettime, gettid,                  │
+│  recvmsg (for Mojo IPC), sendmsg,              │
+│  clone (threads only, not fork),                │
+│  exit_group, munmap, brk, ...                   │
+│                                                 │
+│ BLOCKED (examples):                             │
+│  open, openat     → no file access              │
+│  connect, bind    → no network                  │
+│  execve           → no process creation          │
+│  fork             → no child processes           │
+│  ptrace           → no debugging                 │
+│  socket           → no new sockets               │
+│  ioctl            → no device control            │
+│  chmod, chown     → no permission changes        │
+└────────────────────────────────────────────────┘</code></pre>
+
+        <h3>Linux Namespaces</h3>
+        <table>
+          <tr><th>Namespace</th><th>Isolation</th></tr>
+          <tr><td>PID namespace</td><td>Renderer can't see other processes</td></tr>
+          <tr><td>Network namespace</td><td>No network interfaces</td></tr>
+          <tr><td>User namespace</td><td>Maps to unprivileged user outside</td></tr>
+          <tr><td>Mount namespace</td><td>Minimal filesystem view</td></tr>
+        </table>
+
+<pre><code class="language-bash"># Dump Chrome's seccomp-bpf policy:
+# Requires debug build or source inspection
+# See: sandbox/linux/seccomp-bpf-helpers/syscall_sets.cc
+
+# Check if process is sandboxed:
+cat /proc/&lt;pid&gt;/status | grep Seccomp
+# Seccomp: 2 = FILTER mode (BPF active)
+
+# View namespace isolation:
+ls -la /proc/&lt;pid&gt;/ns/</code></pre>
+
+        <h3>Windows Sandbox</h3>
+<pre><code class="language-bash">Windows Renderer Sandbox:
+┌──────────────────────────────────────────────┐
+│ Restricted Token:                             │
+│  - All SIDs set to deny-only                  │
+│  - Integrity level: Untrusted                 │
+│  - No access to user profile                  │
+│                                               │
+│ Job Object:                                   │
+│  - Cannot create child processes              │
+│  - Cannot access clipboard                    │
+│  - Limited memory                             │
+│                                               │
+│ Desktop:                                      │
+│  - Alternate desktop (no window messages)     │
+│                                               │
+│ Filesystem:                                   │
+│  - No access to most paths                    │
+│  - Read-only access to system DLLs            │
+│                                               │
+│ LPAC (Less Privileged App Container):         │
+│  - Windows 10+ additional isolation           │
+└──────────────────────────────────────────────┘</code></pre>
+
+        <!-- ==================== RENDERER COMPROMISE ==================== -->
+        <h2>After Renderer Compromise</h2>
+        <p>After a successful V8 exploit, you have arbitrary code execution inside the sandboxed renderer process. Here's what you can and can't do:</p>
+
+        <table>
+          <tr><th>Can Do</th><th>Can't Do</th></tr>
+          <tr><td>Read/write renderer process memory</td><td>Read files from disk</td></tr>
+          <tr><td>Execute code in renderer</td><td>Open network connections</td></tr>
+          <tr><td>Send Mojo IPC messages to browser process</td><td>Access other tabs/processes</td></tr>
+          <tr><td>Access renderer's DOM data</td><td>Execute system commands</td></tr>
+          <tr><td>Steal cookies/passwords from current site (in-process)</td><td>Persist after browser restart</td></tr>
+          <tr><td>Make allowed syscalls</td><td>Make blocked syscalls (open, connect, etc.)</td></tr>
+        </table>
+
+        <!-- ==================== MOJO IPC ==================== -->
+        <h2>Mojo IPC — The Attack Surface</h2>
+        <p>Mojo is Chrome's IPC system. Renderers communicate with the browser process through Mojo interfaces. Each interface is a potential attack surface for sandbox escape.</p>
+
+<pre><code class="language-bash">Mojo IPC Architecture:
+┌──────────────┐     Mojo Messages      ┌──────────────┐
+│   RENDERER   │ ◄══════════════════════►│   BROWSER    │
+│   (sandbox)  │                         │  (privileged)│
+│              │  Interface bindings:    │              │
+│  Remote&lt;Foo&gt; ├─── FooImpl ────────────►│ FooImpl      │
+│              │                         │  (validates  │
+│              │  Callback:              │   all input) │
+│  Receiver    │◄── Response ────────────┤              │
+└──────────────┘                         └──────────────┘
+
+Key Mojo concepts:
+- Interface: defined in .mojom files (IDL)
+- Remote&lt;T&gt;: client-side proxy (in renderer)
+- Receiver&lt;T&gt;: server-side implementation (in browser)
+- Message pipe: bidirectional IPC channel
+- Associated interfaces: share message ordering</code></pre>
+
+        <h3>Finding Mojo Attack Surface</h3>
+<pre><code class="language-bash"># Find all Mojo interface definitions:
+find chromium/src -name "*.mojom" | head -20
+
+# Renderer-to-browser interfaces are the attack surface:
+# Look for interfaces bound from renderer → browser process
+
+# Key directories:
+# content/common/    → core browser interfaces
+# third_party/blink/public/mojom/ → Blink-specific interfaces
+# services/          → service interfaces
+
+# Example dangerous interfaces:
+# content::mojom::FrameHost     → frame management
+# blink::mojom::BlobRegistry    → blob handling  
+# network::mojom::URLLoader     → network requests (via browser)
+# content::mojom::FileSystemManager → file access (validated)</code></pre>
+
+<pre><code class="language-c">// Example Mojo interface definition (.mojom):
+module content.mojom;
+
+interface FrameHost {
+  // Each method is a potential attack vector
+  CreateNewWindow(CreateNewWindowParams params) 
+      => (CreateNewWindowReply reply);
+  
+  DidCommitNavigation(DidCommitNavigationParams params);
+  
+  // Vulnerability: if browser doesn't validate params properly,
+  // a compromised renderer can forge messages to escalate
+};</code></pre>
+
+        <!-- ==================== PRIVILEGE ESCALATION ==================== -->
+        <h2>Renderer → Browser Process Escalation</h2>
+        <p>The core sandbox escape: send crafted Mojo IPC messages from the compromised renderer to exploit bugs in the browser process's message handling.</p>
+
+        <h3>Attack Patterns</h3>
+        <table>
+          <tr><th>Pattern</th><th>Description</th><th>Example</th></tr>
+          <tr><td>Message confusion</td><td>Send unexpected message types/sequences</td><td>Call interface methods in wrong order</td></tr>
+          <tr><td>Parameter forgery</td><td>Send invalid/malicious parameters</td><td>Forged site origin, invalid URLs</td></tr>
+          <tr><td>Race conditions</td><td>Exploit TOCTOU in message handling</td><td>Object freed between check and use</td></tr>
+          <tr><td>Object lifetime</td><td>Use-after-free via IPC ordering</td><td>Message arrives after receiver destroyed</td></tr>
+          <tr><td>Type confusion</td><td>Mojo deserialization bugs</td><td>Wrong variant in union type</td></tr>
+          <tr><td>Logic bugs</td><td>Bypass access checks in browser</td><td>Forge origin to bypass same-origin</td></tr>
+        </table>
+
+<pre><code class="language-c">// Example: Exploiting a browser-side Mojo handler
+// Browser process code (simplified):
+void FrameHostImpl::DidCommitNavigation(NavigationParams params) {
+  // BUG: Trusts renderer-supplied origin without validation
+  auto origin = params.origin;  // ← Compromised renderer forges this!
+  
+  // Browser uses origin for security decisions
+  if (origin == "https://bank.com") {
+    GrantCookieAccess(origin);  // ← Attacker gets bank's cookies!
+  }
+  
+  // FIX: Browser must independently compute the origin
+  // from its own navigation state, never trust the renderer
+}</code></pre>
+
+        <!-- ==================== BROWSER PROCESS SERVICES ==================== -->
+        <h2>Exploiting Browser Process Services</h2>
+        <p>The browser process hosts many services accessible via Mojo. Each service is a potential target.</p>
+
+        <table>
+          <tr><th>Service</th><th>Attack Potential</th><th>Impact</th></tr>
+          <tr><td>FileSystemManager</td><td>File path traversal, symlink attacks</td><td>Arbitrary file read/write</td></tr>
+          <tr><td>BlobRegistry</td><td>Memory corruption in blob handling</td><td>Browser process code execution</td></tr>
+          <tr><td>DownloadManager</td><td>Path injection in download paths</td><td>Write files to arbitrary locations</td></tr>
+          <tr><td>StoragePartition</td><td>Cross-origin data access</td><td>Steal data from other sites</td></tr>
+          <tr><td>ExtensionHost</td><td>Forge extension messages</td><td>Execute extension APIs</td></tr>
+          <tr><td>DevToolsAgent</td><td>Debug protocol exploitation</td><td>Full browser control</td></tr>
+        </table>
+
+        <!-- ==================== GPU PROCESS ==================== -->
+        <h2>GPU Process as Target</h2>
+        <p>The GPU process has a weaker sandbox than the renderer and handles complex graphics operations — a rich attack surface.</p>
+
+<pre><code class="language-bash">GPU Process Attack Surface:
+┌──────────────────────────────────────┐
+│ GPU Process                          │
+│                                      │
+│ Weaker sandbox:                      │
+│  - Access to GPU device              │
+│  - GL/Vulkan/D3D driver loaded       │
+│  - More syscalls allowed             │
+│                                      │
+│ Attack vectors:                      │
+│  - Command buffer parsing bugs       │
+│  - Shader compilation exploits       │
+│  - GPU memory corruption             │
+│  - Driver vulnerabilities            │
+│  - Video decode buffer overflows     │
+│                                      │
+│ Renderer → GPU IPC:                  │
+│  - viz::mojom::Compositor            │
+│  - gpu::mojom::GpuChannel            │
+│  - media::mojom::VideoDecoder        │
+└──────────────────────────────────────┘</code></pre>
+
+        <p>GPU process exploits are attractive because:</p>
+        <ul>
+          <li>GPU drivers are kernel code — GPU exploit can lead to kernel compromise</li>
+          <li>Weaker sandbox means more primitives available</li>
+          <li>Complex parsing of shader code, textures, video frames</li>
+          <li>Third-party driver code (NVIDIA, AMD, Intel) with varying quality</li>
+        </ul>
+
+        <!-- ==================== SITE ISOLATION ==================== -->
+        <h2>Site Isolation &amp; OOPIF</h2>
+        <p>Site Isolation puts each site in its own renderer process. Cross-origin iframes are in separate processes (Out-of-Process iframes, OOPIF).</p>
+
+<pre><code class="language-bash">Site Isolation:
+┌─────────────────────────────────────────────┐
+│ Tab: https://attacker.com                   │
+│                                              │
+│ ┌─────────────────────────────────────────┐ │
+│ │ Renderer Process A (attacker.com)       │ │
+│ │  - Main frame: attacker.com             │ │
+│ │  - Same-site iframe: sub.attacker.com   │ │
+│ └─────────────────────────────────────────┘ │
+│                                              │
+│ ┌─────────────────────────────────────────┐ │
+│ │ Renderer Process B (bank.com) — OOPIF   │ │
+│ │  - Cross-origin iframe: bank.com        │ │
+│ │  - Completely separate process          │ │
+│ │  - Exploiting Process A can't read      │ │
+│ │    Process B's memory                   │ │
+│ └─────────────────────────────────────────┘ │
+└─────────────────────────────────────────────┘</code></pre>
+
+        <table>
+          <tr><th>Feature</th><th>Without Site Isolation</th><th>With Site Isolation</th></tr>
+          <tr><td>Cross-origin iframe</td><td>Same process as parent</td><td>Separate process (OOPIF)</td></tr>
+          <tr><td>V8 exploit impact</td><td>Access all sites in process</td><td>Only current site's data</td></tr>
+          <tr><td>Spectre attacks</td><td>Can read cross-origin data</td><td>Cross-origin data in different process</td></tr>
+          <tr><td>Performance</td><td>Lower memory usage</td><td>Higher memory (more processes)</td></tr>
+        </table>
+
+        <!-- ==================== V8 SANDBOX (MEMORY CAGE) ==================== -->
+        <h2>Chrome V8 Sandbox (Memory Cage)</h2>
+        <p>Even within the renderer, V8 has its own sandbox. Arbitrary R/W inside the V8 heap doesn't directly give you arbitrary R/W over the entire process.</p>
+
+<pre><code class="language-bash">V8 Sandbox Boundaries:
+┌──────────────────────────────────────────────────┐
+│ Renderer Process Address Space                    │
+│                                                   │
+│ ┌──────────────────────────────────┐              │
+│ │ V8 SANDBOX (4GB cage)            │              │
+│ │                                  │              │
+│ │ ┌────────────┐ ┌──────────────┐ │              │
+│ │ │ V8 Heap    │ │ Pointer      │ │              │
+│ │ │ Objects    │ │ Tables:      │ │              │
+│ │ │ Arrays     │ │ - External   │ │              │
+│ │ │ Strings    │ │ - Code       │ │              │
+│ │ │ JIT code   │ │ - Trusted    │ │              │
+│ │ └────────────┘ └──────────────┘ │              │
+│ │                                  │              │
+│ │ Compressed pointers: 32-bit     │              │
+│ │ Can only address within cage    │              │
+│ └──────────────────────────────────┘              │
+│                                                   │
+│ ┌──────────────────────────────────┐              │
+│ │ OUTSIDE CAGE                      │              │
+│ │ ArrayBuffer backing stores        │              │
+│ │ WASM linear memory                │              │
+│ │ Blink DOM objects                 │              │
+│ │ Mojo IPC buffers                  │              │
+│ └──────────────────────────────────┘              │
+└──────────────────────────────────────────────────┘</code></pre>
+
+        <h3>Pointer Tables</h3>
+        <table>
+          <tr><th>Table</th><th>Purpose</th><th>Escape Relevance</th></tr>
+          <tr><td>External Pointer Table</td><td>Indices → external (outside-cage) pointers</td><td>Corrupt entry → redirect external access</td></tr>
+          <tr><td>Code Pointer Table</td><td>Indices → JIT code addresses</td><td>Corrupt entry → redirect code execution</td></tr>
+          <tr><td>Trusted Pointer Table</td><td>Indices → trusted internal pointers</td><td>Corrupt entry → access trusted data</td></tr>
+        </table>
+
+<pre><code class="language-c">// External Pointer Table entry structure:
+struct ExternalPointerTableEntry {
+  // Stores: pointer | tag
+  // Tag identifies the pointer type (prevents type confusion)
+  uint64_t encoded_pointer;
+};
+
+// Attack: If you can corrupt a table entry:
+// 1. Change the pointer → redirect to attacker-controlled memory
+// 2. Change the tag → type-confuse the pointer usage
+// 3. Swap entries → redirect one object's external pointer to another's</code></pre>
+
+        <!-- ==================== SANDBOX BYPASS ==================== -->
+        <h2>Sandbox Bypass Techniques</h2>
+
+        <h3>From V8 Sandbox to Process-Wide R/W</h3>
+<pre><code class="language-bash">Escape Vectors (V8 sandbox → full process):
+
+1. WASM Instance Data Corruption
+   - WasmTrustedInstanceData has raw pointers
+   - Corrupt via trusted pointer table
+   - Redirect jump_table_start → shellcode
+   - Most reliable current vector
+
+2. External Pointer Table Corruption
+   - Overwrite table entries within the cage
+   - Redirect ArrayBuffer backing_store
+   - Gives R/W outside cage
+
+3. Code Pointer Table Corruption
+   - Redirect JIT code pointers
+   - Execute arbitrary code at chosen address
+   - Mitigated by W^X on code pages
+
+4. JIT Code Corruption (pre-sandbox)
+   - Older technique: overwrite JIT code in-place
+   - Now mitigated by Code Pointer Table + W^X</code></pre>
+
+        <h3>From Process-Wide R/W to OS Sandbox Escape</h3>
+<pre><code class="language-bash">Renderer Sandbox Escape Strategies:
+
+1. Mojo IPC Exploitation (most common)
+   - Craft malicious Mojo messages
+   - Exploit browser process message handlers
+   - Need a bug in browser-side code
+
+2. Shared Memory Corruption
+   - Corrupt shared memory regions between processes
+   - Target browser process via shared buffers
+
+3. Kernel Exploitation
+   - Use allowed syscalls to trigger kernel bugs
+   - Bypass seccomp-bpf via kernel vulnerability
+   - e.g., namespace escape, userfaultfd abuse
+
+4. GPU Driver Exploitation
+   - Send malicious GPU commands via command buffer
+   - Exploit driver code running in GPU process
+   - Driver runs in kernel → direct kernel access</code></pre>
+
+        <!-- ==================== KERNEL EXPLOITATION ==================== -->
+        <h2>Kernel Exploitation from Browser</h2>
+        <p>The ultimate escape: from the renderer sandbox directly to kernel code execution, bypassing both the V8 sandbox and the OS sandbox.</p>
+
+<pre><code class="language-bash">Full Chain: Renderer → Kernel
+┌─────────────┐    ┌──────────────┐    ┌──────────┐
+│ V8 Exploit  │───►│ Sandbox      │───►│ Kernel   │
+│ (JIT bug)   │    │ Escape       │    │ Exploit  │
+│ - OOB       │    │ - Mojo bug   │    │ - LPE    │
+│ - Type conf │    │ - IPC forge  │    │ - Driver │
+│ - Arb R/W   │    │ - GPU driver │    │ - Syscall│
+└─────────────┘    └──────────────┘    └──────────┘
+
+Kernel vectors from sandboxed renderer:
+- Allowed syscalls with kernel bugs (e.g., futex, mmap bugs)
+- GPU driver ioctl (if allowed through sandbox)
+- /proc/self/ information leaks
+- Filesystem race conditions (if any FS access)</code></pre>
+
+        <!-- ==================== FULL CHAIN ==================== -->
+        <h2>Full Chain Anatomy</h2>
+        <p>A complete browser exploit chain has three stages:</p>
+
+        <table>
+          <tr><th>Stage</th><th>Goal</th><th>Techniques</th><th>Typical Bug Class</th></tr>
+          <tr><td>1. Renderer Exploit</td><td>Code execution in renderer</td><td>V8 JIT bug → OOB → arb R/W → shellcode</td><td>Type confusion, integer overflow</td></tr>
+          <tr><td>2. Sandbox Escape</td><td>Escape renderer sandbox</td><td>Mojo IPC bug, GPU driver bug</td><td>UAF, logic bug, race condition</td></tr>
+          <tr><td>3. Privilege Escalation</td><td>Root/SYSTEM access</td><td>Kernel exploit, driver exploit</td><td>UAF, race, logic bug</td></tr>
+        </table>
+
+<pre><code class="language-bash">Pwn2Own Full Chain Example (conceptual):
+1. Visit attacker's webpage
+2. JavaScript triggers V8 JIT bug → renderer code execution
+3. Exploit code sends crafted Mojo messages → browser process RCE
+4. Browser process exploits kernel driver → root shell
+5. Total time budget: 30 seconds
+6. Must be reliable (no crashes, no retries)</code></pre>
+
+        <!-- ==================== FIREFOX SANDBOX ==================== -->
+        <h2>Firefox Sandbox</h2>
+        <p>Firefox also uses multi-process architecture and sandboxing, but with different implementation details.</p>
+
+        <table>
+          <tr><th>Feature</th><th>Chrome</th><th>Firefox</th></tr>
+          <tr><td>Process model</td><td>Per-site renderers</td><td>Content processes (fewer, shared)</td></tr>
+          <tr><td>IPC system</td><td>Mojo</td><td>IPDL (IPC Protocol Definition Language)</td></tr>
+          <tr><td>Linux sandbox</td><td>seccomp-bpf + namespaces</td><td>seccomp-bpf + content sandbox</td></tr>
+          <tr><td>Windows sandbox</td><td>Restricted token + job + LPAC</td><td>Restricted token + job</td></tr>
+          <tr><td>JS engine</td><td>V8</td><td>SpiderMonkey</td></tr>
+          <tr><td>Site isolation</td><td>Full (per-site)</td><td>Project Fission (in progress)</td></tr>
+          <tr><td>Memory cage</td><td>V8 sandbox (4GB)</td><td>No equivalent (yet)</td></tr>
+        </table>
+
+<pre><code class="language-bash"># Firefox sandbox levels (content.sandbox.level):
+# Level 0: No sandbox
+# Level 1: Restricted filesystem access
+# Level 2: + No direct network access
+# Level 3: + seccomp-bpf syscall filtering
+# Level 4: + Stricter file path restrictions (default)
+
+# Check Firefox sandbox level:
+about:config → security.sandbox.content.level</code></pre>
+
+        <!-- ==================== REAL-WORLD CASE STUDIES ==================== -->
+        <h2>Case Studies — Real-World Sandbox Escapes</h2>
+
+        <h3>Pwn2Own Patterns</h3>
+        <table>
+          <tr><th>Year</th><th>Target</th><th>Stage 1</th><th>Stage 2</th><th>Stage 3</th></tr>
+          <tr><td>2019</td><td>Chrome</td><td>V8 JIT type confusion</td><td>Mojo FileSystem UAF</td><td>Win32k kernel</td></tr>
+          <tr><td>2020</td><td>Chrome</td><td>V8 incorrect bounds</td><td>Mojo interface logic bug</td><td>NVIDIA driver</td></tr>
+          <tr><td>2021</td><td>Chrome</td><td>V8 Typer bug</td><td>Heap buffer overflow in Mojo</td><td>Windows kernel</td></tr>
+          <tr><td>2022</td><td>Firefox</td><td>SpiderMonkey prototype pollution</td><td>IPDL deserialization</td><td>Linux kernel</td></tr>
+          <tr><td>2023</td><td>Chrome</td><td>V8 RegExp type confusion</td><td>Mojo validation bypass</td><td>AMD GPU driver</td></tr>
+        </table>
+
+<pre><code class="language-bash"># Research resources:
+# - Pwn2Own writeups: zerodayinitiative.com/blog
+# - Chrome security blog: security.googleblog.com
+# - Project Zero blog: googleprojectzero.blogspot.com
+# - Chrome vulnerability reports: bugs.chromium.org (after disclosure)
+
+# Notable sandbox escape CVEs:
+# CVE-2019-5786 — FileReader UAF (Chrome sandbox escape, in-the-wild)
+# CVE-2020-6418 — V8 type confusion (used with sandbox escape)
+# CVE-2021-21224 — V8 integer overflow (Pwn2Own 2021)
+# CVE-2022-2294 — WebRTC heap overflow (in-the-wild)</code></pre>
+
+        <!-- ==================== EXPLOIT DELIVERY ==================== -->
+        <h2>Exploit Delivery &amp; Reliability</h2>
+
+        <table>
+          <tr><th>Factor</th><th>Challenge</th><th>Solution</th></tr>
+          <tr><td>ASLR</td><td>Heap/code addresses randomized</td><td>Info leak (V8 heap spray, timing)</td></tr>
+          <tr><td>Crash recovery</td><td>Renderer crash restarts process</td><td>Exploit must be first-shot reliable</td></tr>
+          <tr><td>Version targeting</td><td>Offsets change between versions</td><td>Fingerprint Chrome version, use offset tables</td></tr>
+          <tr><td>GC stability</td><td>V8 GC moves objects</td><td>Pin to old space, minimize allocations</td></tr>
+          <tr><td>Detection</td><td>Security tools monitor behavior</td><td>Minimize suspicious syscalls</td></tr>
+          <tr><td>Timing</td><td>Exploit must complete quickly</td><td>Optimize hot path, pre-compute values</td></tr>
+        </table>
+
+      </div>
+
+      <!-- ================================================================ -->
+      <!-- LAB TAB                                                          -->
+      <!-- ================================================================ -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <!-- LAB 1 -->
+        <div class="lab-card">
+          <h4>Lab 1: Understand Chrome Process Model</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Map Chrome's process architecture by examining running processes, their types, and their sandbox restrictions.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# lab1_process_model.sh
+
+# 1. Launch Chrome and open several tabs with different sites
+google-chrome \
+  --no-first-run \
+  https://example.com \
+  https://google.com \
+  https://github.com &amp;
+
+sleep 3
+
+# 2. List all Chrome processes with their types
+ps aux | grep chrome | grep -v grep
+
+# 3. Identify process types from command line arguments
+for pid in $(pgrep -f "chrome"); do
+  type=$(cat /proc/$pid/cmdline 2>/dev/null | tr '\0' ' ' | grep -oP '(?<=--type=)\w+' || echo "browser")
+  echo "PID: $pid  Type: ${type:-browser}"
+done
+
+# 4. Check sandbox status for each renderer
+for pid in $(pgrep -f "chrome.*--type=renderer"); do
+  seccomp=$(cat /proc/$pid/status | grep Seccomp | awk '{print $2}')
+  echo "Renderer PID: $pid  Seccomp: $seccomp (2=FILTER)"
+done
+
+# 5. Check memory isolation
+# Each renderer should have separate address space
+cat /proc/&lt;renderer_pid&gt;/maps | head -20</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Count how many renderer processes Chrome creates for 3 different-site tabs</li>
+              <li>Identify the browser process (no <code>--type</code> flag)</li>
+              <li>Verify each renderer has seccomp enabled (Seccomp: 2)</li>
+              <li>Visit <code>chrome://sandbox</code> and document the sandbox policies</li>
+              <li>Open <code>chrome://process-internals</code> to see site-to-process mapping</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 2 -->
+        <div class="lab-card">
+          <h4>Lab 2: Enumerate Mojo Interfaces</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Explore the Mojo interface definitions in Chrome's source code to identify renderer-to-browser communication surfaces.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# lab2_mojo_enum.sh
+
+# 1. Get Chromium source (or browse online)
+# git clone https://chromium.googlesource.com/chromium/src.git
+# Or browse: https://source.chromium.org/chromium
+
+# 2. Find all Mojo interface definitions
+find chromium/src -name "*.mojom" -type f | wc -l
+# Typically 1000+ .mojom files
+
+# 3. Find renderer-to-browser interfaces specifically
+grep -rl "interface" chromium/src/content/common/*.mojom | head -10
+
+# 4. Analyze a specific interface
+cat chromium/src/content/common/frame.mojom
+
+# 5. Find interfaces that handle file operations
+grep -rl "File\|Path\|Download" chromium/src --include="*.mojom" | head -10
+
+# 6. Find interfaces accessible from renderer
+grep -rn "BindReceiver\|Bind(" chromium/src/content/browser/ \
+  --include="*.cc" | grep -i "render" | head -20</code></pre>
+
+<pre><code class="language-c">// Example: Analyzing a Mojo interface for attack surface
+// File: content/common/frame.mojom
+
+interface FrameHost {
+  // Method 1: Navigation — complex params, high attack value
+  BeginNavigation(
+    CommonNavigationParams common_params,
+    BeginNavigationParams begin_params
+  );
+  
+  // Method 2: Messaging — data passes through browser
+  PostMessageEvent(
+    blink.mojom.TransferableMessage message
+  );
+  
+  // Each method's parameter types need analysis:
+  // - Structs with pointers → potential memory corruption
+  // - Strings/URLs → path traversal, injection
+  // - Enums → out-of-range values
+  // - Optional fields → null pointer dereference
+};</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Count total Mojo interface definitions in Chromium source</li>
+              <li>List 10 interfaces accessible from renderer to browser process</li>
+              <li>Identify which interfaces handle security-sensitive operations</li>
+              <li>Find interfaces that accept file paths or URLs as parameters</li>
+              <li>Document the parameter types for <code>FrameHost</code> interface methods</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 3 -->
+        <div class="lab-card">
+          <h4>Lab 3: Analyze IPC Attack Surface</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use Chrome's DevTools protocol and tracing to observe IPC messages between renderer and browser processes.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# lab3_ipc_analysis.sh
+
+# 1. Launch Chrome with IPC logging enabled
+google-chrome \
+  --enable-logging \
+  --v=1 \
+  --ipc-dump-directory=/tmp/chrome_ipc \
+  --remote-debugging-port=9222 \
+  https://example.com
+
+# 2. Capture IPC trace
+# In Chrome: chrome://tracing
+# Record categories: "mojo", "ipc", "toplevel"
+# Perform actions (navigate, click, etc.)
+# Stop recording → Save trace
+
+# 3. Analyze the trace
+# Load in chrome://tracing or use trace_processor
+# Look for: mojo::Message, IPC::Channel
+
+# 4. Alternative: use Chrome DevTools Protocol
+python3 -c "
+import websocket, json
+ws = websocket.create_connection('ws://localhost:9222/json')
+# List available targets
+print(json.loads(ws.recv()))
+"</code></pre>
+
+<pre><code class="language-python"># lab3_ipc_monitor.py — Monitor Mojo IPC via CDP
+import json
+import websocket
+
+# Connect to Chrome DevTools Protocol
+def monitor_ipc():
+    # Get debugging URL
+    import urllib.request
+    targets = json.loads(
+        urllib.request.urlopen("http://localhost:9222/json").read()
+    )
+    ws_url = targets[0]["webSocketDebuggerUrl"]
+    
+    ws = websocket.create_connection(ws_url)
+    
+    # Enable relevant domains
+    ws.send(json.dumps({"id": 1, "method": "Runtime.enable"}))
+    ws.send(json.dumps({"id": 2, "method": "Log.enable"}))
+    
+    # Listen for events
+    while True:
+        msg = json.loads(ws.recv())
+        if "method" in msg:
+            print(f"Event: {msg['method']}")
+
+monitor_ipc()</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Launch Chrome with IPC logging and capture a trace</li>
+              <li>Identify the most frequent IPC message types</li>
+              <li>Find navigation-related Mojo messages in the trace</li>
+              <li>Observe what messages are sent when you submit a form</li>
+              <li>Document the message flow for a cross-origin navigation</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 4 -->
+        <div class="lab-card">
+          <h4>Lab 4: Sandbox Restriction Analysis (seccomp-bpf)</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Extract and analyze Chrome's seccomp-bpf policy for renderer processes to understand exactly which syscalls are allowed.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# lab4_seccomp.sh
+
+# 1. Find Chrome's seccomp policy in source
+# Key files:
+# sandbox/linux/seccomp-bpf-helpers/syscall_parameters_restrictions.cc
+# sandbox/linux/seccomp-bpf-helpers/syscall_sets.cc
+# sandbox/linux/seccomp-bpf-helpers/baseline_policy.cc
+
+# 2. Extract the BPF filter from a running renderer
+# Method A: /proc/PID/seccomp filter (requires CAP_SYS_ADMIN)
+RENDERER_PID=$(pgrep -f "chrome.*--type=renderer" | head -1)
+cat /proc/$RENDERER_PID/status | grep -i seccomp
+
+# Method B: Use seccomp-tools to dump the filter
+# Install: gem install seccomp-tools
+# Attach to renderer:
+# seccomp-tools dump -p $RENDERER_PID
+
+# 3. Test which syscalls are blocked
+# From within the sandbox (requires compromised renderer or test harness):
+# strace -f -e trace=open,connect,execve chrome --type=renderer ...</code></pre>
+
+<pre><code class="language-c">// Simplified Chrome seccomp-bpf policy (renderer):
+// Source: sandbox/linux/seccomp-bpf-helpers/baseline_policy.cc
+
+bool AllowedSyscall(int sysno) {
+  switch (sysno) {
+    // Memory management — ALLOWED
+    case __NR_brk:
+    case __NR_mmap:
+    case __NR_munmap:
+    case __NR_mprotect:
+    case __NR_madvise:
+      return true;
+    
+    // IPC — ALLOWED (needed for Mojo)
+    case __NR_recvmsg:
+    case __NR_sendmsg:
+    case __NR_socketpair:  // Only AF_UNIX
+      return true;
+    
+    // Threading — ALLOWED
+    case __NR_clone:       // Only with CLONE_THREAD flag
+    case __NR_futex:
+      return true;
+    
+    // File operations — BLOCKED
+    case __NR_open:
+    case __NR_openat:
+    case __NR_creat:
+      return false;
+    
+    // Network — BLOCKED
+    case __NR_connect:
+    case __NR_bind:
+    case __NR_listen:
+      return false;
+    
+    // Process — BLOCKED
+    case __NR_execve:
+    case __NR_fork:
+      return false;
+    
+    default:
+      return false;  // Deny by default
+  }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Find the seccomp-bpf policy files in Chromium source</li>
+              <li>List all allowed syscalls for the renderer process</li>
+              <li>Identify which allowed syscalls could be useful for kernel exploitation</li>
+              <li>Compare the renderer policy with the GPU process policy</li>
+              <li>Check if <code>prctl</code> is allowed (used for some sandbox escapes)</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 5 -->
+        <div class="lab-card">
+          <h4>Lab 5: Identify Browser Process Services</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Map the browser process services that are accessible from a compromised renderer via Mojo IPC.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# lab5_browser_services.sh
+
+# 1. Find service bindings in browser process code
+grep -rn "BindReceiver\|BindNewPipeAndPassReceiver\|AddReceiver" \
+  chromium/src/content/browser/ \
+  --include="*.cc" \
+  | grep -i "render\|frame" \
+  | head -30
+
+# 2. Categorize services by security impact
+# High impact: file access, downloads, storage, extensions
+# Medium impact: media, clipboard, notifications
+# Low impact: metrics, logging
+
+# 3. Find validation code for each service
+# Look for CHECK(), DCHECK(), ValidateOrigin() calls
+grep -rn "bad_message\|ReportBadMessage\|mojo::ReportBadMessage" \
+  chromium/src/content/browser/ \
+  --include="*.cc" \
+  | head -20</code></pre>
+
+<pre><code class="language-c">// Example: Tracing a service from renderer to browser
+// Step 1: Renderer calls the Mojo interface
+// In renderer process (Blink):
+content::mojom::FileSystemManagerPtr fs_manager;
+render_frame->GetBrowserInterfaceBroker()
+    ->GetInterface(fs_manager.BindNewPipeAndPassReceiver());
+
+// Step 2: Message goes through Mojo pipe to browser process
+// Step 3: Browser process handles the message
+// In browser process:
+void FileSystemManagerImpl::Open(
+    const url::Origin& origin,
+    const base::FilePath& path,
+    OpenCallback callback) {
+  // CRITICAL: Must validate origin and path
+  if (!ValidateOrigin(origin)) {
+    mojo::ReportBadMessage("Invalid origin");
+    return;
+  }
+  // Process the request...
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>List 20 browser-side services accessible from renderer</li>
+              <li>Categorize each by security impact (high/medium/low)</li>
+              <li>Find which services call <code>ReportBadMessage</code> (have validation)</li>
+              <li>Identify services that handle file paths or URLs</li>
+              <li>Find a service that has had past CVEs assigned to it</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 6 -->
+        <div class="lab-card">
+          <h4>Lab 6: Analyze OOPIF Boundaries</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Verify site isolation by testing cross-origin iframe process boundaries and observing OOPIF behavior.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab6_oopif.html — Test page with cross-origin iframes
+
+// Main page: attacker.com
+// Create cross-origin iframes and test isolation
+
+// 1. Create test page
+const html = `
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;Site Isolation Test&lt;/h1&gt;
+  &lt;!-- Same-site iframe: same process --&gt;
+  &lt;iframe src="https://sub.attacker.com/page" id="same-site"&gt;&lt;/iframe&gt;
+  
+  &lt;!-- Cross-site iframe: DIFFERENT process (OOPIF) --&gt;
+  &lt;iframe src="https://bank.com/login" id="cross-site"&gt;&lt;/iframe&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+`;
+
+// 2. From compromised renderer (attacker.com process):
+// Can we access the cross-origin iframe's memory?
+try {
+  let frame = document.getElementById('cross-site');
+  // This throws SecurityError (same-origin policy)
+  let doc = frame.contentDocument;
+} catch(e) {
+  console.log("Blocked by SOP:", e.message);
+}
+
+// 3. Even with renderer exploit + arbitrary R/W:
+// Cross-origin iframe is in a DIFFERENT PROCESS
+// You can't read its memory because it's not in your address space!</code></pre>
+
+<pre><code class="language-bash"># Verify OOPIF process separation:
+# 1. Open chrome://process-internals
+# 2. Look for "Subframe" entries with different Site Instance
+
+# Using chrome://tracing to observe OOPIF:
+# Record: "navigation", "site_isolation"
+# Navigate a page with cross-origin iframes
+# See SiteInstance assignments in the trace</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Create a test page with same-site and cross-site iframes</li>
+              <li>Verify they are in different processes using <code>chrome://process-internals</code></li>
+              <li>Attempt to access cross-origin iframe DOM from JavaScript</li>
+              <li>Use <code>chrome://tracing</code> to see SiteInstance assignments</li>
+              <li>Test with <code>--disable-site-isolation-trials</code> to see the difference</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 7 -->
+        <div class="lab-card">
+          <h4>Lab 7: V8 Sandbox Analysis</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Examine the V8 sandbox (memory cage) implementation and understand its pointer table architecture.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# lab7_v8_sandbox.sh
+
+# V8 sandbox source code locations:
+# src/sandbox/external-pointer-table.h
+# src/sandbox/external-pointer-table-inl.h
+# src/sandbox/code-pointer-table.h
+# src/sandbox/trusted-pointer-table.h
+# src/sandbox/sandbox.h
+
+# 1. Check if V8 sandbox is enabled
+./d8 --print-flag-values 2>&1 | grep sandbox
+# Look for: --sandbox (true/false)
+
+# 2. Observe the cage reservation
+./d8 --allow-natives-syntax -e "
+  %DebugPrint({});
+  // Look at the address — should be within a 4GB-aligned range
+"
+
+# 3. Check cage base register
+# In GDB with d8:
+gdb -ex 'handle SIGSEGV nostop' --args ./d8 --allow-natives-syntax test.js
+# (gdb) info registers
+# Look for r13 or r14 holding the cage base (4GB aligned)</code></pre>
+
+<pre><code class="language-c">// V8 Sandbox internals (simplified from source):
+
+// External Pointer Table structure:
+class ExternalPointerTable {
+  struct Entry {
+    // Encoded as: pointer | tag
+    // Tag prevents type confusion between different external pointer types
+    std::atomic&lt;Address&gt; encoded;
+  };
+  
+  Entry* table_;       // Array of entries
+  uint32_t capacity_;  // Max entries
+  uint32_t length_;    // Current count
+  
+  // Lookup: given index, return decoded pointer
+  Address Get(ExternalPointerHandle handle, ExternalPointerTag tag) {
+    Entry& entry = table_[handle >> kExternalPointerIndexShift];
+    Address decoded = entry.encoded.load() & ~kExternalPointerTagMask;
+    // Verify tag matches — prevents type confusion
+    CHECK_EQ(entry.encoded.load() & kExternalPointerTagMask, tag);
+    return decoded;
+  }
+};
+
+// To escape: corrupt an entry to point to controlled memory
+// Challenge: need to match the expected tag</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Build d8 with V8 sandbox enabled and verify it's active</li>
+              <li>Find the cage base address using GDB</li>
+              <li>Dump the External Pointer Table and examine entries</li>
+              <li>Identify which objects use external pointers (ArrayBuffers, etc.)</li>
+              <li>Understand the tag field and why type confusion is prevented</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 8 -->
+        <div class="lab-card">
+          <h4>Lab 8: Trusted Pointer Table Study</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Examine the Trusted Pointer Table used for WASM instance data and understand how it provides isolation within the V8 cage.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab8_trusted_pointers.js — d8 --allow-natives-syntax
+
+// WASM instances use the trusted pointer table for sensitive data
+let wasm_bytes = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f,
+  0x03, 0x02, 0x01, 0x00,
+  0x07, 0x08, 0x01, 0x04, 0x6d, 0x61, 0x69, 0x6e, 0x00, 0x00,
+  0x0a, 0x06, 0x01, 0x04, 0x00, 0x41, 0x2a, 0x0b
+]);
+
+let mod = new WebAssembly.Module(wasm_bytes);
+let inst = new WebAssembly.Instance(mod);
+
+// Inspect the WASM instance structure
+%DebugPrint(inst);
+
+// Look for "trusted_data" field — this is an index into
+// the Trusted Pointer Table, NOT a raw pointer
+
+// The actual WasmTrustedInstanceData is stored in the
+// trusted pointer table and contains:
+// - jump_table_start (raw code pointer)
+// - imported_function_targets
+// - memory_bases</code></pre>
+
+<pre><code class="language-c">// Trusted Pointer Table concept:
+// Similar to External Pointer Table but for V8-internal pointers
+
+// WasmInstanceObject layout (with sandbox):
+// +0x00: Map (compressed)
+// +0x04: Properties (compressed)
+// +0x08: module_object (compressed)
+// +0x0C: trusted_data ← TRUSTED POINTER TABLE INDEX
+//        (not a direct pointer!)
+
+// To access trusted_data:
+// V8 looks up: TrustedPointerTable[index] → WasmTrustedInstanceData*
+// WasmTrustedInstanceData contains actual raw pointers to:
+//   - RWX code pages
+//   - Native function targets
+//   - Linear memory bases</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Create a WASM instance and find the trusted_data field</li>
+              <li>Verify it's an index (small number) not a pointer (large address)</li>
+              <li>Study the Trusted Pointer Table source code</li>
+              <li>Understand why corrupting the index could lead to sandbox escape</li>
+              <li>Identify what tag types are used for trusted pointers</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 9 -->
+        <div class="lab-card">
+          <h4>Lab 9: Audit a Mojo Interface</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Perform a security audit of a specific Mojo interface, identifying potential vulnerability patterns in the browser-side handler.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab9_mojo_audit.cc — Audit this simplified Mojo handler
+// Based on real patterns from Chromium browser process code
+
+class BlobRegistryImpl : public blink::mojom::BlobRegistry {
+ public:
+  void Register(
+      mojo::PendingReceiver&lt;blink::mojom::Blob&gt; blob,
+      const std::string& uuid,
+      const std::string& content_type,
+      const std::string& content_disposition,
+      std::vector&lt;blink::mojom::DataElementPtr&gt; elements,
+      RegisterCallback callback) override {
+    
+    // AUDIT POINT 1: Is uuid validated?
+    // Could a compromised renderer forge UUIDs to access other blobs?
+    
+    // AUDIT POINT 2: Are elements validated?
+    // DataElement can be: bytes, file, blob reference
+    // File elements contain paths — are they checked?
+    for (auto& element : elements) {
+      if (element->is_file()) {
+        auto& file_element = element->get_file();
+        // AUDIT: Is file_element.path sanitized?
+        // Could contain "../../../etc/passwd"
+        
+        // AUDIT: Is file_element.offset/length checked?
+        // Could integer overflow: offset + length > file_size
+      }
+    }
+    
+    // AUDIT POINT 3: Are callbacks handled safely?
+    // What if the Mojo pipe disconnects before callback?
+    // Use-after-free potential?
+    
+    std::move(callback).Run();
+  }
+};</code></pre>
+
+<pre><code class="language-bash"># Audit checklist for Mojo interfaces:
+# 1. Input validation
+#    - Are all parameters bounds-checked?
+#    - Are strings/paths sanitized?
+#    - Are enum values validated against known set?
+#
+# 2. Origin verification
+#    - Does the handler verify the renderer's origin?
+#    - Can the renderer forge origins in the message?
+#
+# 3. Object lifetime
+#    - Are raw pointers used? (potential UAF)
+#    - Is the receiver destroyed before callbacks fire?
+#
+# 4. Race conditions
+#    - Can concurrent messages cause TOCTOU?
+#    - Are state transitions atomic?
+#
+# 5. Memory safety
+#    - Are buffer sizes validated?
+#    - Can integer overflow occur in size calculations?</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Audit the BlobRegistry handler above for security issues</li>
+              <li>Identify at least 3 potential vulnerability classes</li>
+              <li>Write a conceptual "evil renderer" that sends malicious messages</li>
+              <li>Propose fixes for each vulnerability found</li>
+              <li>Research if BlobRegistry has had real CVEs (it has)</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 10 -->
+        <div class="lab-card">
+          <h4>Lab 10: Analyze a Pwn2Own Chain</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Study the public details of a Pwn2Own Chrome full-chain exploit, understanding each stage and how they connect.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# lab10_pwn2own.sh — Research a Pwn2Own Chrome chain
+
+# Example: Pwn2Own 2021 Chrome exploit (Bruno Keith & Nicklaus Seiferth)
+# Stage 1: V8 type confusion (CVE-2021-21224)
+# Stage 2: Chrome sandbox escape (undisclosed Mojo bug)
+# Stage 3: Windows kernel LPE
+
+# Research resources:
+# 1. ZDI blog post (post-disclosure):
+#    https://www.zerodayinitiative.com/blog/
+#    Search for Pwn2Own 2021 Chrome entries
+
+# 2. Chrome security advisories:
+#    https://chromereleases.googleblog.com/
+#    Find the patch release mentioning CVE-2021-21224
+
+# 3. V8 commit log:
+#    Search chromium.googlesource.com/v8/v8 for the CVE
+
+# Analysis template:
+echo "=== FULL CHAIN ANALYSIS ==="
+echo "Stage 1 (Renderer):"
+echo "  Bug class: ?"
+echo "  Component: ?"
+echo "  CVE: ?"
+echo "  Exploit technique: ?"
+echo ""
+echo "Stage 2 (Sandbox Escape):"
+echo "  Bug class: ?"
+echo "  Component: ?"
+echo "  IPC interface: ?"
+echo "  Impact: ?"
+echo ""
+echo "Stage 3 (Privilege Escalation):"
+echo "  Bug class: ?"
+echo "  Component: ?"
+echo "  Kernel version: ?"
+echo "  Impact: ?"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Find publicly available details of a Pwn2Own Chrome exploit chain</li>
+              <li>Identify the CVEs for each stage (renderer, sandbox, kernel)</li>
+              <li>Understand how Stage 1 output feeds into Stage 2 input</li>
+              <li>Analyze the time constraints (30 second window)</li>
+              <li>Document what mitigations each stage needed to bypass</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 11 -->
+        <div class="lab-card">
+          <h4>Lab 11: Study Site Isolation Implementation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Understand how Chrome's Site Isolation decides which sites share a process and how OOPIF proxies work.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# lab11_site_isolation.sh
+
+# 1. Check site isolation status
+# In Chrome: chrome://process-internals
+# Look at "Site Isolation Mode"
+
+# 2. Test with different origins
+# Create test HTML files:
+cat > /tmp/test_isolation.html &lt;&lt;'EOF'
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h2&gt;Site Isolation Test&lt;/h2&gt;
+  &lt;!-- Same-site: shares process --&gt;
+  &lt;iframe src="https://a.example.com/page1"&gt;&lt;/iframe&gt;
+  
+  &lt;!-- Cross-site: different process --&gt;
+  &lt;iframe src="https://evil.com/page2"&gt;&lt;/iframe&gt;
+  
+  &lt;!-- Cross-site (subdomain of different site): different process --&gt;
+  &lt;iframe src="https://images.google.com/page3"&gt;&lt;/iframe&gt;
+  
+  &lt;!-- data: URL: same process as parent --&gt;
+  &lt;iframe src="data:text/html,hello"&gt;&lt;/iframe&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+EOF
+
+# 3. Observe process assignments
+# chrome://process-internals → "Web Contents" tab
+# Each SiteInstance shows which process hosts it
+
+# 4. Key source code:
+# content/browser/site_instance_impl.cc
+# content/browser/child_process_security_policy_impl.cc</code></pre>
+
+<pre><code class="language-javascript">// How OOPIF proxies work:
+// When a cross-origin iframe is in a different process,
+// the parent frame gets a "proxy" instead of a real frame.
+
+// Parent process (attacker.com):
+// ┌──────────────────────────────┐
+// │ LocalFrame (main page)       │
+// │ └─ RemoteFrame (proxy)       │ ← Can't access internals
+// │    ├─ Can postMessage()      │
+// │    ├─ Can navigate           │
+// │    └─ Cannot read DOM/JS     │
+// └──────────────────────────────┘
+
+// Child process (bank.com):
+// ┌──────────────────────────────┐
+// │ LocalFrame (iframe content)  │ ← Real frame in separate process
+// │ └─ RemoteFrame (proxy of     │
+// │    parent, limited access)   │
+// └──────────────────────────────┘</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Create a test page with 4+ iframes from different origins</li>
+              <li>Use <code>chrome://process-internals</code> to verify process assignments</li>
+              <li>Test edge cases: data: URLs, about:blank, javascript: URLs</li>
+              <li>Understand when same-site subdomains share vs. separate processes</li>
+              <li>Observe RemoteFrame proxy behavior with DevTools</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 12 -->
+        <div class="lab-card">
+          <h4>Lab 12: Build a Test Harness</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Build a minimal test harness that simulates a compromised renderer sending crafted Mojo IPC messages to test browser-side handlers.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab12_test_harness.cc
+// Simplified Mojo fuzzing harness concept
+
+// In Chromium, you can write browser tests that act as
+// a compromised renderer by directly calling Mojo interfaces
+
+#include "content/public/test/browser_test.h"
+#include "content/public/test/content_browser_test.h"
+#include "content/common/frame.mojom.h"
+
+class SandboxEscapeTest : public content::ContentBrowserTest {
+ public:
+  void SetUpOnMainThread() override {
+    // Navigate to a test page
+    NavigateToURL(shell(), GURL("https://attacker.test/"));
+  }
+  
+  void TestMojoInterface() {
+    // Get the renderer's frame host
+    auto* rfh = shell()->web_contents()->GetPrimaryMainFrame();
+    
+    // Access the Mojo interface from "compromised renderer" perspective
+    // This simulates what a compromised renderer could do
+    
+    // Send a crafted message:
+    // auto frame_host = rfh->GetFrameHostRemote();
+    // frame_host->SomeVulnerableMethod(crafted_params);
+    
+    // Observe: does the browser process crash? misbehave?
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(SandboxEscapeTest, CraftedMojoMessage) {
+  TestMojoInterface();
+}</code></pre>
+
+<pre><code class="language-bash">#!/bin/bash
+# Build and run the test harness
+
+# 1. Add test to BUILD.gn
+# content/browser/BUILD.gn:
+# browser_tests_sources += [ "sandbox_escape_test.cc" ]
+
+# 2. Build browser tests
+autoninja -C out/Debug browser_tests
+
+# 3. Run specific test
+./out/Debug/browser_tests \
+  --gtest_filter="SandboxEscapeTest.CraftedMojoMessage"
+
+# 4. Alternative: Use Chrome's clusterfuzz / libfuzzer
+# Write a fuzzer for a specific Mojo interface:
+# src/content/browser/blob_registry_fuzzer.cc</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Set up a Chromium build environment</li>
+              <li>Write a browser test that accesses a Mojo interface</li>
+              <li>Send valid messages and verify normal behavior</li>
+              <li>Send malformed messages and observe browser behavior</li>
+              <li>Set up ASAN/MSAN to detect memory corruption in handlers</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- LAB 13 -->
+        <div class="lab-card">
+          <h4>Lab 13: Renderer Exploit to Mojo Bridge</h4>
+          <span class="difficulty difficulty-expert">Expert</span>
+          <p class="objective">Objective: After achieving arbitrary code execution in the renderer (from a V8 exploit), use the renderer's Mojo bindings to send crafted IPC messages to the browser process.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// lab13_mojo_bridge.js
+// After V8 exploit gives us shellcode execution in renderer,
+// we need to interact with Mojo IPC to escape the sandbox.
+
+// In the renderer, Mojo interfaces are set up by Blink.
+// From shellcode, we need to:
+// 1. Find the Mojo pipe endpoints in renderer memory
+// 2. Craft valid Mojo messages
+// 3. Send them via the existing pipes
+
+// Approach 1: Call Blink's C++ Mojo bindings from shellcode
+// - Find the RenderFrameImpl object
+// - Call its GetBrowserInterfaceBroker() method
+// - Bind new Mojo interfaces
+// - Send crafted messages
+
+// Approach 2: Direct message pipe manipulation
+// - Find the Mojo message pipe handle in memory
+// - Craft raw Mojo wire-format messages
+// - Write to the pipe using sendmsg() syscall</code></pre>
+
+<pre><code class="language-c">// Mojo wire format (simplified):
+struct MojoMessageHeader {
+  uint32_t num_bytes;        // Total message size
+  uint32_t version;          // Header version
+  uint32_t interface_id;     // Target interface
+  uint32_t name;             // Method ordinal
+  uint32_t flags;            // Request/response flags
+  uint64_t request_id;       // For matching responses
+};
+
+// To send a raw Mojo message from shellcode:
+// 1. Find the MessagePipe file descriptor
+// 2. Construct the header + payload
+// 3. sendmsg() with the message + any attached handles
+
+// Example: sending a malformed BlobRegistry.Register message
+// that exploits a browser-side bug</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Understand how Blink's Mojo bindings are set up in the renderer</li>
+              <li>Identify where Mojo pipe handles are stored in renderer memory</li>
+              <li>Study the Mojo wire format for message construction</li>
+              <li>Write shellcode that sends a simple Mojo message</li>
+              <li>Test with a benign message first, then craft an exploit message</li>
+            </ol>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ================================================================ -->
+      <!-- CTF TAB                                                          -->
+      <!-- ================================================================ -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <!-- CHALLENGE 1 -->
+        <div class="ctf-card">
+          <h4>Challenge 1: Identify Sandbox Boundaries</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">You've achieved code execution in a Chrome renderer process on Linux. Determine which of the following actions are possible (allowed by seccomp-bpf) and which are blocked.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Which of these actions can a compromised renderer perform?
+# Answer ALLOWED or BLOCKED for each:
+
+# 1. mmap(NULL, 0x1000, PROT_READ|PROT_WRITE, MAP_ANON, -1, 0)
+# 2. open("/etc/passwd", O_RDONLY)
+# 3. read(existing_fd, buf, 100)
+# 4. connect(sock, &addr, sizeof(addr))
+# 5. sendmsg(mojo_fd, &msg, 0)
+# 6. execve("/bin/sh", NULL, NULL)
+# 7. clone(CLONE_THREAD | CLONE_VM, ...)
+# 8. fork()
+# 9. mprotect(addr, len, PROT_READ|PROT_WRITE|PROT_EXEC)
+# 10. write(1, "hello", 5)
+
+# FLAG format: FLAG{ABBABABBBA}
+# (A=Allowed, B=Blocked, one letter per action)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> The renderer's seccomp-bpf allows: memory management (mmap, mprotect), existing fd I/O (read, write), Mojo IPC (sendmsg), threads (clone with CLONE_THREAD). It blocks: file open, network connect, process creation (execve, fork).<br>
+            <strong>Answer:</strong> FLAG{ABABAABBBA} — mmap:A, open:B, read:A, connect:B, sendmsg:A, execve:B, clone(thread):A, fork:B, mprotect:A (note: RWX may be restricted), write:A</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 2 -->
+        <div class="ctf-card">
+          <h4>Challenge 2: Map the IPC Surface</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Given the following Mojo interface definition, identify all potential attack vectors a compromised renderer could exploit.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// challenge2.mojom — Analyze this interface for vulnerabilities
+
+module storage.mojom;
+
+interface StorageService {
+  // Open a storage area for a given origin
+  OpenArea(string origin, 
+           string namespace_id,
+           pending_receiver&lt;StorageArea&gt; receiver);
+  
+  // Delete all data for an origin
+  DeleteOriginData(string origin) => (bool success);
+  
+  // Clone data from one namespace to another
+  CloneNamespace(string source_ns, string dest_ns);
+  
+  // Get total storage usage
+  GetTotalUsage() => (uint64 bytes_used);
+  
+  // Import data from path
+  ImportData(string file_path, string origin) => (bool success);
+};
+
+// QUESTIONS:
+// 1. Which method has a path traversal risk?
+// 2. Which method could be used for cross-origin data theft?
+// 3. Which method might have a TOCTOU race condition?
+// 4. Which methods need origin validation?
+// 5. What's the most dangerous method and why?
+
+// FLAG: FLAG{most_dangerous_method_name}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong><br>
+            1. <code>ImportData</code> — file_path parameter could contain <code>../../etc/passwd</code><br>
+            2. <code>OpenArea</code> + <code>CloneNamespace</code> — forge origin to access other site's data<br>
+            3. <code>CloneNamespace</code> — source could be modified between check and clone<br>
+            4. All methods except <code>GetTotalUsage</code> need origin validation<br>
+            5. <code>ImportData</code> — arbitrary file read + origin forgery<br>
+            <strong>Answer:</strong> FLAG{ImportData}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 3 -->
+        <div class="ctf-card">
+          <h4>Challenge 3: Find the Mojo Bug Pattern</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">This browser-side Mojo handler has a use-after-free vulnerability. Find the bug, explain the trigger, and describe how a compromised renderer could exploit it.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// challenge3_uaf.cc — Find the UAF
+
+class WidgetHostImpl : public mojom::WidgetHost {
+  raw_ptr&lt;RenderProcessHost&gt; process_;
+  std::unique_ptr&lt;Widget&gt; widget_;
+  
+  void CreateView(CreateViewParams params, 
+                  CreateViewCallback callback) override {
+    // Create a new view widget
+    widget_ = std::make_unique&lt;Widget&gt;(params);
+    
+    // Schedule async initialization
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE,
+        base::BindOnce(&WidgetHostImpl::InitWidget,
+                       base::Unretained(this)));  // BUG HERE!
+    
+    std::move(callback).Run(true);
+  }
+  
+  void DestroyView() override {
+    widget_.reset();  // Widget is destroyed
+  }
+  
+  void InitWidget() {
+    // Uses widget_ which might have been destroyed
+    // if DestroyView() was called before this task runs!
+    widget_->Initialize();  // UAF if widget_ is null/freed!
+  }
+};
+
+// Q1: What's the vulnerability class?
+// Q2: What's the race condition sequence?
+// Q3: How would a compromised renderer trigger this?
+// Q4: What's the fix?
+
+// FLAG: FLAG{vulnerability_class_in_snake_case}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> The bug is <code>base::Unretained(this)</code> combined with the async task. A compromised renderer can: (1) Call <code>CreateView()</code> — this posts an async task, (2) Immediately call <code>DestroyView()</code> — this destroys widget_, (3) When the async task runs, <code>InitWidget()</code> dereferences the freed widget_. Fix: use <code>weak_ptr</code> or ensure the task cancels when the widget is destroyed.<br>
+            <strong>Answer:</strong> FLAG{use_after_free}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 4 -->
+        <div class="ctf-card">
+          <h4>Challenge 4: Analyze Past CVE</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Research CVE-2019-5786 (Chrome FileReader UAF) — one of the most notable in-the-wild sandbox escape bugs. Answer the analysis questions to construct the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># CVE-2019-5786 Analysis
+# Component: FileReader API (Blink)
+# Impact: Use-after-free leading to sandbox escape
+# Exploited in the wild: YES (March 2019)
+
+# Research questions:
+# Q1: What Blink component had the bug? (one word, lowercase)
+# Q2: What type of memory corruption was it? (three letter acronym)
+# Q3: Was this used in conjunction with a Windows kernel 0-day?
+#     (yes/no)
+# Q4: What CVE was the companion kernel exploit?
+#     (just the number after CVE-)
+
+# FLAG format: FLAG{Q1_Q2_Q3_Q4}
+
+# Resources:
+# - Chrome security blog post about the ITW exploit
+# - Google Threat Analysis Group report
+# - Chrome release notes: https://chromereleases.googleblog.com/
+# - ZDI advisory</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> CVE-2019-5786 was a FileReader UAF in Blink. It was used in the wild alongside CVE-2019-0808, a Windows win32k kernel vulnerability. The exploit chain: FileReader UAF (renderer RCE) → sandbox escape → win32k kernel LPE.<br>
+            <strong>Answer:</strong> FLAG{filereader_UAF_yes_2019-0808}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 5 -->
+        <div class="ctf-card">
+          <h4>Challenge 5: Process Model Quiz</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Answer these questions about Chrome's process model. Combine the correct letter answers to form the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Chrome Process Model Quiz
+
+# Q1: Which process has NO sandbox?
+#   A) Renderer  B) GPU  C) Browser  D) Network
+
+# Q2: What IPC system does Chrome use?
+#   A) D-Bus  B) Mojo  C) gRPC  D) Unix sockets
+
+# Q3: Where does V8 execute JavaScript?
+#   A) Browser process  B) Renderer process  C) GPU process  D) Utility
+
+# Q4: What protects renderer from making arbitrary syscalls?
+#   A) ASLR  B) seccomp-bpf  C) AppArmor  D) SELinux
+
+# Q5: With Site Isolation, cross-origin iframes are in:
+#   A) Same renderer  B) Same thread  C) Separate process  D) Browser process
+
+# Q6: After exploiting V8, you can directly access:
+#   A) All tabs' data  B) Only current site's renderer memory  
+#   C) Kernel memory  D) File system
+
+# Q7: The V8 sandbox (memory cage) size is:
+#   A) 256 MB  B) 1 GB  C) 4 GB  D) 16 GB
+
+# FLAG format: FLAG{Q1Q2Q3Q4Q5Q6Q7} (just the letters)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> C=Browser (no sandbox, it manages everything), B=Mojo, B=Renderer, B=seccomp-bpf, C=Separate process (OOPIF), B=Only current site, C=4GB.<br>
+            <strong>Answer:</strong> FLAG{CBBBBBC}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 6 -->
+        <div class="ctf-card">
+          <h4>Challenge 6: seccomp Policy Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Given this simplified seccomp-bpf policy, determine which exploitation technique would succeed from a compromised renderer.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// challenge6_seccomp.c — Simplified BPF policy
+
+// Allowed syscalls for this renderer:
+// read, write, close, mmap, munmap, mprotect,
+// brk, futex, clone(CLONE_THREAD only), exit_group,
+// recvmsg, sendmsg, gettid, clock_gettime,
+// rt_sigaction, rt_sigreturn, getrandom
+
+// Blocked: everything else (open, connect, execve, fork, etc.)
+
+// Which of these exploitation techniques would work?
+
+// A) Fork a child process and execute /bin/sh
+//    fork() → execve("/bin/sh", NULL, NULL)
+
+// B) Allocate RWX memory and execute shellcode
+//    mmap(RWX) → write shellcode → jump to it
+
+// C) Send crafted Mojo message to browser process
+//    sendmsg(mojo_fd, &crafted_msg, 0)
+
+// D) Open /proc/self/mem for arbitrary read
+//    open("/proc/self/mem", O_RDONLY)
+
+// E) Create a new thread for parallel exploitation
+//    clone(CLONE_THREAD | CLONE_VM, ...)
+
+// F) Exploit a kernel vulnerability via allowed syscall
+//    futex(crafted_args)  // if futex has a kernel bug
+
+// FLAG: list all letters that work, sorted
+// FLAG format: FLAG{sorted_letters}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong><br>
+            A) BLOCKED — fork and execve are not allowed<br>
+            B) ALLOWED — mmap and mprotect are permitted (RWX may work depending on policy details)<br>
+            C) ALLOWED — sendmsg is allowed for Mojo IPC<br>
+            D) BLOCKED — open is not allowed<br>
+            E) ALLOWED — clone with CLONE_THREAD is permitted<br>
+            F) ALLOWED — futex is an allowed syscall; if the kernel has a bug, it's exploitable<br>
+            <strong>Answer:</strong> FLAG{BCEF}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 7 -->
+        <div class="ctf-card">
+          <h4>Challenge 7: Sandbox Escape Concept Design</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Design a conceptual sandbox escape given the following constraints. Describe each step and identify the required bug class at each stage.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Scenario:
+# - You have arbitrary R/W in the renderer process
+# - seccomp-bpf blocks file I/O, network, process creation
+# - Mojo IPC is available (sendmsg/recvmsg allowed)
+# - You have identified a heap overflow in the browser process's
+#   BlobRegistryImpl::Register() handler (via Mojo)
+
+# Design the escape:
+
+# STEP 1: Prepare the renderer exploit
+# Q: What do you need to set up in the renderer before
+#    sending the malicious Mojo message?
+
+# STEP 2: Craft the Mojo message
+# Q: What fields in the BlobRegistry.Register message
+#    would you manipulate to trigger the heap overflow?
+
+# STEP 3: Exploit the browser-side heap overflow
+# Q: What heap exploitation technique would you use?
+#    (e.g., fastbin dup, tcache poisoning, etc.)
+
+# STEP 4: Achieve code execution in browser process
+# Q: How do you convert the heap corruption into RCE
+#    in the browser process?
+
+# STEP 5: Post-exploitation
+# Q: What can you do now that you're in the browser process?
+
+# FLAG: FLAG{step3_technique_in_snake_case}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Step 1: Find the Mojo pipe fd and message format for BlobRegistry. Step 2: Send oversized DataElement array to overflow the heap buffer. Step 3: Use tcache poisoning (or fastbin dup on older glibc) to overwrite a vtable pointer. Step 4: Hijack a virtual function call → ROP chain or shellcode. Step 5: Full user-level access — read files, make network connections, persist.<br>
+            <strong>Answer:</strong> FLAG{tcache_poisoning}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 8 -->
+        <div class="ctf-card">
+          <h4>Challenge 8: Full Chain Architecture</h4>
+          <span class="difficulty difficulty-expert">Expert</span>
+          <p class="objective">Reconstruct the full exploit chain architecture for a browser-to-kernel compromise. Fill in the missing components and identify what connects each stage.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Full Chain Architecture Puzzle:
+
+# ┌──────────┐   ???    ┌───────────┐   ???    ┌────────┐
+# │ Stage 1  │ ──────► │  Stage 2   │ ──────► │ Stage 3│
+# │  ???     │         │    ???     │         │  ???   │
+# │ Output:  │         │  Output:   │         │ Output:│
+# │  ???     │         │    ???     │         │  ???   │
+# └──────────┘         └───────────┘         └────────┘
+
+# Fill in the blanks:
+
+# Stage 1:
+#   Name: ___________
+#   Bug class: ___________
+#   Target component: ___________
+#   Output/primitive gained: ___________
+#   Transition mechanism to Stage 2: ___________
+
+# Stage 2:
+#   Name: ___________
+#   Bug class: ___________
+#   Target component: ___________
+#   Output/primitive gained: ___________
+#   Transition mechanism to Stage 3: ___________
+
+# Stage 3:
+#   Name: ___________
+#   Bug class: ___________
+#   Target component: ___________
+#   Output/primitive gained: ___________
+#   Final state: ___________
+
+# FLAG: FLAG{transition_1_mechanism_to_transition_2_mechanism}
+# Use snake_case, e.g., FLAG{mojo_ipc_to_syscall_exploit}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong><br>
+            Stage 1: <strong>Renderer Exploit</strong> — V8 JIT bug (type confusion) → arbitrary R/W in renderer → transition via Mojo IPC messages<br>
+            Stage 2: <strong>Sandbox Escape</strong> — Mojo handler bug (UAF/heap overflow) → code execution in browser process → transition via kernel syscall exploitation<br>
+            Stage 3: <strong>Kernel Exploit</strong> — Kernel bug (driver UAF, race) → ring-0 code execution → root/SYSTEM<br>
+            <strong>Answer:</strong> FLAG{mojo_ipc_to_kernel_syscall}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 9 -->
+        <div class="ctf-card">
+          <h4>Challenge 9: Cross-Origin Isolation Bypass</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">With arbitrary code execution in a renderer, design an attack to steal data from a cross-origin iframe despite Site Isolation. What additional vulnerability is needed?</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// Scenario: You've exploited V8 in the attacker.com renderer
+// Target: steal data from bank.com iframe (in separate process)
+
+// Site Isolation means bank.com is in a DIFFERENT process
+// Your renderer exploit can't read bank.com's memory
+
+// APPROACH A: Direct memory read
+// Can you read bank.com's renderer memory?
+// Answer: NO — different process, different address space
+
+// APPROACH B: Forge Mojo messages
+// Can you impersonate bank.com's renderer to the browser?
+// Answer: Maybe — if browser doesn't validate source process
+
+// APPROACH C: Browser process pivot
+// 1. Escape sandbox (get browser process RCE)
+// 2. From browser: read ANY renderer's memory
+// 3. Find bank.com's renderer process
+// 4. Read its memory directly
+
+// APPROACH D: Network-level attack
+// 1. Escape sandbox to browser process
+// 2. Browser can make network requests
+// 3. Intercept/forge requests to bank.com
+// 4. Read responses
+
+// QUESTION: Which approach works and what additional bug is needed?
+// FLAG: FLAG{approach_letter_additional_bug_class}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Approach A fails (process isolation). Approach B could work if there's a browser-side origin validation bug, but this is rare. Approach C is the most reliable — with browser process RCE, you can read any child process's memory via <code>/proc/PID/mem</code> or debug APIs. Approach D also works from browser process. Both C and D require a sandbox escape bug first.<br>
+            <strong>Answer:</strong> FLAG{C_sandbox_escape}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 10 -->
+        <div class="ctf-card">
+          <h4>Challenge 10: Exploit Chain Walkthrough Analysis</h4>
+          <span class="difficulty difficulty-expert">Expert</span>
+          <p class="objective">Given this simplified exploit chain log, identify what happened at each stage, what went wrong at step 5, and how to fix it.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Exploit chain execution log:
+
+[00.0s] [STAGE 1] Triggering V8 JIT bug...
+[00.1s]   Type confusion triggered in TurboFan
+[00.2s]   OOB array created: length=6, OOB_length=64
+[00.3s]   addrof primitive: OK
+[00.4s]   fakeobj primitive: OK
+[00.5s]   Arbitrary R/W: OK
+[00.6s]   WASM RWX page: 0x7f3a4c000000
+[00.7s]   Shellcode written to RWX page
+[00.8s]   Renderer code execution: ACHIEVED ✓
+
+[01.0s] [STAGE 2] Sandbox escape via Mojo...
+[01.1s]   Found Mojo pipe fd: 47
+[01.2s]   Crafting BlobRegistry.Register message
+[01.3s]   Sending oversized DataElement array (heap overflow)
+[01.5s]   Browser heap overflow triggered
+[01.7s]   Browser vtable corrupted
+[01.8s]   Browser ROP chain executing...
+[02.0s]   Browser code execution: ACHIEVED ✓
+
+[02.1s] [STAGE 3] Kernel exploit...
+[02.2s]   Opening /dev/nvidia0 for GPU driver exploit
+[02.3s]   Sending crafted IOCTL...
+[02.4s]   Kernel heap overflow in nvidia driver
+[02.5s]   [ERROR] KASAN: slab-out-of-bounds in nvidia_ioctl+0x1337
+[02.6s]   [ERROR] Kernel panic - not syncing: KASAN
+[02.7s]   EXPLOIT FAILED ✗
+
+# QUESTIONS:
+# Q1: What was the Stage 1 technique? (one word)
+# Q2: What was the Stage 2 IPC interface exploited?
+# Q3: Why did Stage 3 fail?
+# Q4: How would you fix the Stage 3 reliability?
+# Q5: What's the total time budget for Pwn2Own?
+
+# FLAG: FLAG{stage3_failure_reason_in_snake_case}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong><br>
+            Q1: Type confusion (V8 JIT bug → OOB → arb R/W)<br>
+            Q2: BlobRegistry (Register method, oversized DataElement)<br>
+            Q3: KASAN detected the kernel heap overflow — this means the kernel has KASAN (Kernel Address Sanitizer) enabled. In production, KASAN is typically NOT enabled, so the exploit might work on production kernels. The failure is due to testing on a debug/KASAN kernel.<br>
+            Q4: Test against a production kernel without KASAN. Also, use a more controlled heap manipulation to avoid triggering out-of-bounds detectors.<br>
+            Q5: 30 seconds for Pwn2Own.<br>
+            <strong>Answer:</strong> FLAG{kasan_detected_heap_overflow}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 11 -->
+        <div class="ctf-card">
+          <h4>Challenge 11: Mojo Message Forgery</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Construct a valid Mojo wire-format message for a FrameHost.BeginNavigation call with a forged origin. Calculate the correct header fields.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Mojo wire format exercise
+
+// Message structure:
+// [MessageHeader][Payload]
+
+// MessageHeader (v2):
+// Offset  Size  Field
+// 0x00    4     num_bytes (total size including header)
+// 0x04    4     version (2)
+// 0x08    4     interface_id (0 for primary)
+// 0x0C    4     name (method ordinal)
+// 0x10    4     flags (0=request, 1=response, 2=expects_response)
+// 0x14    4     padding
+// 0x18    8     request_id
+
+// For FrameHost.BeginNavigation:
+// interface_id = 0
+// name = 3 (ordinal of BeginNavigation in the interface)
+// flags = 0 (request, no response expected)
+
+// Payload: serialized CommonNavigationParams + BeginNavigationParams
+// CommonNavigationParams contains:
+//   url: GURL (serialized as string)
+//   initiator_origin: Origin (the forged value!)
+//   ...
+
+// TASK: Calculate the header bytes for a message with:
+// - Total size: 0x120 bytes
+// - Method: BeginNavigation (ordinal 3)
+// - Request ID: 42
+
+// FLAG format: FLAG{first_8_bytes_of_header_as_hex_no_spaces}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Header fields (little-endian):<br>
+            <code>num_bytes</code> = 0x120 → <code>20 01 00 00</code><br>
+            <code>version</code> = 2 → <code>02 00 00 00</code><br>
+            First 8 bytes: <code>20010000 02000000</code><br>
+            <strong>Answer:</strong> FLAG{2001000002000000}</p>
+          </div>
+        </div>
+
+        <!-- CHALLENGE 12 -->
+        <div class="ctf-card">
+          <h4>Challenge 12: Defense Mapping</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">For each exploit stage, identify the primary defense mechanism that must be bypassed. Match each attack to its defense.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Match each attack technique (1-8) to its defense (A-H):
+
+# ATTACKS:
+# 1. V8 JIT type confusion → OOB read/write
+# 2. V8 sandbox escape (cage bypass)
+# 3. Mojo message forgery (forged origin)
+# 4. Browser process heap exploitation
+# 5. Renderer arbitrary code execution
+# 6. Kernel exploitation from browser
+# 7. Cross-origin data theft
+# 8. Shellcode execution in renderer
+
+# DEFENSES:
+# A. seccomp-bpf syscall filter
+# B. V8 memory cage (pointer compression + tables)
+# C. Site Isolation (per-process per-site)
+# D. ASLR + DEP/NX
+# E. TurboFan deoptimization / speculation guards
+# F. Browser-side origin validation
+# G. CFI (Control Flow Integrity)
+# H. W^X (Write XOR Execute) on JIT pages
+
+# FLAG format: FLAG{1E2B3F4G5D6A7C8H} (number + defense letter)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong><br>
+            1→E: JIT bugs bypass speculation guards/deoptimization<br>
+            2→B: V8 cage prevents access outside 4GB reservation<br>
+            3→F: Browser validates origin of Mojo messages<br>
+            4→G: CFI prevents vtable hijacking in browser<br>
+            5→D: DEP prevents code injection, ASLR randomizes layout<br>
+            6→A: seccomp-bpf restricts which syscalls can reach kernel<br>
+            7→C: Site Isolation puts cross-origin content in separate processes<br>
+            8→H: W^X prevents writing to executable pages<br>
+            <strong>Answer:</strong> FLAG{1E2B3F4G5D6A7C8H}</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

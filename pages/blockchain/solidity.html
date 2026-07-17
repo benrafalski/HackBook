@@ -1,0 +1,1604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Solidity Fundamentals</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-solidity.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Solidity Fundamentals</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== COMPILATION FLOW ==================== -->
+        <h2>How Solidity Works</h2>
+        <p>Solidity is a statically-typed, contract-oriented language compiled to EVM bytecode. The compilation flow:</p>
+        <ol>
+          <li><strong>.sol source</strong> &rarr; Solidity Compiler (<code>solc</code>)</li>
+          <li>Compiler outputs <strong>ABI</strong> (JSON interface) + <strong>bytecode</strong> (deployment code)</li>
+          <li>Bytecode is deployed to the blockchain via a transaction</li>
+          <li>Deployed contract lives at an <strong>address</strong> and executes in the EVM</li>
+        </ol>
+<pre><code class="language-bash"># Compile with solc
+solc --abi --bin MyContract.sol -o build/
+
+# Or use Hardhat
+npx hardhat compile</code></pre>
+
+        <!-- ==================== FILE STRUCTURE ==================== -->
+        <h2>File Structure</h2>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;       // compiler version constraint
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";  // external import
+import "./MyLib.sol";                                       // local import
+
+contract MyContract {
+    // state variables, functions, events, modifiers...
+}</code></pre>
+
+        <!-- ==================== DATA TYPES ==================== -->
+        <h2>Data Types</h2>
+
+        <h3>Value Types</h3>
+        <table>
+          <tr><th>Type</th><th>Description</th><th>Example</th></tr>
+          <tr><td><code>bool</code></td><td>true/false</td><td><code>bool active = true;</code></td></tr>
+          <tr><td><code>uint / uint256</code></td><td>Unsigned integer (8-256 bits)</td><td><code>uint256 balance = 1 ether;</code></td></tr>
+          <tr><td><code>int / int256</code></td><td>Signed integer</td><td><code>int256 delta = -100;</code></td></tr>
+          <tr><td><code>address</code></td><td>20-byte Ethereum address</td><td><code>address owner = msg.sender;</code></td></tr>
+          <tr><td><code>address payable</code></td><td>Address that can receive ETH</td><td><code>payable(msg.sender)</code></td></tr>
+          <tr><td><code>bytes1..bytes32</code></td><td>Fixed-size byte arrays</td><td><code>bytes32 hash = keccak256(...);</code></td></tr>
+          <tr><td><code>string</code></td><td>Dynamic UTF-8 string</td><td><code>string name = "Token";</code></td></tr>
+        </table>
+
+        <h3>Reference Types</h3>
+<pre><code class="language-solidity">// Arrays
+uint[] dynamicArr;
+uint[5] fixedArr;
+
+// Mappings (key => value, no iteration, no length)
+mapping(address => uint256) public balances;
+
+// Nested mapping
+mapping(address => mapping(address => uint256)) public allowances;
+
+// Structs
+struct User {
+    address wallet;
+    uint256 balance;
+    bool active;
+}
+
+// Enums
+enum Status { Pending, Active, Closed }</code></pre>
+
+        <!-- ==================== VISIBILITY ==================== -->
+        <h2>Visibility</h2>
+        <table>
+          <tr><th>Keyword</th><th>Accessible From</th></tr>
+          <tr><td><code>public</code></td><td>Everywhere (auto-generates getter for state vars)</td></tr>
+          <tr><td><code>private</code></td><td>Only within the defining contract</td></tr>
+          <tr><td><code>internal</code></td><td>Within contract + derived contracts (default for state vars)</td></tr>
+          <tr><td><code>external</code></td><td>Only from outside (cannot be called internally without <code>this.</code>)</td></tr>
+        </table>
+        <p><strong>Note:</strong> <code>private</code> does NOT mean hidden on-chain. Storage is publicly readable via <code>eth_getStorageAt</code>.</p>
+
+        <!-- ==================== FUNCTIONS ==================== -->
+        <h2>Functions</h2>
+<pre><code class="language-solidity">// view: reads state, no modification
+function getBalance() public view returns (uint256) {
+    return balances[msg.sender];
+}
+
+// pure: no state access at all
+function add(uint a, uint b) public pure returns (uint) {
+    return a + b;
+}
+
+// payable: can receive ETH
+function deposit() public payable {
+    balances[msg.sender] += msg.value;
+}
+
+// Modifiers: reusable preconditions
+modifier onlyOwner() {
+    require(msg.sender == owner, "Not owner");
+    _;  // placeholder for function body
+}
+
+function withdraw() public onlyOwner {
+    payable(owner).transfer(address(this).balance);
+}
+
+// Multiple return values
+function getInfo() public view returns (uint256, address) {
+    return (balance, owner);
+}</code></pre>
+
+        <!-- ==================== STORAGE / MEMORY / CALLDATA ==================== -->
+        <h2>Storage vs Memory vs Calldata</h2>
+        <table>
+          <tr><th>Location</th><th>Persistence</th><th>Gas Cost</th><th>Use Case</th></tr>
+          <tr><td><code>storage</code></td><td>Permanent (on-chain)</td><td>Expensive (SSTORE: 20k/5k gas)</td><td>State variables</td></tr>
+          <tr><td><code>memory</code></td><td>Function execution only</td><td>Cheap</td><td>Temporary local data, function params</td></tr>
+          <tr><td><code>calldata</code></td><td>Function execution only</td><td>Cheapest (read-only)</td><td>External function parameters</td></tr>
+        </table>
+<pre><code class="language-solidity">// calldata = read-only, cheapest for external inputs
+function process(string calldata name) external pure returns (uint) {
+    return bytes(name).length;
+}
+
+// memory = mutable copy
+function modify(uint[] memory data) internal pure returns (uint[] memory) {
+    data[0] = 999;
+    return data;
+}
+
+// storage = reference to state variable
+function update() internal {
+    User storage user = users[msg.sender];  // modifies state directly
+    user.balance += 100;
+}</code></pre>
+
+        <!-- ==================== EVENTS ==================== -->
+        <h2>Events and Logging</h2>
+<pre><code class="language-solidity">event Transfer(address indexed from, address indexed to, uint256 value);
+// indexed params = searchable in logs (max 3 per event)
+
+function transfer(address to, uint256 amount) public {
+    balances[msg.sender] -= amount;
+    balances[to] += amount;
+    emit Transfer(msg.sender, to, amount);
+}</code></pre>
+        <p>Events are stored in transaction logs (not contract storage) — cheap to emit, not accessible from contracts. Used by off-chain apps (ethers.js, TheGraph) to track activity.</p>
+
+        <!-- ==================== ERROR HANDLING ==================== -->
+        <h2>Error Handling</h2>
+<pre><code class="language-solidity">// require: validate inputs/conditions, refunds remaining gas
+require(msg.value >= price, "Insufficient payment");
+
+// revert: same as require but for complex conditions
+if (balance < amount) {
+    revert InsufficientBalance(balance, amount);  // custom error (gas efficient)
+}
+
+// assert: check invariants, should never fail in correct code
+// consumes all remaining gas on failure (use sparingly)
+assert(totalSupply == sumOfAllBalances);
+
+// Custom errors (Solidity 0.8.4+) — cheaper than string messages
+error InsufficientBalance(uint256 available, uint256 required);
+error Unauthorized();</code></pre>
+
+        <!-- ==================== INHERITANCE ==================== -->
+        <h2>Inheritance and Interfaces</h2>
+<pre><code class="language-solidity">// Interface: defines function signatures, no implementation
+interface IERC20 {
+    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+}
+
+// Abstract contract: can have partial implementation
+abstract contract Ownable {
+    address public owner;
+    modifier onlyOwner() { require(msg.sender == owner); _; }
+    function renounceOwnership() public virtual onlyOwner {
+        owner = address(0);
+    }
+}
+
+// Inheritance: is keyword, multiple inheritance (C3 linearization)
+contract MyToken is IERC20, Ownable {
+    // must implement all interface functions
+    function transfer(address to, uint256 amount) external override returns (bool) {
+        // ...
+    }
+}
+
+// super keyword calls parent implementation
+contract Child is Parent {
+    function foo() public override {
+        super.foo();  // calls Parent.foo()
+    }
+}</code></pre>
+
+        <!-- ==================== TOKEN STANDARDS ==================== -->
+        <h2>ERC-20 and ERC-721 Overview</h2>
+        <h3>ERC-20 (Fungible Tokens)</h3>
+        <p>Standard interface for interchangeable tokens (USDT, LINK, UNI).</p>
+        <table>
+          <tr><th>Function</th><th>Purpose</th></tr>
+          <tr><td><code>totalSupply()</code></td><td>Total tokens in existence</td></tr>
+          <tr><td><code>balanceOf(address)</code></td><td>Token balance of account</td></tr>
+          <tr><td><code>transfer(to, amount)</code></td><td>Send tokens directly</td></tr>
+          <tr><td><code>approve(spender, amount)</code></td><td>Authorize spender</td></tr>
+          <tr><td><code>transferFrom(from, to, amount)</code></td><td>Spender moves tokens</td></tr>
+          <tr><td><code>allowance(owner, spender)</code></td><td>Check remaining allowance</td></tr>
+        </table>
+
+        <h3>ERC-721 (Non-Fungible Tokens)</h3>
+        <p>Each token has a unique <code>tokenId</code>. Key additions over ERC-20:</p>
+        <table>
+          <tr><th>Function</th><th>Purpose</th></tr>
+          <tr><td><code>ownerOf(tokenId)</code></td><td>Who owns this specific token</td></tr>
+          <tr><td><code>safeTransferFrom()</code></td><td>Transfer with receiver check</td></tr>
+          <tr><td><code>tokenURI(tokenId)</code></td><td>Metadata URL for the token</td></tr>
+          <tr><td><code>setApprovalForAll()</code></td><td>Approve operator for all tokens</td></tr>
+        </table>
+
+        <!-- ==================== GLOBAL VARIABLES ==================== -->
+        <h2>Global Variables</h2>
+        <table>
+          <tr><th>Variable</th><th>Type</th><th>Description</th></tr>
+          <tr><td><code>msg.sender</code></td><td><code>address</code></td><td>Caller of the current function</td></tr>
+          <tr><td><code>msg.value</code></td><td><code>uint256</code></td><td>ETH sent with the call (in wei)</td></tr>
+          <tr><td><code>msg.data</code></td><td><code>bytes</code></td><td>Complete calldata</td></tr>
+          <tr><td><code>block.timestamp</code></td><td><code>uint256</code></td><td>Current block timestamp (unix)</td></tr>
+          <tr><td><code>block.number</code></td><td><code>uint256</code></td><td>Current block number</td></tr>
+          <tr><td><code>tx.origin</code></td><td><code>address</code></td><td>Original EOA that initiated the tx (avoid for auth!)</td></tr>
+          <tr><td><code>gasleft()</code></td><td><code>uint256</code></td><td>Remaining gas</td></tr>
+        </table>
+
+        <!-- ==================== RECEIVE / FALLBACK ==================== -->
+        <h2>Receive and Fallback Functions</h2>
+<pre><code class="language-solidity">contract Receiver {
+    event Received(address sender, uint amount);
+
+    // Called when ETH is sent with empty calldata
+    receive() external payable {
+        emit Received(msg.sender, msg.value);
+    }
+
+    // Called when no function matches the selector, or on ETH send if no receive()
+    fallback() external payable {
+        // can handle unknown function calls
+    }
+}
+
+// Decision tree for incoming ETH:
+//   msg.data is empty?
+//     YES → receive() exists? → YES: receive() | NO: fallback()
+//     NO  → fallback()</code></pre>
+
+        <!-- ==================== CONSTRUCTOR ==================== -->
+        <h2>Constructor</h2>
+<pre><code class="language-solidity">contract Token {
+    address public owner;
+    string public name;
+
+    // Runs once at deployment, cannot be called again
+    constructor(string memory _name) {
+        owner = msg.sender;
+        name = _name;
+    }
+}
+
+// Deploy with constructor args via Hardhat
+// const Token = await ethers.getContractFactory("Token");
+// const token = await Token.deploy("MyToken");</code></pre>
+
+        <!-- ==================== DELEGATECALL vs CALL ==================== -->
+        <h2>delegatecall vs call</h2>
+        <table>
+          <tr><th></th><th><code>call</code></th><th><code>delegatecall</code></th></tr>
+          <tr><td>Context</td><td>Executes in <strong>target's</strong> context</td><td>Executes in <strong>caller's</strong> context</td></tr>
+          <tr><td>Storage</td><td>Modifies target's storage</td><td>Modifies caller's storage</td></tr>
+          <tr><td><code>msg.sender</code></td><td>Becomes the calling contract</td><td>Stays the original sender</td></tr>
+          <tr><td>Use case</td><td>Normal contract interaction</td><td>Proxy/upgrade patterns, libraries</td></tr>
+        </table>
+<pre><code class="language-solidity">// Low-level call
+(bool success, bytes memory data) = target.call{value: 1 ether}(
+    abi.encodeWithSignature("deposit()")
+);
+require(success, "Call failed");
+
+// delegatecall — runs target code but in this contract's storage
+(bool ok, ) = implementation.delegatecall(
+    abi.encodeWithSignature("initialize(uint256)", 42)
+);
+// WARNING: storage layout must match between proxy and implementation!</code></pre>
+
+        <!-- ==================== ABI ENCODING ==================== -->
+        <h2>ABI Encoding</h2>
+<pre><code class="language-solidity">// Encode function call manually
+bytes memory payload = abi.encodeWithSignature(
+    "transfer(address,uint256)",
+    recipient,
+    amount
+);
+
+// abi.encode: standard encoding (padded to 32 bytes)
+bytes memory encoded = abi.encode(uint256(1), address(0x123));
+
+// abi.encodePacked: tightly packed (no padding, used for hashing)
+bytes32 hash = keccak256(abi.encodePacked(addr, amount, nonce));
+
+// abi.decode: decode return data
+(uint256 value, address sender) = abi.decode(data, (uint256, address));
+
+// Function selector = first 4 bytes of keccak256(signature)
+bytes4 selector = bytes4(keccak256("transfer(address,uint256)"));</code></pre>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+
+        <div class="lab-card">
+          <h4>Lab 1: Deploy Your First Contract with Hardhat</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Set up a Hardhat project, write a simple storage contract, compile it, deploy to a local node, and interact with it via the console.</p>
+
+          <h5>Step 1: Initialize Hardhat Project</h5>
+<pre><code class="language-bash">mkdir my-first-contract && cd my-first-contract
+npm init -y
+npm install --save-dev hardhat @nomicfoundation/hardhat-toolbox
+npx hardhat init
+# Select "Create a JavaScript project"</code></pre>
+
+          <h5>Step 2: Write the Contract</h5>
+          <p>Create <code>contracts/SimpleStorage.sol</code>:</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract SimpleStorage {
+    uint256 private storedValue;
+    address public owner;
+
+    event ValueChanged(uint256 newValue, address changedBy);
+
+    constructor(uint256 _initialValue) {
+        storedValue = _initialValue;
+        owner = msg.sender;
+    }
+
+    function set(uint256 _value) public {
+        storedValue = _value;
+        emit ValueChanged(_value, msg.sender);
+    }
+
+    function get() public view returns (uint256) {
+        return storedValue;
+    }
+}</code></pre>
+
+          <h5>Step 3: Deploy Script</h5>
+          <p>Create <code>scripts/deploy.js</code>:</p>
+<pre><code class="language-javascript">const { ethers } = require("hardhat");
+
+async function main() {
+  const SimpleStorage = await ethers.getContractFactory("SimpleStorage");
+  const contract = await SimpleStorage.deploy(42);
+  await contract.waitForDeployment();
+  console.log("Deployed to:", await contract.getAddress());
+}
+
+main().catch(console.error);</code></pre>
+
+          <h5>Step 4: Compile and Deploy</h5>
+<pre><code class="language-bash">npx hardhat compile
+npx hardhat node                    # terminal 1: start local node
+npx hardhat run scripts/deploy.js --network localhost  # terminal 2</code></pre>
+
+          <h5>Step 5: Interact via Console</h5>
+<pre><code class="language-bash">npx hardhat console --network localhost</code></pre>
+<pre><code class="language-javascript">const contract = await ethers.getContractAt("SimpleStorage", "DEPLOYED_ADDRESS");
+await contract.get();        // 42n
+await contract.set(100);
+await contract.get();        // 100n</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Write and Test an ERC-20 Token</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Implement an ERC-20 token from scratch (not using OpenZeppelin), write comprehensive tests covering transfers, allowances, and edge cases.</p>
+
+          <h5>Step 1: Implement ERC-20</h5>
+          <p>Create <code>contracts/MyToken.sol</code>:</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract MyToken {
+    string public name;
+    string public symbol;
+    uint8 public decimals = 18;
+    uint256 public totalSupply;
+
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+
+    constructor(string memory _name, string memory _symbol, uint256 _initialSupply) {
+        name = _name;
+        symbol = _symbol;
+        totalSupply = _initialSupply * 10 ** decimals;
+        balanceOf[msg.sender] = totalSupply;
+        emit Transfer(address(0), msg.sender, totalSupply);
+    }
+
+    function transfer(address to, uint256 amount) public returns (bool) {
+        require(to != address(0), "Transfer to zero address");
+        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(msg.sender, to, amount);
+        return true;
+    }
+
+    function approve(address spender, uint256 amount) public returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) public returns (bool) {
+        require(allowance[from][msg.sender] >= amount, "Allowance exceeded");
+        require(balanceOf[from] >= amount, "Insufficient balance");
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(from, to, amount);
+        return true;
+    }
+}</code></pre>
+
+          <h5>Step 2: Write Tests</h5>
+          <p>Create <code>test/MyToken.test.js</code>:</p>
+<pre><code class="language-javascript">const { expect } = require("chai");
+const { ethers } = require("hardhat");
+
+describe("MyToken", function () {
+  let token, owner, addr1, addr2;
+
+  beforeEach(async () => {
+    [owner, addr1, addr2] = await ethers.getSigners();
+    const MyToken = await ethers.getContractFactory("MyToken");
+    token = await MyToken.deploy("TestToken", "TT", 1000);
+  });
+
+  it("assigns total supply to deployer", async () => {
+    const total = await token.totalSupply();
+    expect(await token.balanceOf(owner.address)).to.equal(total);
+  });
+
+  it("transfers tokens between accounts", async () => {
+    await token.transfer(addr1.address, 100);
+    expect(await token.balanceOf(addr1.address)).to.equal(100);
+  });
+
+  it("reverts on insufficient balance", async () => {
+    await expect(
+      token.connect(addr1).transfer(addr2.address, 1)
+    ).to.be.revertedWith("Insufficient balance");
+  });
+
+  it("handles approve + transferFrom", async () => {
+    await token.approve(addr1.address, 200);
+    await token.connect(addr1).transferFrom(owner.address, addr2.address, 200);
+    expect(await token.balanceOf(addr2.address)).to.equal(200);
+  });
+});</code></pre>
+<pre><code class="language-bash">npx hardhat test</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Implement Upgradeable Proxy Pattern</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Implement a transparent proxy pattern that separates storage (proxy) from logic (implementation), allowing contract upgrades without changing the address or losing state.</p>
+
+          <h5>Step 1: Implementation Contract (V1)</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract BoxV1 {
+    uint256 public value;
+
+    function initialize(uint256 _value) public {
+        value = _value;
+    }
+
+    function getValue() public view returns (uint256) {
+        return value;
+    }
+}</code></pre>
+
+          <h5>Step 2: Proxy Contract</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract SimpleProxy {
+    // EIP-1967 implementation slot
+    bytes32 private constant IMPLEMENTATION_SLOT =
+        bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1);
+    bytes32 private constant ADMIN_SLOT =
+        bytes32(uint256(keccak256("eip1967.proxy.admin")) - 1);
+
+    constructor(address _implementation) {
+        _setImplementation(_implementation);
+        _setAdmin(msg.sender);
+    }
+
+    function upgradeTo(address _newImpl) external {
+        require(msg.sender == _getAdmin(), "Not admin");
+        _setImplementation(_newImpl);
+    }
+
+    function _setImplementation(address _impl) private {
+        assembly { sstore(IMPLEMENTATION_SLOT, _impl) }
+    }
+
+    function _getImplementation() private view returns (address impl) {
+        assembly { impl := sload(IMPLEMENTATION_SLOT) }
+    }
+
+    function _setAdmin(address _admin) private {
+        assembly { sstore(ADMIN_SLOT, _admin) }
+    }
+
+    function _getAdmin() private view returns (address admin) {
+        assembly { admin := sload(ADMIN_SLOT) }
+    }
+
+    fallback() external payable {
+        address impl = _getImplementation();
+        assembly {
+            calldatacopy(0, 0, calldatasize())
+            let result := delegatecall(gas(), impl, 0, calldatasize(), 0, 0)
+            returndatacopy(0, 0, returndatasize())
+            switch result
+            case 0 { revert(0, returndatasize()) }
+            default { return(0, returndatasize()) }
+        }
+    }
+
+    receive() external payable {}
+}</code></pre>
+
+          <h5>Step 3: Upgraded Implementation (V2)</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract BoxV2 {
+    uint256 public value;       // MUST keep same storage layout as V1
+
+    function initialize(uint256 _value) public {
+        value = _value;
+    }
+
+    function getValue() public view returns (uint256) {
+        return value;
+    }
+
+    // New function added in V2
+    function increment() public {
+        value += 1;
+    }
+}</code></pre>
+
+          <h5>Step 4: Test the Upgrade</h5>
+<pre><code class="language-javascript">const { expect } = require("chai");
+const { ethers } = require("hardhat");
+
+describe("Proxy Upgrade", function () {
+  it("upgrades implementation and retains state", async () => {
+    const BoxV1 = await ethers.getContractFactory("BoxV1");
+    const boxV1 = await BoxV1.deploy();
+
+    const Proxy = await ethers.getContractFactory("SimpleProxy");
+    const proxy = await Proxy.deploy(await boxV1.getAddress());
+
+    // Interact via V1 ABI through proxy
+    const proxiedV1 = BoxV1.attach(await proxy.getAddress());
+    await proxiedV1.initialize(42);
+    expect(await proxiedV1.getValue()).to.equal(42);
+
+    // Deploy V2 and upgrade
+    const BoxV2 = await ethers.getContractFactory("BoxV2");
+    const boxV2 = await BoxV2.deploy();
+    await proxy.upgradeTo(await boxV2.getAddress());
+
+    // State persists, new function available
+    const proxiedV2 = BoxV2.attach(await proxy.getAddress());
+    expect(await proxiedV2.getValue()).to.equal(42);
+    await proxiedV2.increment();
+    expect(await proxiedV2.getValue()).to.equal(43);
+  });
+});</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: ERC-721 Implementation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Implement a basic ERC-721 NFT contract from scratch with minting, metadata, and transfer functionality.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract SimpleNFT {
+    string public name = "HackBookNFT";
+    string public symbol = "HBNFT";
+    uint256 private _nextTokenId;
+
+    mapping(uint256 => address) private _owners;
+    mapping(address => uint256) private _balances;
+    mapping(uint256 => address) private _tokenApprovals;
+    mapping(uint256 => string) private _tokenURIs;
+
+    event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
+    event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId);
+
+    function mint(address to, string memory uri) public returns (uint256) {
+        uint256 tokenId = _nextTokenId++;
+        _owners[tokenId] = to;
+        _balances[to]++;
+        _tokenURIs[tokenId] = uri;
+        emit Transfer(address(0), to, tokenId);
+        return tokenId;
+    }
+
+    function ownerOf(uint256 tokenId) public view returns (address) {
+        address owner = _owners[tokenId];
+        require(owner != address(0), "Token doesn't exist");
+        return owner;
+    }
+
+    function balanceOf(address owner) public view returns (uint256) {
+        return _balances[owner];
+    }
+
+    function tokenURI(uint256 tokenId) public view returns (string memory) {
+        require(_owners[tokenId] != address(0), "Token doesn't exist");
+        return _tokenURIs[tokenId];
+    }
+
+    function transferFrom(address from, address to, uint256 tokenId) public {
+        require(_owners[tokenId] == from, "Not owner");
+        require(
+            msg.sender == from || msg.sender == _tokenApprovals[tokenId],
+            "Not authorized"
+        );
+        _owners[tokenId] = to;
+        _balances[from]--;
+        _balances[to]++;
+        delete _tokenApprovals[tokenId];
+        emit Transfer(from, to, tokenId);
+    }
+
+    function approve(address to, uint256 tokenId) public {
+        require(msg.sender == _owners[tokenId], "Not owner");
+        _tokenApprovals[tokenId] = to;
+        emit Approval(msg.sender, to, tokenId);
+    }
+}</code></pre>
+<pre><code class="language-javascript">// test/SimpleNFT.test.js
+describe("SimpleNFT", function () {
+  it("mints and transfers NFTs", async () => {
+    const [owner, addr1] = await ethers.getSigners();
+    const NFT = await ethers.getContractFactory("SimpleNFT");
+    const nft = await NFT.deploy();
+
+    await nft.mint(owner.address, "ipfs://QmHash1");
+    expect(await nft.ownerOf(0)).to.equal(owner.address);
+    expect(await nft.tokenURI(0)).to.equal("ipfs://QmHash1");
+
+    await nft.transferFrom(owner.address, addr1.address, 0);
+    expect(await nft.ownerOf(0)).to.equal(addr1.address);
+  });
+});</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Gas Optimization Techniques</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Optimize a gas-inefficient contract. Apply storage packing, calldata vs memory, unchecked math, and short-circuiting.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+// UNOPTIMIZED — wastes gas
+contract GasWaster {
+    uint256 public count;       // slot 0: full 256-bit slot for a small number
+    bool public active;         // slot 1: wastes a full slot for 1 bit
+    uint256 public timestamp;   // slot 2
+
+    uint256[] public values;
+
+    // Reads storage in loop (expensive)
+    function sum() public view returns (uint256 total) {
+        for (uint256 i = 0; i < values.length; i++) {
+            total += values[i];
+        }
+    }
+
+    // Uses memory for read-only external param
+    function process(string memory data) external pure returns (uint256) {
+        return bytes(data).length;
+    }
+}
+
+// OPTIMIZED version — your task
+contract GasOptimized {
+    // TODO: Pack count + active + timestamp into fewer slots
+    // Hint: uint128 count, bool active, uint120 timestamp fit in 1 slot
+
+    // TODO: Cache array length outside loop
+    // TODO: Use unchecked{} for loop counter
+    // TODO: Use calldata instead of memory for external params
+
+    // Compare gas: deploy both, call same functions, check gas used
+}</code></pre>
+<pre><code class="language-javascript">// Measure gas difference
+it("compares gas usage", async () => {
+  const Waster = await ethers.getContractFactory("GasWaster");
+  const Optimized = await ethers.getContractFactory("GasOptimized");
+  // Deploy both, add same data, compare gas for sum()
+});</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Custom Modifiers and Access Control</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Implement a role-based access control system using custom modifiers, supporting owner, admin, and user roles.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract RoleBasedAccess {
+    address public owner;
+    mapping(address => bool) public admins;
+    mapping(address => bool) public users;
+
+    event RoleGranted(address indexed account, string role);
+    event RoleRevoked(address indexed account, string role);
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not owner");
+        _;
+    }
+
+    modifier onlyAdmin() {
+        require(admins[msg.sender] || msg.sender == owner, "Not admin");
+        _;
+    }
+
+    modifier onlyUser() {
+        require(users[msg.sender] || admins[msg.sender] || msg.sender == owner, "Not user");
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    function grantAdmin(address account) public onlyOwner {
+        admins[account] = true;
+        emit RoleGranted(account, "admin");
+    }
+
+    function revokeAdmin(address account) public onlyOwner {
+        admins[account] = false;
+        emit RoleRevoked(account, "admin");
+    }
+
+    function grantUser(address account) public onlyAdmin {
+        users[account] = true;
+        emit RoleGranted(account, "user");
+    }
+
+    // Only users can access this
+    function protectedAction() public onlyUser returns (string memory) {
+        return "Access granted!";
+    }
+
+    // Only owner can self-destruct
+    function destroy() public onlyOwner {
+        selfdestruct(payable(owner));
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy and test each role can only access their allowed functions</li>
+              <li>Try calling <code>protectedAction()</code> from an unauthorized address</li>
+              <li>Add a <code>transferOwnership()</code> function with proper checks</li>
+              <li>Compare with OpenZeppelin's <code>AccessControl</code> — what does it add?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Event Indexing and Off-Chain Monitoring</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Emit events with indexed parameters and write a JavaScript listener that filters for specific events in real time.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract EventLogger {
+    event ItemCreated(uint256 indexed id, address indexed creator, string name, uint256 price);
+    event ItemSold(uint256 indexed id, address indexed buyer, uint256 price);
+    event PriceChanged(uint256 indexed id, uint256 oldPrice, uint256 newPrice);
+
+    struct Item {
+        address creator;
+        string name;
+        uint256 price;
+        bool sold;
+    }
+
+    mapping(uint256 => Item) public items;
+    uint256 public nextId;
+
+    function createItem(string calldata name, uint256 price) external {
+        uint256 id = nextId++;
+        items[id] = Item(msg.sender, name, price, false);
+        emit ItemCreated(id, msg.sender, name, price);
+    }
+
+    function buyItem(uint256 id) external payable {
+        Item storage item = items[id];
+        require(!item.sold, "Already sold");
+        require(msg.value >= item.price, "Underpaid");
+        item.sold = true;
+        payable(item.creator).transfer(msg.value);
+        emit ItemSold(id, msg.sender, msg.value);
+    }
+}</code></pre>
+<pre><code class="language-javascript">// scripts/listen.js — listen for events
+const { ethers } = require("hardhat");
+
+async function main() {
+  const contract = await ethers.getContractAt("EventLogger", "DEPLOYED_ADDR");
+
+  // Filter: only ItemCreated events from a specific creator
+  const filter = contract.filters.ItemCreated(null, "0xYOUR_ADDRESS");
+  contract.on(filter, (id, creator, name, price, event) => {
+    console.log(`New item #${id}: ${name} for ${ethers.formatEther(price)} ETH`);
+  });
+
+  // Query past events
+  const events = await contract.queryFilter("ItemSold", -1000);
+  events.forEach(e => console.log(`Sold: item #${e.args.id}`));
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Multi-Sig Wallet</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Build a multi-signature wallet that requires M-of-N owner approvals before executing transactions.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract MultiSigWallet {
+    address[] public owners;
+    uint256 public required;  // minimum approvals needed
+
+    struct Transaction {
+        address to;
+        uint256 value;
+        bytes data;
+        bool executed;
+        uint256 approvalCount;
+    }
+
+    Transaction[] public transactions;
+    mapping(uint256 => mapping(address => bool)) public approved;
+    mapping(address => bool) public isOwner;
+
+    modifier onlyOwner() { require(isOwner[msg.sender], "Not owner"); _; }
+
+    constructor(address[] memory _owners, uint256 _required) {
+        require(_owners.length >= _required &amp;&amp; _required > 0, "Invalid config");
+        for (uint i = 0; i &lt; _owners.length; i++) {
+            require(!isOwner[_owners[i]], "Duplicate owner");
+            isOwner[_owners[i]] = true;
+            owners.push(_owners[i]);
+        }
+        required = _required;
+    }
+
+    function submit(address to, uint256 value, bytes calldata data) external onlyOwner {
+        transactions.push(Transaction(to, value, data, false, 0));
+    }
+
+    function approve(uint256 txId) external onlyOwner {
+        require(!approved[txId][msg.sender], "Already approved");
+        approved[txId][msg.sender] = true;
+        transactions[txId].approvalCount++;
+    }
+
+    function execute(uint256 txId) external onlyOwner {
+        Transaction storage txn = transactions[txId];
+        require(!txn.executed, "Already executed");
+        require(txn.approvalCount >= required, "Not enough approvals");
+        txn.executed = true;
+        (bool ok, ) = txn.to.call{value: txn.value}(txn.data);
+        require(ok, "Tx failed");
+    }
+
+    receive() external payable {}
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy a 2-of-3 multi-sig wallet</li>
+              <li>Submit a transaction and get 2 owners to approve</li>
+              <li>Verify that 1 approval is insufficient to execute</li>
+              <li>Add a <code>revoke()</code> function to let owners retract their approval</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Timelock Contract</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Build a timelock contract that queues transactions and enforces a delay before execution — a critical governance safety mechanism.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract Timelock {
+    uint256 public constant MIN_DELAY = 1 days;
+    uint256 public constant MAX_DELAY = 30 days;
+    address public admin;
+
+    mapping(bytes32 => bool) public queued;
+
+    event Queued(bytes32 indexed txId, address target, uint256 value,
+                 bytes data, uint256 executeAfter);
+    event Executed(bytes32 indexed txId);
+
+    constructor() { admin = msg.sender; }
+
+    function getTxId(address target, uint256 value, bytes calldata data,
+                     uint256 executeAfter) public pure returns (bytes32) {
+        return keccak256(abi.encode(target, value, data, executeAfter));
+    }
+
+    function queue(address target, uint256 value, bytes calldata data,
+                   uint256 executeAfter) external {
+        require(msg.sender == admin, "Not admin");
+        require(executeAfter >= block.timestamp + MIN_DELAY, "Too soon");
+        require(executeAfter &lt;= block.timestamp + MAX_DELAY, "Too late");
+
+        bytes32 txId = getTxId(target, value, data, executeAfter);
+        require(!queued[txId], "Already queued");
+        queued[txId] = true;
+        emit Queued(txId, target, value, data, executeAfter);
+    }
+
+    function execute(address target, uint256 value, bytes calldata data,
+                     uint256 executeAfter) external payable {
+        require(msg.sender == admin, "Not admin");
+        bytes32 txId = getTxId(target, value, data, executeAfter);
+        require(queued[txId], "Not queued");
+        require(block.timestamp >= executeAfter, "Too early");
+        queued[txId] = false;
+        (bool ok, ) = target.call{value: value}(data);
+        require(ok, "Execution failed");
+        emit Executed(txId);
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy and queue a simple ETH transfer with a 2-day delay</li>
+              <li>Try executing before the delay — verify it reverts</li>
+              <li>Use <code>evm_increaseTime</code> in Hardhat to simulate time passing</li>
+              <li>Add a <code>cancel()</code> function for emergency abort</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Hardhat Testing Deep Dive</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Write comprehensive Hardhat tests covering events, reverts, gas estimation, time manipulation, and account impersonation.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">const { expect } = require("chai");
+const { ethers } = require("hardhat");
+const { time, loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
+
+describe("Advanced Testing Patterns", function () {
+  async function deployFixture() {
+    const [owner, addr1, addr2] = await ethers.getSigners();
+    const Token = await ethers.getContractFactory("MyToken");
+    const token = await Token.deploy("Test", "TST", 1000);
+    return { token, owner, addr1, addr2 };
+  }
+
+  it("checks event emission", async () => {
+    const { token, owner, addr1 } = await loadFixture(deployFixture);
+    await expect(token.transfer(addr1.address, 100))
+      .to.emit(token, "Transfer")
+      .withArgs(owner.address, addr1.address, 100);
+  });
+
+  it("checks custom revert reasons", async () => {
+    const { token, addr1 } = await loadFixture(deployFixture);
+    await expect(token.connect(addr1).transfer(addr1.address, 1))
+      .to.be.revertedWith("Insufficient balance");
+  });
+
+  it("manipulates block time", async () => {
+    await time.increase(3600);  // advance 1 hour
+    const latest = await time.latest();
+    console.log("Block timestamp:", latest);
+  });
+
+  it("impersonates accounts", async () => {
+    const whale = "0x55FE002aefF02F77364de339a1292923A15844B8";
+    await ethers.provider.send("hardhat_impersonateAccount", [whale]);
+    const signer = await ethers.getSigner(whale);
+    // Now you can send transactions as the whale
+  });
+
+  it("estimates gas", async () => {
+    const { token, addr1 } = await loadFixture(deployFixture);
+    const gas = await token.transfer.estimateGas(addr1.address, 50);
+    console.log("Gas estimate:", gas.toString());
+  });
+});</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Contract Verification on Etherscan</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Deploy a contract to a testnet and verify the source code on Etherscan so others can read and audit it.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">// hardhat.config.js
+require("@nomicfoundation/hardhat-toolbox");
+
+module.exports = {
+  solidity: "0.8.20",
+  networks: {
+    sepolia: {
+      url: "https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY",
+      accounts: ["YOUR_PRIVATE_KEY"]  // use .env in production!
+    }
+  },
+  etherscan: {
+    apiKey: "YOUR_ETHERSCAN_API_KEY"
+  }
+};</code></pre>
+<pre><code class="language-bash"># Deploy to testnet
+npx hardhat run scripts/deploy.js --network sepolia
+
+# Verify (pass constructor args if any)
+npx hardhat verify --network sepolia DEPLOYED_ADDRESS "constructor_arg1"
+
+# Once verified, Etherscan shows:
+# - Read Contract (view functions)
+# - Write Contract (interact via MetaMask)
+# - Source code with syntax highlighting</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Get Sepolia ETH from a faucet</li>
+              <li>Deploy SimpleStorage to Sepolia</li>
+              <li>Verify on Etherscan and interact via the UI</li>
+              <li>Why is verification important for trust and security auditing?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Interface Implementation and Library Usage</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Define an interface, implement it in a contract, and use a Solidity library for shared utility functions.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+// Library: reusable utility functions
+library MathLib {
+    function clamp(uint256 value, uint256 min, uint256 max)
+        internal pure returns (uint256) {
+        if (value &lt; min) return min;
+        if (value > max) return max;
+        return value;
+    }
+
+    function percentage(uint256 amount, uint256 bps)
+        internal pure returns (uint256) {
+        return (amount * bps) / 10000;  // basis points
+    }
+}
+
+// Interface
+interface IVault {
+    function deposit() external payable;
+    function withdraw(uint256 amount) external;
+    function balanceOf(address user) external view returns (uint256);
+}
+
+// Implementation
+contract Vault is IVault {
+    using MathLib for uint256;
+
+    mapping(address => uint256) private balances;
+    uint256 public constant MAX_DEPOSIT = 100 ether;
+    uint256 public constant FEE_BPS = 50;  // 0.5% fee
+
+    function deposit() external payable override {
+        uint256 amount = msg.value.clamp(0, MAX_DEPOSIT);
+        uint256 fee = amount.percentage(FEE_BPS);
+        balances[msg.sender] += amount - fee;
+    }
+
+    function withdraw(uint256 amount) external override {
+        require(balances[msg.sender] >= amount, "Insufficient");
+        balances[msg.sender] -= amount;
+        payable(msg.sender).transfer(amount);
+    }
+
+    function balanceOf(address user) external view override returns (uint256) {
+        return balances[user];
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy and test deposits with the fee calculation</li>
+              <li>Try depositing more than MAX_DEPOSIT — verify clamping works</li>
+              <li>Write a second contract that implements IVault differently</li>
+              <li>What's the difference between <code>library</code> with <code>internal</code> vs <code>external</code> functions?</li>
+            </ol>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Fix the Broken Token</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">The following token contract has multiple bugs that prevent it from working correctly. Find and fix all the issues so transfers and approvals work as expected.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract BrokenToken {
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+    uint256 public totalSupply;
+
+    constructor(uint256 _supply) {
+        totalSupply = _supply;
+        // BUG 1: forgot to assign supply to deployer
+    }
+
+    function transfer(address to, uint256 amount) public returns (bool) {
+        // BUG 2: wrong comparison direction
+        require(balanceOf[msg.sender] <= amount, "Insufficient");
+        balanceOf[msg.sender] -= amount;
+        // BUG 3: adding to wrong address
+        balanceOf[msg.sender] += amount;
+        return true;
+    }
+
+    function approve(address spender, uint256 amount) public returns (bool) {
+        // BUG 4: storing allowance incorrectly
+        allowance[spender][msg.sender] = amount;
+        return true;
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> There are 4 bugs total. (1) Constructor never credits the deployer. (2) The balance check uses <code>&lt;=</code> instead of <code>&gt;=</code>. (3) Transfer adds tokens back to sender instead of recipient. (4) Allowance mapping has owner/spender reversed.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Implement Missing Access Control</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">This vault contract stores ETH but anyone can withdraw. Add proper access control: only the owner can withdraw, and implement a role system where the owner can authorize other addresses to withdraw up to a specific limit.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract InsecureVault {
+    // TODO: Add owner state variable
+    // TODO: Add authorized withdrawers with limits
+
+    constructor() payable {
+        // TODO: Set owner
+    }
+
+    function deposit() public payable {}
+
+    function withdraw(uint256 amount) public {
+        // TODO: Check authorization
+        payable(msg.sender).transfer(amount);
+    }
+
+    function authorize(address user, uint256 limit) public {
+        // TODO: Only owner can authorize
+        // TODO: Store the withdrawal limit for the user
+    }
+
+    function getBalance() public view returns (uint256) {
+        return address(this).balance;
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> You need: (1) an <code>owner</code> state variable set in the constructor, (2) a <code>mapping(address =&gt; uint256) public withdrawalLimit</code>, (3) an <code>onlyOwner</code> modifier for <code>authorize()</code>, (4) in <code>withdraw()</code> check if caller is owner (unlimited) or has sufficient limit (then decrement it). Don't forget to add a <code>mapping(address =&gt; uint256) public withdrawn</code> to track how much each authorized user has taken.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Gas Optimization Challenge</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The following contract wastes gas in multiple ways. Refactor it so that <code>processAll()</code> uses at least 40% less gas while producing identical results.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract GasChallenge {
+    struct Record {
+        uint256 id;
+        bool active;        // wastes a full slot
+        uint256 value;
+        bool processed;     // wastes a full slot
+    }
+
+    Record[] public records;
+
+    function addRecord(uint256 value) public {
+        records.push(Record(records.length, true, value, false));
+    }
+
+    function processAll() public returns (uint256 total) {
+        // Multiple gas wastes here:
+        for (uint256 i = 0; i < records.length; i++) {      // reads .length every iteration
+            Record storage r = records[i];
+            if (r.active == true) {                           // redundant == true
+                if (r.processed == false) {                   // redundant == false
+                    total = total + r.value;                  // could use +=
+                    r.processed = true;
+                }
+            }
+        }
+        return total;
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> (1) Cache <code>records.length</code> in a local variable. (2) Pack <code>bool active</code> and <code>bool processed</code> into the same slot as <code>id</code> by using smaller types (e.g., <code>uint248 id; bool active; bool processed;</code> — but check slot boundaries). (3) Use <code>unchecked { i++ }</code> for the loop counter. (4) Compare booleans directly without <code>== true</code>/<code>== false</code>. (5) Use a memory variable to accumulate <code>total</code> and only write to storage once.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Timelock Bypass</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">This vault uses a timelock that requires a 1-day wait after requesting a withdrawal. Find and exploit the vulnerability to withdraw immediately.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract TimelockVault {
+    mapping(address => uint256) public balances;
+    mapping(address => uint256) public withdrawRequests;
+    mapping(address => uint256) public requestTimestamp;
+
+    function deposit() public payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    function requestWithdraw(uint256 amount) public {
+        require(balances[msg.sender] >= amount, "Insufficient");
+        withdrawRequests[msg.sender] = amount;
+        requestTimestamp[msg.sender] = block.timestamp;
+    }
+
+    function executeWithdraw() public {
+        uint256 amount = withdrawRequests[msg.sender];
+        require(amount > 0, "No request");
+        require(block.timestamp >= requestTimestamp[msg.sender] + 1 days, "Too early");
+
+        withdrawRequests[msg.sender] = 0;
+        balances[msg.sender] -= amount;
+        payable(msg.sender).transfer(amount);
+    }
+
+    // Bug: this function doesn't check for pending withdrawals
+    function transfer(address to, uint256 amount) public {
+        require(balances[msg.sender] >= amount, "Insufficient");
+        balances[msg.sender] -= amount;
+        balances[to] += amount;
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> The <code>transfer()</code> function doesn't interact with the withdrawal mechanism at all. Workflow: (1) Deposit 10 ETH. (2) Request withdraw of 10 ETH. (3) Use <code>transfer()</code> to move the 10 ETH to another account you control. (4) Deposit 10 more ETH. (5) Now you have 10 ETH balance AND a pending 10 ETH withdrawal. (6) Wait 1 day and execute both the withdrawal and transfer from the second account. You've doubled your money.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Proxy Storage Collision</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">This proxy contract has a storage collision between the proxy's admin variable and the implementation's data. Exploit the collision to become the admin and upgrade the implementation to your malicious contract.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract VulnerableProxy {
+    address public implementation;  // slot 0
+    address public admin;           // slot 1
+
+    constructor(address _impl) {
+        implementation = _impl;
+        admin = msg.sender;
+    }
+
+    function upgrade(address newImpl) public {
+        require(msg.sender == admin, "Not admin");
+        implementation = newImpl;
+    }
+
+    fallback() external payable {
+        (bool ok, bytes memory data) = implementation.delegatecall(msg.data);
+        require(ok);
+        assembly { return(add(data, 32), mload(data)) }
+    }
+    receive() external payable {}
+}
+
+contract ImplementationV1 {
+    address public owner;       // slot 0 — COLLIDES with proxy.implementation
+    uint256 public treasuryBalance;  // slot 1 — COLLIDES with proxy.admin
+
+    function setOwner(address _owner) public {
+        owner = _owner;          // overwrites proxy.implementation!
+    }
+
+    function setBalance(uint256 _bal) public {
+        treasuryBalance = _bal;  // overwrites proxy.admin!
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Call <code>setBalance(uint256(uint160(YOUR_ADDRESS)))</code> through the proxy. Since <code>treasuryBalance</code> is at slot 1 (same as <code>admin</code>), this overwrites the admin address with your address (cast to uint256). Now you're the admin and can call <code>upgrade()</code> to point the proxy to a malicious implementation that drains all ETH.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Reentrancy Guard Implementation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">This contract claims to be protected against reentrancy but the guard has a flaw. Find the vulnerability and drain the contract.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract FaultyGuard {
+    mapping(address => uint256) public balances;
+    bool private locked;
+
+    modifier noReentrancy() {
+        require(!locked, "Locked");
+        locked = true;
+        _;
+        // BUG: lock is released BEFORE the function fully completes
+        locked = false;
+    }
+
+    function deposit() public payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    // Protected function
+    function withdraw() public noReentrancy {
+        uint256 amount = balances[msg.sender];
+        require(amount > 0);
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        require(ok);
+        balances[msg.sender] = 0;
+    }
+
+    // Unprotected function — can be called during reentrancy!
+    function withdrawTo(address payable to) public {
+        uint256 amount = balances[msg.sender];
+        require(amount > 0);
+        balances[msg.sender] = 0;
+        to.transfer(amount);
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> The reentrancy guard only protects <code>withdraw()</code>, not <code>withdrawTo()</code>. This is a cross-function reentrancy: (1) Call <code>withdraw()</code> which sends ETH to your attacker contract. (2) In your <code>receive()</code>, call <code>withdrawTo(attacker)</code> — the balance hasn't been zeroed yet because <code>withdraw()</code> zeroes it after the external call. (3) You get paid twice for one deposit.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: ERC-20 Edge Cases</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">This DEX interacts with ERC-20 tokens but fails with certain token implementations. Identify which edge-case tokens break it and explain why.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+contract SimpleDEX {
+    function swap(address tokenIn, address tokenOut, uint256 amountIn) external {
+        // Bug 1: Doesn't check return value
+        IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
+
+        uint256 amountOut = amountIn;  // 1:1 for simplicity
+
+        // Bug 2: Doesn't account for fee-on-transfer tokens
+        IERC20(tokenOut).transfer(msg.sender, amountOut);
+    }
+
+    function deposit(address token, uint256 amount) external {
+        uint256 before = IERC20(token).balanceOf(address(this));
+        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        uint256 received = IERC20(token).balanceOf(address(this)) - before;
+        // Bug 3: 'received' may be less than 'amount' for fee tokens
+        // but we credit the full 'amount'
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Edge-case tokens that break this: (1) <strong>Fee-on-transfer</strong> tokens (e.g., USDT with fee): actual received amount &lt; amount parameter. (2) <strong>Non-reverting tokens</strong>: some ERC-20s return false instead of reverting — must check return value or use <code>SafeERC20</code>. (3) <strong>Rebasing tokens</strong> (e.g., stETH): balance changes between calls. (4) <strong>Tokens with blacklists</strong>: transfer can fail for specific addresses. Fix: use OpenZeppelin's <code>SafeERC20</code> and measure actual balance change.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Delegatecall Puzzle</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A contract uses <code>delegatecall</code> to a library. The library has a <code>selfdestruct</code>. What happens when you call it through delegatecall? Exploit this to destroy the calling contract.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract DelegateLib {
+    address public owner;
+
+    function destroy() public {
+        selfdestruct(payable(msg.sender));
+    }
+}
+
+contract DelegateVault {
+    address public owner;
+    address public lib;
+    mapping(address => uint256) public balances;
+
+    constructor(address _lib) {
+        owner = msg.sender;
+        lib = _lib;
+    }
+
+    function deposit() public payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    // Allows calling any function on the library via delegatecall
+    function execute(bytes calldata data) public {
+        (bool ok, ) = lib.delegatecall(data);
+        require(ok, "Delegatecall failed");
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> When <code>DelegateVault</code> delegatecalls <code>DelegateLib.destroy()</code>, the <code>selfdestruct</code> executes in the context of DelegateVault — destroying the vault, not the library! Call <code>execute(abi.encodeWithSignature("destroy()"))</code> and the vault is destroyed, sending its ETH to <code>msg.sender</code>. Post-EIP-6780 (Dencun): selfdestruct no longer destroys the contract unless called in the same transaction as creation, but it still sends all ETH.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Constructor Confusion</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">This contract was deployed with a misspelled constructor (pre-0.8 pattern). Anyone can become the owner. Find the vulnerability and take ownership.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract ConstructorConfusion {
+    address public owner;
+    mapping(address => uint256) public balances;
+
+    // In old Solidity (&lt;0.5), the constructor was a function with the contract name
+    // If you misspelled it, it became a regular public function!
+    // Modern Solidity uses the constructor keyword, but this simulates the bug:
+
+    function ConstructorConfusion_init() public {
+        // This SHOULD have been the constructor
+        // But it's a regular function anyone can call!
+        owner = msg.sender;
+    }
+
+    function deposit() public payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    function withdraw() public {
+        require(msg.sender == owner, "Not owner");
+        payable(owner).transfer(address(this).balance);
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Simply call <code>ConstructorConfusion_init()</code> — it's a public function, not a constructor. You become the owner and can call <code>withdraw()</code> to drain all ETH. This mirrors real-world bugs like the Rubixi and Parity wallet incidents where misspelled constructors allowed anyone to claim ownership. Always use the <code>constructor</code> keyword in modern Solidity.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Fallback Function Exploitation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">This contract's fallback function has a logic flaw that lets you drain ETH by calling a non-existent function with crafted calldata.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract FallbackTrap {
+    mapping(address => uint256) public balances;
+    address public owner;
+
+    constructor() payable {
+        owner = msg.sender;
+    }
+
+    function deposit() public payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    function withdraw(uint256 amount) public {
+        require(balances[msg.sender] >= amount, "Insufficient");
+        balances[msg.sender] -= amount;
+        payable(msg.sender).transfer(amount);
+    }
+
+    // Fallback: intended to forward unknown calls to owner
+    // But it sends the contract's balance instead!
+    fallback() external payable {
+        if (msg.data.length > 0) {
+            payable(msg.sender).transfer(address(this).balance);
+        }
+    }
+
+    receive() external payable {}
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Call any non-existent function on the contract (e.g., <code>contract.call(abi.encodeWithSignature("doesNotExist()"))</code>). The fallback triggers and sends <code>address(this).balance</code> to the caller. No deposit required — you drain everyone else's deposits. The fallback should NOT transfer the entire balance unconditionally.</p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

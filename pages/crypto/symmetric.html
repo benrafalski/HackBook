@@ -1,0 +1,1811 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Symmetric Cryptography</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+  <div class="container py-4">
+    <h1>Symmetric Cryptography</h1>
+
+    <!-- Tab Navigation -->
+    <ul class="nav nav-tabs" id="mainTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="notes-tab" data-bs-toggle="tab" data-bs-target="#notes" type="button" role="tab" aria-controls="notes" aria-selected="true">Notes</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="lab-tab" data-bs-toggle="tab" data-bs-target="#lab" type="button" role="tab" aria-controls="lab" aria-selected="false">Labs</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="ctf-tab" data-bs-toggle="tab" data-bs-target="#ctf" type="button" role="tab" aria-controls="ctf" aria-selected="false">CTF Challenges</button>
+      </li>
+    </ul>
+
+    <!-- Tab Content -->
+    <div class="tab-content" id="mainTabContent">
+
+      <!-- ============================================================ -->
+      <!-- NOTES TAB -->
+      <!-- ============================================================ -->
+      <div class="tab-pane fade show active" id="notes" role="tabpanel" aria-labelledby="notes-tab">
+
+        <!-- Block vs Stream Ciphers -->
+        <h2>Block Ciphers vs Stream Ciphers</h2>
+        <table class="table table-dark table-bordered">
+          <thead>
+            <tr><th>Property</th><th>Block Cipher</th><th>Stream Cipher</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Input</td><td>Fixed-size blocks (e.g., 128 bits)</td><td>One bit/byte at a time</td></tr>
+            <tr><td>Speed</td><td>Slower (complex rounds)</td><td>Faster (XOR with keystream)</td></tr>
+            <tr><td>Error propagation</td><td>Mode-dependent</td><td>Single bit errors stay local</td></tr>
+            <tr><td>Padding</td><td>Required (unless CTR/streaming mode)</td><td>Not required</td></tr>
+            <tr><td>Examples</td><td>AES, DES, 3DES, Blowfish</td><td>RC4, ChaCha20, Salsa20</td></tr>
+            <tr><td>Use cases</td><td>Disk encryption, TLS bulk</td><td>TLS (ChaCha20-Poly1305), WEP (RC4)</td></tr>
+          </tbody>
+        </table>
+
+        <!-- AES -->
+        <h2>AES (Advanced Encryption Standard)</h2>
+        <p>Rijndael algorithm, selected by NIST in 2001 to replace DES.</p>
+        <table class="table table-dark table-bordered">
+          <thead>
+            <tr><th>Key Size</th><th>Rounds</th><th>Block Size</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>128 bits (AES-128)</td><td>10</td><td>128 bits (16 bytes)</td></tr>
+            <tr><td>192 bits (AES-192)</td><td>12</td><td>128 bits (16 bytes)</td></tr>
+            <tr><td>256 bits (AES-256)</td><td>14</td><td>128 bits (16 bytes)</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Round Operations (high-level)</h3>
+        <ol>
+          <li><strong>SubBytes</strong> — Non-linear S-box substitution (confusion)</li>
+          <li><strong>ShiftRows</strong> — Cyclic left shift of rows in state matrix</li>
+          <li><strong>MixColumns</strong> — Matrix multiplication in GF(2⁸) (diffusion) — skipped in final round</li>
+          <li><strong>AddRoundKey</strong> — XOR state with round key from key schedule</li>
+        </ol>
+        <p><strong>Security:</strong> No practical attacks on full AES. Best known: biclique attack on AES-128 reduces security to ~126.1 bits (theoretical).</p>
+
+        <!-- DES/3DES -->
+        <h2>DES / 3DES (Historical)</h2>
+        <table class="table table-dark table-bordered">
+          <thead>
+            <tr><th>Cipher</th><th>Key Size</th><th>Block Size</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>DES</td><td>56 bits (+ 8 parity)</td><td>64 bits</td><td>Broken — brute-forceable in hours</td></tr>
+            <tr><td>3DES (EDE)</td><td>112 or 168 bits</td><td>64 bits</td><td>Deprecated — Sweet32 attack, slow</td></tr>
+          </tbody>
+        </table>
+        <p><strong>Sweet32:</strong> Birthday attack on 64-bit block ciphers. After 2³² blocks (~32 GB), collision probability is high → plaintext recovery in CBC mode.</p>
+
+        <!-- Block Cipher Modes -->
+        <h2>Block Cipher Modes of Operation</h2>
+
+        <h3>ECB (Electronic Codebook)</h3>
+        <p>Each block encrypted independently with the same key.</p>
+        <ul>
+          <li><strong>The Penguin Problem:</strong> Identical plaintext blocks → identical ciphertext blocks → patterns leak</li>
+          <li>Never use for data larger than one block</li>
+          <li>Parallelizable (both encrypt/decrypt)</li>
+        </ul>
+<pre><code class="language-python"># ECB mode — same plaintext block = same ciphertext block
+from Crypto.Cipher import AES
+key = b'YELLOW SUBMARINE'  # 16 bytes
+cipher = AES.new(key, AES.MODE_ECB)
+# These produce IDENTICAL ciphertext:
+c1 = cipher.encrypt(b'A' * 16)
+c2 = cipher.encrypt(b'A' * 16)
+assert c1 == c2  # Pattern leakage!</code></pre>
+
+        <h3>CBC (Cipher Block Chaining)</h3>
+        <p>Each plaintext block XORed with previous ciphertext block before encryption. First block uses IV.</p>
+        <ul>
+          <li>C_i = E_K(P_i ⊕ C_{i-1}), where C_0 = IV</li>
+          <li>IV must be unpredictable (random) for CPA security</li>
+          <li>Encryption is sequential; decryption is parallelizable</li>
+          <li>Bit errors in ciphertext corrupt current block + flip corresponding bit in next block</li>
+        </ul>
+
+        <h3>CTR (Counter Mode)</h3>
+        <p>Turns block cipher into stream cipher. Encrypts nonce||counter, XORs result with plaintext.</p>
+        <ul>
+          <li>Keystream_i = E_K(Nonce || Counter_i)</li>
+          <li>C_i = P_i ⊕ Keystream_i</li>
+          <li>Fully parallelizable, random access to any block</li>
+          <li><strong>Critical:</strong> Never reuse (key, nonce) pair — leaks XOR of plaintexts</li>
+        </ul>
+
+        <h3>OFB (Output Feedback)</h3>
+        <p>Keystream generated by repeatedly encrypting the IV. XOR keystream with plaintext.</p>
+        <ul>
+          <li>O_i = E_K(O_{i-1}), O_0 = IV</li>
+          <li>No error propagation, but nonce reuse is fatal</li>
+        </ul>
+
+        <h3>CFB (Cipher Feedback)</h3>
+        <p>Previous ciphertext encrypted to produce keystream, then XORed with plaintext.</p>
+        <ul>
+          <li>C_i = P_i ⊕ E_K(C_{i-1})</li>
+          <li>Self-synchronizing — recovers from lost ciphertext blocks</li>
+        </ul>
+
+        <h3>GCM (Galois/Counter Mode)</h3>
+        <p>CTR mode + GHASH authentication. Provides both confidentiality and integrity (AEAD).</p>
+        <ul>
+          <li>Produces ciphertext + authentication tag</li>
+          <li>Nonce should be 96 bits (12 bytes) for best performance</li>
+          <li><strong>Nonce reuse in GCM:</strong> Leaks authentication key H, allowing forgery of arbitrary messages</li>
+          <li>Standard for TLS 1.3</li>
+        </ul>
+
+        <h3>Mode Comparison</h3>
+        <table class="table table-dark table-bordered">
+          <thead>
+            <tr><th>Mode</th><th>Parallelizable</th><th>Auth</th><th>Nonce Reuse Impact</th><th>Padding</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>ECB</td><td>Yes</td><td>No</td><td>N/A (deterministic)</td><td>Yes</td></tr>
+            <tr><td>CBC</td><td>Decrypt only</td><td>No</td><td>Leaks common prefix</td><td>Yes</td></tr>
+            <tr><td>CTR</td><td>Yes</td><td>No</td><td>XOR of plaintexts</td><td>No</td></tr>
+            <tr><td>OFB</td><td>No</td><td>No</td><td>XOR of plaintexts</td><td>No</td></tr>
+            <tr><td>CFB</td><td>Decrypt only</td><td>No</td><td>Leaks first block XOR</td><td>No</td></tr>
+            <tr><td>GCM</td><td>Yes</td><td>Yes</td><td>Auth key leak + XOR</td><td>No</td></tr>
+          </tbody>
+        </table>
+
+        <!-- ECB Vulnerabilities -->
+        <h2>ECB Mode Vulnerabilities</h2>
+
+        <h3>Pattern Leakage</h3>
+        <p>Since E_K(P) is deterministic, repeated plaintext blocks produce repeated ciphertext blocks. Visual example: encrypting a bitmap image in ECB mode preserves the image outline (the "ECB penguin").</p>
+
+        <h3>Block-at-a-Time (Byte-at-a-Time) Oracle Attack</h3>
+        <p>If an oracle encrypts <code>attacker_input || secret</code> in ECB mode:</p>
+        <ol>
+          <li>Control alignment so target byte is the last byte of a block</li>
+          <li>Brute-force the unknown byte (256 guesses) by comparing ciphertext blocks</li>
+          <li>Repeat shifting one byte at a time to recover entire secret</li>
+        </ol>
+<pre><code class="language-python"># Byte-at-a-time ECB oracle attack (conceptual)
+def ecb_oracle(plaintext):
+    """Server encrypts: plaintext || SECRET in ECB mode"""
+    return AES_ECB_encrypt(plaintext + SECRET, key)
+
+def attack():
+    block_size = 16
+    known = b''
+    for i in range(len(SECRET)):
+        # Align so next unknown byte is at end of a block
+        padding = b'A' * (block_size - 1 - (i % block_size))
+        target_block = i // block_size
+        target_ct = ecb_oracle(padding)[target_block*16:(target_block+1)*16]
+        # Brute force the byte
+        for byte in range(256):
+            guess = padding + known + bytes([byte])
+            if ecb_oracle(guess)[target_block*16:(target_block+1)*16] == target_ct:
+                known += bytes([byte])
+                break
+    return known</code></pre>
+
+        <!-- CBC Attacks -->
+        <h2>CBC Mode Attacks</h2>
+
+        <h3>IV Requirements</h3>
+        <ul>
+          <li>IV must be unpredictable to an attacker (CPA security)</li>
+          <li>Reusing IV with same key leaks whether first blocks are identical</li>
+          <li>Using IV = 0 is a common misconfiguration</li>
+        </ul>
+
+        <h3>CBC Bit-Flipping Attack</h3>
+        <p>Decryption: P_i = D_K(C_i) ⊕ C_{i-1}. Flipping bit j in C_{i-1} flips bit j in P_i (at cost of corrupting block i-1).</p>
+<pre><code class="language-python"># CBC bit-flip: change P[i] by modifying C[i-1]
+# To change byte at position pos in block i from old_val to new_val:
+# Flip the corresponding byte in the previous ciphertext block
+ct = bytearray(ciphertext)
+block_offset = (target_block - 1) * 16 + byte_position
+ct[block_offset] ^= ord(old_char) ^ ord(new_char)
+# When decrypted, block i will have new_char at that position
+# (block i-1 will be garbled)</code></pre>
+
+        <h3>Padding Oracle Attack (Vaudenay)</h3>
+        <p>If a server reveals whether decrypted ciphertext has valid padding (e.g., different error for "invalid padding" vs "invalid data"), an attacker can decrypt any ciphertext without the key.</p>
+
+        <h4>PKCS#7 Padding Recap</h4>
+        <p>Pad with N bytes of value N: <code>\x01</code>, <code>\x02\x02</code>, <code>\x03\x03\x03</code>, ... <code>\x10</code>×16</p>
+
+        <h4>Attack Walkthrough (Last Byte)</h4>
+        <ol>
+          <li>Target: decrypt block C_i. We control C'_{i-1} (modified previous block).</li>
+          <li>Decryption produces: P_i = D_K(C_i) ⊕ C'_{i-1}</li>
+          <li>For valid \x01 padding, last byte of P_i must equal 0x01</li>
+          <li>Try all 256 values for last byte of C'_{i-1} until server says "valid padding"</li>
+          <li>When valid: <code>D_K(C_i)[15] ⊕ C'_{i-1}[15] = 0x01</code></li>
+          <li>Therefore: <code>D_K(C_i)[15] = 0x01 ⊕ C'_{i-1}[15]</code></li>
+          <li>Original plaintext byte: <code>P_i[15] = D_K(C_i)[15] ⊕ C_{i-1}[15]</code></li>
+        </ol>
+
+        <h4>Extending to All Bytes</h4>
+        <p>To get byte at position (16 - n):</p>
+        <ol>
+          <li>Set already-known suffix bytes of C'_{i-1} so they decrypt to padding value n</li>
+          <li>Brute-force byte (16 - n) of C'_{i-1} until server reports valid padding (0x0n repeated n times)</li>
+          <li>Recover intermediate value, compute original plaintext byte</li>
+        </ol>
+        <p><strong>Complexity:</strong> 256 × 16 = 4096 oracle queries per block (worst case).</p>
+
+<pre><code class="language-python">def padding_oracle_attack(ciphertext, oracle, block_size=16):
+    """
+    oracle(ct) -> True if padding is valid, False otherwise
+    """
+    blocks = [ciphertext[i:i+block_size] for i in range(0, len(ciphertext), block_size)]
+    plaintext = b''
+
+    for block_idx in range(1, len(blocks)):
+        prev_block = bytearray(blocks[block_idx - 1])
+        intermediate = bytearray(block_size)
+
+        for byte_pos in range(block_size - 1, -1, -1):
+            pad_val = block_size - byte_pos  # Target padding value
+
+            # Set already-known bytes to produce correct padding
+            crafted = bytearray(block_size)
+            for k in range(byte_pos + 1, block_size):
+                crafted[k] = intermediate[k] ^ pad_val
+
+            # Brute-force current byte
+            for guess in range(256):
+                crafted[byte_pos] = guess
+                test_ct = bytes(crafted) + blocks[block_idx]
+                if oracle(test_ct):
+                    # Handle false positive for second-to-last byte
+                    if byte_pos == block_size - 1:
+                        crafted[byte_pos - 1] ^= 1
+                        if not oracle(bytes(crafted) + blocks[block_idx]):
+                            continue
+                    intermediate[byte_pos] = guess ^ pad_val
+                    break
+
+        # Recover plaintext: P = intermediate XOR original prev block
+        for i in range(block_size):
+            plaintext += bytes([intermediate[i] ^ prev_block[i]])
+
+    return plaintext</code></pre>
+
+        <!-- CTR Nonce Reuse -->
+        <h2>CTR Mode: Nonce Reuse</h2>
+        <p>If same (key, nonce) encrypts two messages:</p>
+        <ul>
+          <li>C1 = P1 ⊕ Keystream</li>
+          <li>C2 = P2 ⊕ Keystream</li>
+          <li>C1 ⊕ C2 = P1 ⊕ P2 → XOR of plaintexts (crib dragging recovers both)</li>
+        </ul>
+<pre><code class="language-python"># CTR nonce reuse — recover XOR of plaintexts
+c1 = bytes.fromhex("aabbcc...")
+c2 = bytes.fromhex("ddeeff...")
+xor_plaintexts = bytes(a ^ b for a, b in zip(c1, c2))
+# Now use crib dragging: guess words in P1, XOR with xor_plaintexts to see if P2 is readable</code></pre>
+
+        <!-- Padding Schemes -->
+        <h2>Padding Schemes</h2>
+        <table class="table table-dark table-bordered">
+          <thead>
+            <tr><th>Scheme</th><th>Method</th><th>Example (3 bytes padding)</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>PKCS#7</td><td>Pad with N bytes of value N</td><td><code>\x03\x03\x03</code></td></tr>
+            <tr><td>Zero padding</td><td>Pad with null bytes</td><td><code>\x00\x00\x00</code></td></tr>
+            <tr><td>ISO 10126</td><td>Random bytes + last byte = pad length</td><td><code>\xAB\x7F\x03</code></td></tr>
+            <tr><td>ANSI X.923</td><td>Zero bytes + last byte = pad length</td><td><code>\x00\x00\x03</code></td></tr>
+          </tbody>
+        </table>
+<pre><code class="language-python"># PKCS#7 implementation
+def pkcs7_pad(data, block_size=16):
+    pad_len = block_size - (len(data) % block_size)
+    return data + bytes([pad_len] * pad_len)
+
+def pkcs7_unpad(data):
+    pad_len = data[-1]
+    if pad_len == 0 or pad_len > 16:
+        raise ValueError("Invalid padding")
+    if data[-pad_len:] != bytes([pad_len] * pad_len):
+        raise ValueError("Invalid padding")
+    return data[:-pad_len]</code></pre>
+
+        <!-- Stream Ciphers -->
+        <h2>Stream Ciphers</h2>
+
+        <h3>RC4</h3>
+        <ul>
+          <li>Variable key length (40–2048 bits), no IV (must be prepended to key)</li>
+          <li><strong>Biases:</strong> Second byte biased toward 0; initial keystream bytes correlate with key</li>
+          <li>Broken in practice: WEP attack, RC4 NOMORE attack on TLS</li>
+          <li>Drop first 256/768/3072 bytes as mitigation (RC4-drop)</li>
+          <li><strong>Never use RC4 in new designs</strong></li>
+        </ul>
+
+        <h3>ChaCha20</h3>
+        <ul>
+          <li>256-bit key, 96-bit nonce, 32-bit counter</li>
+          <li>20 rounds of quarter-round operations (ARX: Add, Rotate, XOR)</li>
+          <li>Designed by Daniel Bernstein as variant of Salsa20</li>
+          <li>Used in TLS 1.3 (ChaCha20-Poly1305), WireGuard, SSH</li>
+          <li>Faster than AES on platforms without AES-NI</li>
+        </ul>
+
+        <!-- Key Derivation -->
+        <h2>Key Derivation Functions (KDFs)</h2>
+        <p>Transform passwords/low-entropy inputs into cryptographic keys. Must be slow to resist brute-force.</p>
+        <table class="table table-dark table-bordered">
+          <thead>
+            <tr><th>KDF</th><th>Parameters</th><th>Resistance</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>PBKDF2</td><td>iterations, salt, hash</td><td>CPU only</td><td>NIST approved; min 600k iterations (2023)</td></tr>
+            <tr><td>scrypt</td><td>N, r, p, salt</td><td>CPU + Memory</td><td>Memory-hard; N=2^20, r=8, p=1 recommended</td></tr>
+            <tr><td>Argon2</td><td>time, memory, parallelism</td><td>CPU + Memory + GPU</td><td>Winner of PHC (2015); use Argon2id variant</td></tr>
+          </tbody>
+        </table>
+<pre><code class="language-python">from Crypto.Protocol.KDF import PBKDF2, scrypt
+from Crypto.Random import get_random_bytes
+
+# PBKDF2
+salt = get_random_bytes(16)
+key = PBKDF2(password, salt, dkLen=32, count=600000)
+
+# scrypt
+key = scrypt(password, salt, key_len=32, N=2**20, r=8, p=1)</code></pre>
+
+        <!-- AES-GCM -->
+        <h2>AES-GCM Authentication</h2>
+        <p>GCM combines CTR-mode encryption with GHASH (polynomial hash over GF(2¹²⁸)).</p>
+        <ul>
+          <li><strong>Inputs:</strong> Key, Nonce (12 bytes ideal), Plaintext, Associated Data (AAD)</li>
+          <li><strong>Outputs:</strong> Ciphertext, Tag (16 bytes)</li>
+          <li>Tag authenticates both ciphertext AND AAD (e.g., headers)</li>
+          <li><strong>Nonce reuse:</strong> Recovers H (GHASH key) → forge tags for arbitrary messages</li>
+        </ul>
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(32)  # AES-256
+nonce = get_random_bytes(12)
+header = b"authenticated but not encrypted"
+
+cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+cipher.update(header)  # AAD
+ciphertext, tag = cipher.encrypt_and_digest(plaintext)
+
+# Decryption + verification
+cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+cipher.update(header)
+plaintext = cipher.decrypt_and_verify(ciphertext, tag)  # Raises ValueError if tampered</code></pre>
+
+        <!-- PyCryptodome Usage -->
+        <h2>Python PyCryptodome Cheatsheet</h2>
+<pre><code class="language-bash">pip install pycryptodome</code></pre>
+
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+from Crypto.Util.Padding import pad, unpad
+
+key = get_random_bytes(16)  # AES-128
+
+# === ECB ===
+cipher = AES.new(key, AES.MODE_ECB)
+ct = cipher.encrypt(pad(plaintext, 16))
+pt = unpad(cipher.decrypt(ct), 16)
+
+# === CBC ===
+iv = get_random_bytes(16)
+cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+ct = cipher.encrypt(pad(plaintext, 16))
+# Decrypt
+cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+pt = unpad(cipher.decrypt(ct), 16)
+
+# === CTR ===
+cipher = AES.new(key, AES.MODE_CTR)
+ct = cipher.encrypt(plaintext)  # No padding needed
+nonce = cipher.nonce  # Save for decryption
+# Decrypt
+cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
+pt = cipher.decrypt(ct)
+
+# === GCM ===
+cipher = AES.new(key, AES.MODE_GCM, nonce=get_random_bytes(12))
+cipher.update(aad)  # Optional associated data
+ct, tag = cipher.encrypt_and_digest(plaintext)
+
+# === CFB ===
+cipher = AES.new(key, AES.MODE_CFB, iv=get_random_bytes(16))
+ct = cipher.encrypt(plaintext)
+
+# === OFB ===
+cipher = AES.new(key, AES.MODE_OFB, iv=get_random_bytes(16))
+ct = cipher.encrypt(plaintext)</code></pre>
+
+        <!-- OpenSSL -->
+        <h2>OpenSSL Command-Line</h2>
+<pre><code class="language-bash"># Generate random key and IV
+openssl rand -hex 16   # 128-bit key
+openssl rand -hex 16   # 128-bit IV
+
+# AES-256-CBC encrypt
+openssl enc -aes-256-cbc -in plain.txt -out cipher.bin -K $(cat key.hex) -iv $(cat iv.hex)
+
+# AES-256-CBC decrypt
+openssl enc -d -aes-256-cbc -in cipher.bin -out plain.txt -K $KEY -iv $IV
+
+# Password-based encryption (PBKDF2)
+openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -in plain.txt -out cipher.enc
+
+# AES-128-ECB (no IV)
+openssl enc -aes-128-ecb -in plain.txt -out ecb.bin -K $KEY
+
+# AES-256-CTR
+openssl enc -aes-256-ctr -in plain.txt -out ctr.bin -K $KEY -iv $NONCE
+
+# Show supported ciphers
+openssl enc -list
+
+# Decrypt base64-encoded ciphertext
+echo "BASE64DATA" | base64 -d | openssl enc -d -aes-128-cbc -K $KEY -iv $IV</code></pre>
+
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- LABS TAB -->
+      <!-- ============================================================ -->
+      <div class="tab-pane fade" id="lab" role="tabpanel" aria-labelledby="lab-tab">
+
+        <!-- Lab 1 -->
+        <div class="lab-card">
+          <h4>Lab 1: AES-ECB Encrypt/Decrypt</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Encrypt and decrypt a message using AES in ECB mode with PyCryptodome. Observe that identical plaintext blocks produce identical ciphertext blocks.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+
+# Generate a random 128-bit key
+key = get_random_bytes(16)
+print(f"Key: {key.hex()}")
+
+# Plaintext with repeated blocks
+plaintext = b"AAAAAAAAAAAAAAAA" * 3  # 3 identical 16-byte blocks
+print(f"Plaintext: {plaintext}")
+
+# Encrypt
+cipher = AES.new(key, AES.MODE_ECB)
+ciphertext = cipher.encrypt(pad(plaintext, AES.block_size))
+print(f"Ciphertext (hex): {ciphertext.hex()}")
+
+# Notice: all three blocks are identical in the ciphertext!
+for i in range(0, len(ciphertext), 16):
+    print(f"  Block {i//16}: {ciphertext[i:i+16].hex()}")
+
+# Decrypt
+cipher = AES.new(key, AES.MODE_ECB)
+decrypted = unpad(cipher.decrypt(ciphertext), AES.block_size)
+print(f"Decrypted: {decrypted}")
+assert decrypted == plaintext
+
+# Now try with different plaintext blocks
+plaintext2 = b"Block one here!!" + b"Block two here!!" + b"Block one here!!"
+cipher = AES.new(key, AES.MODE_ECB)
+ct2 = cipher.encrypt(plaintext2)
+print(f"\nBlocks 0 and 2 match: {ct2[0:16] == ct2[32:48]}")
+print(f"Blocks 0 and 1 differ: {ct2[0:16] != ct2[16:32]}")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 2 -->
+        <div class="lab-card">
+          <h4>Lab 2: ECB Pattern Detection</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Detect ECB mode by identifying repeated ciphertext blocks. Simulate the "penguin problem" with structured data.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+import collections
+
+key = get_random_bytes(16)
+
+# Simulate structured data (like an image with large uniform regions)
+# 100 blocks where many are repeated
+structured_data = b'\x00' * 16 * 30 + b'\xFF' * 16 * 30 + b'\x00' * 16 * 40
+
+# Encrypt in ECB
+cipher = AES.new(key, AES.MODE_ECB)
+ecb_ct = cipher.encrypt(structured_data)
+
+# Encrypt same data in CBC
+iv = get_random_bytes(16)
+cipher_cbc = AES.new(key, AES.MODE_CBC, iv=iv)
+cbc_ct = cipher_cbc.encrypt(structured_data)
+
+def count_repeated_blocks(data, block_size=16):
+    blocks = [data[i:i+block_size] for i in range(0, len(data), block_size)]
+    counter = collections.Counter(blocks)
+    repeated = sum(count - 1 for count in counter.values() if count > 1)
+    return repeated, len(blocks)
+
+ecb_repeated, ecb_total = count_repeated_blocks(ecb_ct)
+cbc_repeated, cbc_total = count_repeated_blocks(cbc_ct)
+
+print(f"ECB: {ecb_repeated}/{ecb_total} repeated blocks (PATTERN LEAKAGE!)")
+print(f"CBC: {cbc_repeated}/{cbc_total} repeated blocks (looks random)")
+
+# Detection function
+def detect_ecb(ciphertext, block_size=16):
+    blocks = [ciphertext[i:i+block_size] for i in range(0, len(ciphertext), block_size)]
+    unique_blocks = set(blocks)
+    if len(unique_blocks) < len(blocks):
+        return True  # ECB detected
+    return False
+
+print(f"\nECB detected in ECB ciphertext: {detect_ecb(ecb_ct)}")
+print(f"ECB detected in CBC ciphertext: {detect_ecb(cbc_ct)}")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 3 -->
+        <div class="lab-card">
+          <h4>Lab 3: ECB Cut-and-Paste Attack</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit ECB's block independence to create a forged "admin" profile by rearranging ciphertext blocks from legitimate encryptions.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(16)
+
+def profile_for(email):
+    """Server-side: create encrypted profile (no & or = in email)"""
+    email = email.replace('&', '').replace('=', '')
+    profile = f"email={email}&uid=10&role=user"
+    cipher = AES.new(key, AES.MODE_ECB)
+    return cipher.encrypt(pad(profile.encode(), 16))
+
+def decrypt_profile(ct):
+    """Server-side: decrypt and parse profile"""
+    cipher = AES.new(key, AES.MODE_ECB)
+    pt = unpad(cipher.decrypt(ct), 16).decode()
+    return dict(item.split('=') for item in pt.split('&'))
+
+# === ATTACK ===
+# Goal: create profile with role=admin
+
+# Step 1: Get a block that contains "admin" + padding at a block boundary
+# "email=" is 6 bytes. We need "admin" + pkcs7 padding to fill block 2
+# Block 1: "email=AAAAAAAAAA"  (6 + 10 = 16)
+# Block 2: "admin\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b"  (5 + 11 = 16)
+crafted_email = "A" * 10 + "admin" + "\x0b" * 11
+ct1 = profile_for(crafted_email)
+admin_block = ct1[16:32]  # Block containing "admin" + padding
+
+# Step 2: Get a ciphertext where "role=" ends exactly at a block boundary
+# "email=" (6) + email + "&uid=10&role=" (13) = need email of length 13
+# Block 1: "email=AAAAAAAAAA" (16)
+# Block 2: "AAA&uid=10&role=" (16)
+# Block 3: "user" + padding
+normal_email = "A" * 13
+ct2 = profile_for(normal_email)
+
+# Step 3: Replace block 3 with the admin block
+forged = ct2[:32] + admin_block
+
+# Verify
+profile = decrypt_profile(forged)
+print(f"Forged profile: {profile}")
+print(f"Role: {profile['role']}")
+assert profile['role'] == 'admin', "Attack failed!"
+print("SUCCESS: Elevated to admin!")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 4 -->
+        <div class="lab-card">
+          <h4>Lab 4: AES-CBC Encrypt/Decrypt</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Encrypt and decrypt with AES-CBC. Demonstrate proper IV handling and verify that changing the IV corrupts only the first block.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(16)
+iv = get_random_bytes(16)
+plaintext = b"First block here" + b"Second blk here!" + b"Third block!!!!!"
+
+print(f"Key: {key.hex()}")
+print(f"IV:  {iv.hex()}")
+print(f"Plaintext: {plaintext}")
+
+# Encrypt
+cipher_enc = AES.new(key, AES.MODE_CBC, iv=iv)
+ciphertext = cipher_enc.encrypt(pad(plaintext, 16))
+print(f"Ciphertext: {ciphertext.hex()}")
+
+# Decrypt
+cipher_dec = AES.new(key, AES.MODE_CBC, iv=iv)
+decrypted = unpad(cipher_dec.decrypt(ciphertext), 16)
+print(f"Decrypted: {decrypted}")
+assert decrypted == plaintext
+
+# Demonstrate: wrong IV only corrupts first block
+wrong_iv = get_random_bytes(16)
+cipher_wrong = AES.new(key, AES.MODE_CBC, iv=wrong_iv)
+wrong_pt = cipher_wrong.decrypt(ciphertext)
+print(f"\nWith wrong IV:")
+print(f"  Block 0 (corrupted): {wrong_pt[0:16]}")
+print(f"  Block 1 (correct):   {wrong_pt[16:32]}")
+print(f"  Block 2 (correct):   {wrong_pt[32:48]}")
+
+# Demonstrate: same key+IV encrypts same plaintext to same ciphertext (deterministic)
+cipher_e1 = AES.new(key, AES.MODE_CBC, iv=iv)
+cipher_e2 = AES.new(key, AES.MODE_CBC, iv=iv)
+assert cipher_e1.encrypt(pad(plaintext, 16)) == cipher_e2.encrypt(pad(plaintext, 16))
+print("\nSame (key, IV) → deterministic encryption (use random IV!)")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 5 -->
+        <div class="lab-card">
+          <h4>Lab 5: CBC Bit-Flipping Attack</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Modify a CBC-encrypted cookie to change "admin=0" to "admin=1" by flipping a single bit in the previous ciphertext block.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(16)
+iv = get_random_bytes(16)
+
+def encrypt_cookie(userdata):
+    """Server encrypts: prefix || userdata || suffix"""
+    # Sanitize ; and = from user input
+    userdata = userdata.replace(';', '').replace('=', '')
+    cookie = f"comment1=cooking%20MCs;userdata={userdata};comment2=%20like%20a%20pound%20of%20bacon"
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    return cipher.encrypt(pad(cookie.encode(), 16))
+
+def is_admin(ct):
+    """Server decrypts and checks for admin=true"""
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    pt = unpad(cipher.decrypt(ct), 16)
+    print(f"  Decrypted: {pt}")
+    return b";admin=true;" in pt
+
+# === ATTACK ===
+# Strategy: We can't inject ";" or "=" directly, but we can bit-flip
+# the previous block's ciphertext to change our controlled bytes.
+
+# First, understand the block layout:
+# "comment1=cooking%20MCs;userdata=" = 32 bytes (blocks 0-1)
+# Our input starts at byte 32 (block 2)
+# We inject "XadminXtrue" where X are placeholders we'll flip
+# X = chr(ord(';') ^ 1) = ':' and chr(ord('=') ^ 1) = '<'
+
+crafted_input = ":admin<true:A<AA"  # 16 bytes = exactly one block
+ct = bytearray(encrypt_cookie(crafted_input))
+
+# Flip bits in block 1 (bytes 16-31) to alter block 2's decryption
+# ':' ^ 1 = ';', '<' ^ 1 = '='
+# Position in our input: 0 -> byte 32 in cookie, controlled by ct byte 16
+# Our ':' at position 0 in input → byte 32 → flip ct[16]
+ct[16] ^= ord(':') ^ ord(';')   # ':' → ';'
+# Our '<' at position 6 in input → byte 38 → flip ct[22]
+ct[22] ^= ord('<') ^ ord('=')   # '<' → '='
+# Our ':' at position 11 in input → byte 43 → flip ct[27]  (wait, need to fix alignment)
+# Let me recalculate:
+# Block 1 of ct (indices 16-31) affects block 2 plaintext (indices 32-47)
+# crafted_input[0] = ':' at plaintext position 32 → ct[16] XOR flips pt[32]
+ct[16] ^= ord(':') ^ ord(';')
+# crafted_input[6] = '<' at plaintext position 38 → ct[22]
+ct[22] ^= ord('<') ^ ord('=')
+# crafted_input[11] = ':' at plaintext position 43 → ct[27]
+ct[27] ^= ord(':') ^ ord(';')
+# crafted_input[13] = '<' at plaintext position 45 → ct[29]
+ct[29] ^= ord('<') ^ ord('=')
+
+# Wait — let me redo with correct input to have ;admin=true;
+# "comment1=cooking%20MCs;userdata=" is 32 bytes
+# Input: ":admin<true:x<xx"
+crafted_input2 = "AAAA:admin<true:"
+ct2 = bytearray(encrypt_cookie(crafted_input2))
+# ':' at input[4] → cookie byte 36 → flip ct2[20]
+ct2[20] ^= ord(':') ^ ord(';')
+# '<' at input[10] → cookie byte 42 → flip ct2[26]
+ct2[26] ^= ord('<') ^ ord('=')
+# ':' at input[15] → cookie byte 47 → flip ct2[31]
+ct2[31] ^= ord(':') ^ ord(';')
+
+print("Checking forged cookie:")
+result = is_admin(bytes(ct2))
+print(f"Admin access: {result}")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 6 -->
+        <div class="lab-card">
+          <h4>Lab 6: CBC Padding Oracle — Decrypt One Byte at a Time</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Implement a full padding oracle attack to decrypt a CBC ciphertext without knowing the key. The oracle only reveals whether padding is valid.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+
+# Server setup (secret key)
+key = get_random_bytes(16)
+iv = get_random_bytes(16)
+
+SECRET = b"Attack at dawn! Send reinforcements."
+
+# Encrypt the secret
+cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+ciphertext = iv + cipher.encrypt(pad(SECRET, 16))  # Prepend IV
+print(f"Ciphertext length: {len(ciphertext)} bytes ({(len(ciphertext)-16)//16} blocks + IV)")
+
+# === ORACLE (server-side) ===
+oracle_calls = 0
+def padding_oracle(ct):
+    """Returns True if padding is valid after decryption."""
+    global oracle_calls
+    oracle_calls += 1
+    try:
+        test_iv = ct[:16]
+        test_ct = ct[16:]
+        cipher = AES.new(key, AES.MODE_CBC, iv=test_iv)
+        unpad(cipher.decrypt(test_ct), 16)
+        return True
+    except (ValueError, KeyError):
+        return False
+
+# === ATTACK ===
+def padding_oracle_attack(ciphertext):
+    block_size = 16
+    blocks = [ciphertext[i:i+block_size] for i in range(0, len(ciphertext), block_size)]
+    num_blocks = len(blocks)
+    recovered = b''
+
+    for block_idx in range(1, num_blocks):
+        prev_block = bytearray(blocks[block_idx - 1])
+        current_block = blocks[block_idx]
+        intermediate = bytearray(block_size)
+
+        for byte_pos in range(block_size - 1, -1, -1):
+            pad_val = block_size - byte_pos
+
+            # Build crafted previous block with known intermediate values
+            crafted_prev = bytearray(block_size)
+            for k in range(byte_pos + 1, block_size):
+                crafted_prev[k] = intermediate[k] ^ pad_val
+
+            found = False
+            for guess in range(256):
+                crafted_prev[byte_pos] = guess
+                test_ct = bytes(crafted_prev) + current_block
+
+                if padding_oracle(test_ct):
+                    # Verify it's not a false positive (for last byte)
+                    if byte_pos == block_size - 1:
+                        # Flip penultimate byte to check
+                        check = bytearray(crafted_prev)
+                        check[byte_pos - 1] ^= 1
+                        if not padding_oracle(bytes(check) + current_block):
+                            continue
+
+                    intermediate[byte_pos] = guess ^ pad_val
+                    found = True
+                    break
+
+            if not found:
+                raise Exception(f"Failed at block {block_idx}, byte {byte_pos}")
+
+        # XOR intermediate with original previous block to get plaintext
+        for i in range(block_size):
+            recovered += bytes([intermediate[i] ^ prev_block[i]])
+
+    return recovered
+
+# Run the attack
+print("Running padding oracle attack...")
+recovered = padding_oracle_attack(ciphertext)
+
+# Remove padding from recovered text
+pad_len = recovered[-1]
+recovered_clean = recovered[:-pad_len]
+
+print(f"\nRecovered: {recovered_clean}")
+print(f"Original:  {SECRET}")
+print(f"Match: {recovered_clean == SECRET}")
+print(f"Oracle calls: {oracle_calls}")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 7 -->
+        <div class="lab-card">
+          <h4>Lab 7: AES-CTR Encryption</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Encrypt and decrypt using AES-CTR mode. Demonstrate that no padding is needed and the same plaintext produces different ciphertext with different nonces.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(16)
+
+# CTR mode — no padding required, arbitrary length plaintext
+plaintext = b"CTR mode turns a block cipher into a stream cipher!"
+print(f"Plaintext ({len(plaintext)} bytes): {plaintext}")
+
+# Encrypt
+cipher = AES.new(key, AES.MODE_CTR)
+ciphertext = cipher.encrypt(plaintext)
+nonce = cipher.nonce
+print(f"Nonce: {nonce.hex()}")
+print(f"Ciphertext ({len(ciphertext)} bytes): {ciphertext.hex()}")
+
+# Decrypt (must use same nonce)
+cipher_dec = AES.new(key, AES.MODE_CTR, nonce=nonce)
+decrypted = cipher_dec.decrypt(ciphertext)
+print(f"Decrypted: {decrypted}")
+assert decrypted == plaintext
+
+# Different nonce → different ciphertext (semantic security)
+cipher2 = AES.new(key, AES.MODE_CTR)
+ct2 = cipher2.encrypt(plaintext)
+print(f"\nSame plaintext, different nonce:")
+print(f"  CT1: {ciphertext[:16].hex()}...")
+print(f"  CT2: {ct2[:16].hex()}...")
+print(f"  Equal: {ciphertext == ct2}")  # False!
+
+# Random access: decrypt only block 2 (bytes 32-47)
+# CTR allows seeking to any position
+cipher_seek = AES.new(key, AES.MODE_CTR, nonce=nonce, initial_value=2)
+# This decrypts starting from counter=2 (block index 2)
+partial = cipher_seek.decrypt(ciphertext[32:48])
+print(f"\nRandom access block 2: {partial}")
+print(f"Original block 2:      {plaintext[32:48]}")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 8 -->
+        <div class="lab-card">
+          <h4>Lab 8: CTR Nonce Reuse Attack</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit CTR nonce reuse to recover plaintexts using crib dragging. Two messages encrypted with the same key and nonce leak the XOR of plaintexts.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(16)
+nonce = get_random_bytes(8)  # REUSED (vulnerability!)
+
+# Two messages encrypted with same (key, nonce)
+msg1 = b"Meet me at the park at midnight tonight"
+msg2 = b"The secret password for the vault is x42"
+
+cipher1 = AES.new(key, AES.MODE_CTR, nonce=nonce)
+ct1 = cipher1.encrypt(msg1)
+
+cipher2 = AES.new(key, AES.MODE_CTR, nonce=nonce)
+ct2 = cipher2.encrypt(msg2)
+
+# === ATTACKER (only has ct1, ct2) ===
+# XOR ciphertexts to get XOR of plaintexts
+xor_plaintexts = bytes(a ^ b for a, b in zip(ct1, ct2))
+print(f"ct1 XOR ct2 = p1 XOR p2: {xor_plaintexts.hex()}")
+
+# Crib dragging: if we know (or guess) part of one message,
+# we can recover the corresponding part of the other
+def crib_drag(xor_stream, crib, start=0):
+    """Try a known plaintext (crib) at each position."""
+    results = []
+    for pos in range(len(xor_stream) - len(crib) + 1):
+        candidate = bytes(xor_stream[pos + i] ^ crib[i] for i in range(len(crib)))
+        # Check if result looks like ASCII text
+        if all(32 <= b < 127 for b in candidate):
+            results.append((pos, candidate.decode()))
+    return results
+
+# Attacker guesses common words
+cribs = [b"the ", b"Meet", b"secret", b"password", b"at ", b"The "]
+for crib in cribs:
+    results = crib_drag(xor_plaintexts, crib)
+    if results:
+        print(f"\nCrib '{crib.decode()}' found matches:")
+        for pos, text in results:
+            print(f"  Position {pos}: other message contains '{text}'")
+
+# With enough cribs, attacker recovers both messages
+# Verify: if we know msg1, we fully recover msg2
+recovered_msg2 = bytes(a ^ b for a, b in zip(xor_plaintexts, msg1))
+print(f"\nFull recovery of msg2: {recovered_msg2[:len(msg2)]}")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 9 -->
+        <div class="lab-card">
+          <h4>Lab 9: ECB Byte-at-a-Time Oracle</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Recover a secret appended by an ECB oracle by carefully controlling input alignment and brute-forcing one byte at a time.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+from Crypto.Random import get_random_bytes
+import base64
+
+key = get_random_bytes(16)
+SECRET = base64.b64decode(b"Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24=")
+# SECRET = b"Rollin' in my 5.0\nWith my rag-top down"
+
+def ecb_oracle(attacker_input):
+    """Encrypts: attacker_input || SECRET in ECB mode"""
+    plaintext = attacker_input + SECRET
+    cipher = AES.new(key, AES.MODE_ECB)
+    return cipher.encrypt(pad(plaintext, 16))
+
+# Step 1: Discover block size
+def find_block_size():
+    initial_len = len(ecb_oracle(b''))
+    for i in range(1, 64):
+        new_len = len(ecb_oracle(b'A' * i))
+        if new_len > initial_len:
+            return new_len - initial_len
+    return None
+
+block_size = find_block_size()
+print(f"Block size: {block_size}")
+
+# Step 2: Confirm ECB mode
+test_ct = ecb_oracle(b'A' * 48)
+if test_ct[0:16] == test_ct[16:32]:
+    print("Confirmed ECB mode")
+
+# Step 3: Determine secret length
+base_len = len(ecb_oracle(b''))
+for i in range(1, block_size + 1):
+    if len(ecb_oracle(b'A' * i)) > base_len:
+        secret_len = base_len - i
+        break
+print(f"Secret length: {secret_len} bytes")
+
+# Step 4: Byte-at-a-time recovery
+recovered = b''
+for i in range(secret_len):
+    block_idx = i // block_size
+    # Pad so target byte is last byte of a block
+    pad_len = block_size - 1 - (i % block_size)
+    padding = b'A' * pad_len
+
+    # Get target block
+    target_ct = ecb_oracle(padding)
+    target_block = target_ct[block_idx * block_size:(block_idx + 1) * block_size]
+
+    # Brute force the byte
+    for byte_val in range(256):
+        # Craft input: padding + known bytes + guess
+        craft = padding + recovered + bytes([byte_val])
+        test_ct = ecb_oracle(craft)
+        test_block = test_ct[block_idx * block_size:(block_idx + 1) * block_size]
+
+        if test_block == target_block:
+            recovered += bytes([byte_val])
+            break
+
+print(f"\nRecovered secret: {recovered}")
+print(f"Original secret:  {SECRET}")
+assert recovered == SECRET</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 10 -->
+        <div class="lab-card">
+          <h4>Lab 10: Implement PKCS#7 Padding/Unpadding</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Implement PKCS#7 padding and unpadding from scratch. Validate padding correctness and handle error cases securely.</p>
+          <div class="setup-code">
+<pre><code class="language-python">def pkcs7_pad(data: bytes, block_size: int = 16) -> bytes:
+    """Add PKCS#7 padding to reach a multiple of block_size."""
+    if block_size < 1 or block_size > 255:
+        raise ValueError("Block size must be 1-255")
+    pad_len = block_size - (len(data) % block_size)
+    # If data is already aligned, add full block of padding
+    return data + bytes([pad_len] * pad_len)
+
+def pkcs7_unpad(data: bytes, block_size: int = 16) -> bytes:
+    """Remove and validate PKCS#7 padding."""
+    if len(data) == 0:
+        raise ValueError("Empty data")
+    if len(data) % block_size != 0:
+        raise ValueError("Data not block-aligned")
+
+    pad_len = data[-1]
+
+    # Validate padding value
+    if pad_len == 0 or pad_len > block_size:
+        raise ValueError("Invalid padding byte")
+
+    # Validate all padding bytes are consistent
+    padding = data[-pad_len:]
+    if padding != bytes([pad_len] * pad_len):
+        raise ValueError("Invalid padding")
+
+    return data[:-pad_len]
+
+# === TESTS ===
+# Test basic padding
+assert pkcs7_pad(b"HELLO", 16) == b"HELLO" + b"\x0b" * 11
+assert pkcs7_pad(b"A" * 16, 16) == b"A" * 16 + b"\x10" * 16  # Full block added
+assert pkcs7_pad(b"A" * 15, 16) == b"A" * 15 + b"\x01"
+
+# Test unpadding
+assert pkcs7_unpad(b"HELLO" + b"\x0b" * 11) == b"HELLO"
+assert pkcs7_unpad(b"A" * 16 + b"\x10" * 16) == b"A" * 16
+assert pkcs7_unpad(b"A" * 15 + b"\x01") == b"A" * 15
+
+# Test invalid padding detection
+import traceback
+invalid_cases = [
+    b"HELLO\x00\x00\x00",           # Zero pad byte
+    b"HELLO\x03\x03\x02",           # Inconsistent padding
+    b"HELLO\x05\x05\x05",           # Pad length > remaining bytes? No, this is valid structure
+    b"\x11" * 16,                    # Pad byte > block_size
+    b"",                             # Empty
+]
+
+for case in invalid_cases:
+    try:
+        pkcs7_unpad(case)
+        print(f"FAIL: Should have rejected: {case.hex()}")
+    except ValueError as e:
+        print(f"Correctly rejected {case.hex()}: {e}")
+
+# Round-trip test
+for msg_len in range(0, 33):
+    msg = bytes(range(msg_len % 256)) * (msg_len // 256 + 1)
+    msg = msg[:msg_len]
+    padded = pkcs7_pad(msg)
+    assert len(padded) % 16 == 0
+    assert pkcs7_unpad(padded) == msg
+
+print("\nAll tests passed!")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 11 -->
+        <div class="lab-card">
+          <h4>Lab 11: CBC IV=Key Vulnerability</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: When CBC uses key as the IV, an attacker with a decryption oracle can recover the key. Demonstrate the attack: submit C1=X, C2=0, C3=X and extract the key from the "error message" containing decrypted plaintext.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+
+# Server uses KEY as IV (vulnerability!)
+key = get_random_bytes(16)
+iv = key  # BAD: IV = KEY
+
+def server_encrypt(plaintext):
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    return cipher.encrypt(pad(plaintext, 16))
+
+def server_decrypt_and_check(ciphertext):
+    """
+    Decrypts and checks if plaintext is 'valid ASCII'.
+    If not, returns the decrypted plaintext in an error message.
+    (This simulates error messages that leak plaintext.)
+    """
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    plaintext = cipher.decrypt(ciphertext)
+    # Check if all bytes are valid ASCII
+    if all(b < 128 for b in plaintext):
+        return ("OK", None)
+    else:
+        return ("ERROR", plaintext)  # Leaks plaintext!
+
+# === ATTACK ===
+# Get a legitimate ciphertext (at least 3 blocks)
+legit_ct = server_encrypt(b"A" * 48)
+c1 = legit_ct[0:16]   # First ciphertext block
+c2 = legit_ct[16:32]
+c3 = legit_ct[32:48]
+
+# Craft malicious ciphertext: C1 || 0 || C1
+# When decrypted:
+#   P1 = D(C1) XOR IV = D(C1) XOR KEY
+#   P2 = D(0) XOR C1  (garbage, might have high bytes)
+#   P3 = D(C1) XOR 0  = D(C1)
+# Therefore: P1 XOR P3 = KEY XOR 0 = KEY... wait
+# Actually:
+#   P1' = D_K(C1) XOR IV = D_K(C1) XOR KEY
+#   P3' = D_K(C1) XOR \x00*16 = D_K(C1)
+#   P1' XOR P3' = KEY
+
+crafted = c1 + b'\x00' * 16 + c1
+
+status, leaked_pt = server_decrypt_and_check(crafted)
+if status == "ERROR" and leaked_pt is not None:
+    p1_prime = leaked_pt[0:16]
+    p3_prime = leaked_pt[32:48]
+    recovered_key = bytes(a ^ b for a, b in zip(p1_prime, p3_prime))
+    print(f"Recovered key: {recovered_key.hex()}")
+    print(f"Actual key:    {key.hex()}")
+    assert recovered_key == key
+    print("KEY RECOVERED!")
+else:
+    # Might get lucky with valid ASCII — retry or use different C1
+    print("Plaintext was valid ASCII, no error leaked. Try different C1.")
+    # In practice, retry with different ciphertext blocks</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 12 -->
+        <div class="lab-card">
+          <h4>Lab 12: GCM Nonce Reuse — Recover Authentication Key</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Demonstrate that reusing a nonce in AES-GCM allows an attacker to recover the GHASH key H, enabling authentication tag forgery for arbitrary messages.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+import struct
+
+# Background: In GCM, the authentication tag is computed as:
+# Tag = GHASH(H, A, C) XOR E_K(J0)
+# Where H = E_K(0^128) is the hash key
+# If nonce is reused, E_K(J0) is the same for both messages
+# Tag1 XOR Tag2 = GHASH(H, A1, C1) XOR GHASH(H, A2, C2)
+# This gives us a polynomial equation in H that we can solve
+
+# For this lab, we demonstrate the concept with simplified GF(2^128) arithmetic
+
+key = get_random_bytes(16)
+nonce = get_random_bytes(12)  # REUSED!
+
+# Message 1
+aad1 = b"header1"
+pt1 = b"Message one for GCM"
+cipher1 = AES.new(key, AES.MODE_GCM, nonce=nonce)
+cipher1.update(aad1)
+ct1, tag1 = cipher1.encrypt_and_digest(pt1)
+
+# Message 2 (same key and nonce!)
+aad2 = b"header2"
+pt2 = b"Second message here!"
+cipher2 = AES.new(key, AES.MODE_GCM, nonce=nonce)
+cipher2.update(aad2)
+ct2, tag2 = cipher2.encrypt_and_digest(pt2)
+
+print(f"Nonce (reused!): {nonce.hex()}")
+print(f"Tag1: {tag1.hex()}")
+print(f"Tag2: {tag2.hex()}")
+print(f"Tag1 XOR Tag2: {bytes(a^b for a,b in zip(tag1, tag2)).hex()}")
+
+# === GF(2^128) Arithmetic for GHASH ===
+# The irreducible polynomial for GCM is: x^128 + x^7 + x^2 + x + 1
+# R = 0xE1000000000000000000000000000000 (bit-reflected representation)
+
+def bytes_to_int(b):
+    return int.from_bytes(b, 'big')
+
+def int_to_bytes(n):
+    return n.to_bytes(16, 'big')
+
+def gf128_mul(x, y):
+    """Multiply two elements in GF(2^128) with GCM's polynomial."""
+    R = 0xE1000000000000000000000000000000
+    z = 0
+    v = y
+    for i in range(128):
+        if (x >> (127 - i)) & 1:
+            z ^= v
+        if v & 1:
+            v = (v >> 1) ^ R
+        else:
+            v >>= 1
+    return z
+
+def ghash(h_int, data_blocks):
+    """Compute GHASH over a sequence of 128-bit blocks."""
+    y = 0
+    for block in data_blocks:
+        y = gf128_mul(y ^ bytes_to_int(block), h_int)
+    return y
+
+def pad_to_128(data):
+    """Pad data to multiple of 16 bytes with zeros."""
+    if len(data) % 16 == 0:
+        return data
+    return data + b'\x00' * (16 - len(data) % 16)
+
+def build_ghash_input(aad, ct):
+    """Build the GHASH input: padded AAD || padded CT || len(AAD)*8 || len(CT)*8"""
+    result = pad_to_128(aad) + pad_to_128(ct)
+    result += struct.pack('>QQ', len(aad) * 8, len(ct) * 8)
+    return result
+
+# Compute H (for verification — attacker wouldn't have this)
+cipher_h = AES.new(key, AES.MODE_ECB)
+H = cipher_h.encrypt(b'\x00' * 16)
+H_int = bytes_to_int(H)
+print(f"\nActual H: {H.hex()}")
+
+# The attack: Tag1 XOR Tag2 = GHASH(H, AAD1, CT1) XOR GHASH(H, AAD2, CT2)
+# This is a polynomial in H over GF(2^128) — can be solved to find H
+# For a full implementation, you'd factor the polynomial using Cantor-Zassenhaus
+# Here we verify the relationship holds:
+
+ghash_input1 = build_ghash_input(aad1, ct1)
+ghash_input2 = build_ghash_input(aad2, ct2)
+blocks1 = [ghash_input1[i:i+16] for i in range(0, len(ghash_input1), 16)]
+blocks2 = [ghash_input2[i:i+16] for i in range(0, len(ghash_input2), 16)]
+
+g1 = ghash(H_int, blocks1)
+g2 = ghash(H_int, blocks2)
+
+tag_xor = bytes_to_int(tag1) ^ bytes_to_int(tag2)
+ghash_xor = g1 ^ g2
+
+print(f"Tag1 XOR Tag2:    {int_to_bytes(tag_xor).hex()}")
+print(f"GHASH1 XOR GHASH2: {int_to_bytes(ghash_xor).hex()}")
+print(f"Match (confirms nonce reuse vulnerability): {tag_xor == ghash_xor}")
+print("\nWith polynomial factoring over GF(2^128), H can be recovered → forge any tag!")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 13 -->
+        <div class="lab-card">
+          <h4>Lab 13: ChaCha20-Poly1305 AEAD</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Encrypt and authenticate data using ChaCha20-Poly1305. Demonstrate that tampering with ciphertext or AAD is detected.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import ChaCha20_Poly1305
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(32)  # 256-bit key
+nonce = get_random_bytes(12)  # 96-bit nonce
+
+plaintext = b"ChaCha20-Poly1305 is used in TLS 1.3 and WireGuard"
+aad = b"associated data: not encrypted, but authenticated"
+
+# Encrypt and authenticate
+cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
+cipher.update(aad)
+ciphertext, tag = cipher.encrypt_and_digest(plaintext)
+
+print(f"Plaintext:  {plaintext}")
+print(f"Ciphertext: {ciphertext.hex()[:64]}...")
+print(f"Tag:        {tag.hex()}")
+
+# Decrypt and verify
+cipher_dec = ChaCha20_Poly1305.new(key=key, nonce=nonce)
+cipher_dec.update(aad)
+decrypted = cipher_dec.decrypt_and_verify(ciphertext, tag)
+print(f"Decrypted:  {decrypted}")
+
+# Tamper with ciphertext → authentication fails
+tampered_ct = bytearray(ciphertext)
+tampered_ct[0] ^= 0xFF
+try:
+    cipher_check = ChaCha20_Poly1305.new(key=key, nonce=nonce)
+    cipher_check.update(aad)
+    cipher_check.decrypt_and_verify(bytes(tampered_ct), tag)
+    print("ERROR: Should have failed!")
+except ValueError:
+    print("\nTampered ciphertext: Authentication FAILED (expected)")
+
+# Tamper with AAD → authentication fails
+try:
+    cipher_check2 = ChaCha20_Poly1305.new(key=key, nonce=nonce)
+    cipher_check2.update(b"WRONG associated data")
+    cipher_check2.decrypt_and_verify(ciphertext, tag)
+    print("ERROR: Should have failed!")
+except ValueError:
+    print("Tampered AAD: Authentication FAILED (expected)")</code></pre>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- CTF TAB -->
+      <!-- ============================================================ -->
+      <div class="tab-pane fade" id="ctf" role="tabpanel" aria-labelledby="ctf-tab">
+
+        <!-- CTF 1 -->
+        <div class="ctf-card">
+          <h4>Challenge 1: Identify ECB from Ciphertext</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">You intercepted multiple ciphertexts. One was encrypted with ECB mode. Find it.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+from Crypto.Random import get_random_bytes
+import base64
+
+key = get_random_bytes(16)
+
+# One plaintext has repeated blocks
+plaintexts = [
+    b"All unique bytes in this message, no repetition whatsoever here today",
+    b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",  # Repeated!
+    b"Another totally unique message with random characters 9x!@#$ mixed in",
+]
+
+ciphertexts = []
+for pt in plaintexts:
+    mode = AES.MODE_CBC
+    if pt == plaintexts[1]:
+        mode = AES.MODE_ECB
+    if mode == AES.MODE_ECB:
+        cipher = AES.new(key, mode)
+    else:
+        cipher = AES.new(key, mode, iv=get_random_bytes(16))
+    ciphertexts.append(cipher.encrypt(pad(pt, 16)))
+
+print("Which ciphertext was encrypted with ECB?")
+for i, ct in enumerate(ciphertexts):
+    print(f"\nCiphertext {i}: {ct.hex()}")
+
+# YOUR SOLUTION HERE:
+# Look for repeated 16-byte blocks in each ciphertext
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Split each ciphertext into 16-byte blocks and check if any blocks repeat. ECB mode produces identical ciphertext blocks for identical plaintext blocks. Use <code>len(set(blocks)) &lt; len(blocks)</code> to detect duplicates.</p>
+          </div>
+        </div>
+
+        <!-- CTF 2 -->
+        <div class="ctf-card">
+          <h4>Challenge 2: ECB Oracle — Recover the Secret</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The server appends a secret flag to your input and encrypts with AES-ECB. Extract the flag byte by byte.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(16)
+FLAG = b"FLAG{ecb_byte_at_a_time_is_ez}"
+
+def oracle(your_input: bytes) -> bytes:
+    """Encrypts: your_input || FLAG in ECB mode. Returns ciphertext."""
+    plaintext = your_input + FLAG
+    cipher = AES.new(key, AES.MODE_ECB)
+    return cipher.encrypt(pad(plaintext, 16))
+
+# You can call oracle() with any input.
+# Recover FLAG without knowing the key.
+# Example: oracle(b"AAAA") returns encryption of "AAAA" + FLAG padded
+
+# YOUR ATTACK CODE HERE:
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>1) Determine block size by increasing input length until output jumps. 2) Use 15 bytes of padding so the first unknown byte is the last byte of block 0. 3) Try all 256 byte values: <code>oracle(b'A'*15 + bytes([guess]))[0:16]</code> and compare with target. 4) Shift padding left and repeat for each subsequent byte.</p>
+          </div>
+        </div>
+
+        <!-- CTF 3 -->
+        <div class="ctf-card">
+          <h4>Challenge 3: CBC Bit-Flip to Become Admin</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The server encrypts your profile with CBC. Modify the ciphertext so that when decrypted, it contains "role=admin" instead of "role=guest".</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(16)
+iv = get_random_bytes(16)
+
+def create_token(username):
+    """Creates encrypted token: 'user=USERNAME____role=guest' (padded to blocks)"""
+    # Ensure 'role=' starts at a block boundary
+    profile = f"user={username.ljust(11)}role=guest"
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    return cipher.encrypt(pad(profile.encode(), 16))
+
+def check_token(ct):
+    """Decrypts token and checks role."""
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    pt = unpad(cipher.decrypt(ct), 16)
+    print(f"Decrypted: {pt}")
+    if b"role=admin" in pt:
+        return "ACCESS GRANTED - You are admin!"
+    return "Access denied - you are guest"
+
+# You receive this token:
+token = create_token("hacker")
+print(f"Token: {token.hex()}")
+print(f"Original check: {check_token(token)}")
+
+# YOUR ATTACK: modify token bytes to change "guest" to "admin"
+# Layout: "user=hacker    role=guest" + padding
+# Block 0: "user=hacker    " (16 bytes)
+# Block 1: "role=guest\x06\x06\x06\x06\x06\x06" (16 bytes)
+# To change block 1, flip bytes in block 0 (ct[0:16])
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>In CBC decryption, P[1] = D_K(C[1]) XOR C[0]. To change "guest" → "admin" in block 1, XOR the corresponding positions in C[0] (block 0 of ciphertext) with <code>ord('g')^ord('a')</code>, <code>ord('u')^ord('d')</code>, <code>ord('e')^ord('m')</code>, <code>ord('s')^ord('i')</code>, <code>ord('t')^ord('n')</code>. Block 0 will be garbled but block 1 will have "admin".</p>
+          </div>
+        </div>
+
+        <!-- CTF 4 -->
+        <div class="ctf-card">
+          <h4>Challenge 4: CTR Keystream Reuse</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Two messages were encrypted with the same AES-CTR key and nonce. Recover both plaintexts using crib dragging.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(16)
+nonce = get_random_bytes(8)
+
+msg1 = b"The flag is FLAG{ctr_reuse_bad}"
+msg2 = b"Never reuse a nonce with CTR!!"
+
+c1 = AES.new(key, AES.MODE_CTR, nonce=nonce).encrypt(msg1)
+c2 = AES.new(key, AES.MODE_CTR, nonce=nonce).encrypt(msg2)
+
+# GIVEN to attacker:
+print(f"c1 = {c1.hex()}")
+print(f"c2 = {c2.hex()}")
+print(f"Hint: One message starts with 'The flag is'")
+
+# YOUR ATTACK:
+# 1. XOR c1 and c2 to get p1 XOR p2
+# 2. Use the known crib "The flag is" to decrypt corresponding bytes of msg2
+# 3. Use discovered msg2 bytes as new cribs to recover more of msg1
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p><code>xor = bytes(a^b for a,b in zip(c1,c2))</code> gives P1⊕P2. XOR the known crib with the corresponding xor bytes: <code>bytes(xor[i]^ord(c) for i,c in enumerate("The flag is"))</code> reveals those bytes of msg2. Then use discovered msg2 fragments to recover more of msg1.</p>
+          </div>
+        </div>
+
+        <!-- CTF 5 -->
+        <div class="ctf-card">
+          <h4>Challenge 5: Padding Oracle Decrypt</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A server returns HTTP 200 for valid padding and HTTP 403 for invalid padding. Decrypt the flag without the key.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(16)
+iv = get_random_bytes(16)
+
+FLAG = b"FLAG{padding_oracle_vaudenay_2002}"
+cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+encrypted_flag = iv + cipher.encrypt(pad(FLAG, 16))
+
+# Server oracle — simulates HTTP response
+def server_check(ciphertext: bytes) -> int:
+    """Returns 200 if padding valid, 403 if invalid."""
+    try:
+        test_iv = ciphertext[:16]
+        test_ct = ciphertext[16:]
+        cipher = AES.new(key, AES.MODE_CBC, iv=test_iv)
+        unpad(cipher.decrypt(test_ct), 16)
+        return 200
+    except:
+        return 403
+
+# GIVEN: encrypted_flag (IV prepended)
+print(f"Encrypted flag: {encrypted_flag.hex()}")
+print(f"Server responds with 200 or 403")
+print(f"Test: server_check(encrypted_flag) = {server_check(encrypted_flag)}")
+
+# YOUR ATTACK: Implement padding oracle attack using server_check()
+# Recover the flag one byte at a time
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>For each block, start from the last byte. Craft a 2-block message: [modified_prev_block][target_block]. Iterate byte values 0-255 for the last byte of modified_prev_block until server returns 200. When found: intermediate_byte = guess XOR 0x01. Then set last byte to intermediate XOR 0x02, and brute-force second-to-last byte for valid \x02\x02 padding. Repeat for all 16 bytes, then XOR intermediate with original previous block to get plaintext.</p>
+          </div>
+        </div>
+
+        <!-- CTF 6 -->
+        <div class="ctf-card">
+          <h4>Challenge 6: ECB Block Shuffling</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">An admin panel encrypts structured data in ECB. Rearrange ciphertext blocks to escalate your privileges.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(16)
+
+def encrypt_record(username, role="user"):
+    """Encrypts: 'name=XXXXXXXXXXrole=YYYY' in 16-byte aligned fields"""
+    # Fields are padded to exactly 16 bytes each
+    name_field = f"name={username}".ljust(16)[:16]
+    role_field = f"role={role}".ljust(16)[:16]
+    record = (name_field + role_field).encode()
+    cipher = AES.new(key, AES.MODE_ECB)
+    return cipher.encrypt(record)
+
+def decrypt_record(ct):
+    cipher = AES.new(key, AES.MODE_ECB)
+    pt = cipher.decrypt(ct).decode()
+    fields = {}
+    fields['name'] = pt[0:16].split('=')[1].strip()
+    fields['role'] = pt[16:32].split('=')[1].strip()
+    return fields
+
+# You register as a normal user
+your_token = encrypt_record("hackerman", "user")
+print(f"Your token: {your_token.hex()}")
+print(f"Decoded: {decrypt_record(your_token)}")
+
+# You also register with a specially crafted "username"
+# that makes the name field contain "role=admin       "
+# HINT: What if your "username" is "role=admin      "?
+# Then name_field = "name=role=admin " (16 bytes) — not useful
+# But what if you register with username that puts "role=admin" in block position?
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Register with a username that when encrypted produces a block containing "role=admin" with proper padding. For example, register as "admin" so the server creates <code>encrypt_record("admin", "admin")</code> — then take block 1 (the role block) from an admin token. Or craft a username so that overflow from the name field creates a valid "role=admin" block that you can substitute into your own token.</p>
+          </div>
+        </div>
+
+        <!-- CTF 7 -->
+        <div class="ctf-card">
+          <h4>Challenge 7: Weak Key Derivation Cracking</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A file was encrypted with AES-CBC, but the key was derived from a weak 4-digit PIN using MD5. Crack it.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+import hashlib
+
+# Server setup (attacker doesn't know the PIN)
+PIN = "7392"
+key = hashlib.md5(PIN.encode()).digest()  # Weak! MD5 of 4-digit PIN
+iv = get_random_bytes(16)
+
+FLAG = b"FLAG{weak_kdf_is_no_kdf}"
+cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+ciphertext = cipher.encrypt(pad(FLAG, 16))
+
+# GIVEN to attacker:
+print(f"IV: {iv.hex()}")
+print(f"Ciphertext: {ciphertext.hex()}")
+print(f"Hint: Key = MD5(4-digit PIN)")
+
+# YOUR ATTACK: Brute-force all 10000 possible PINs
+# For each PIN: compute MD5, try to decrypt, check if padding is valid
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Only 10,000 possible PINs (0000-9999). For each: <code>key = hashlib.md5(pin.encode()).digest()</code>, decrypt with AES-CBC, try <code>unpad()</code>. Valid padding + printable ASCII = correct PIN. Takes under a second.</p>
+          </div>
+        </div>
+
+        <!-- CTF 8 -->
+        <div class="ctf-card">
+          <h4>Challenge 8: Known Key, Unknown Mode</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">You have the key but the server randomly picks ECB or CBC for each encryption. Determine which mode was used for a given ciphertext.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+from Crypto.Random import get_random_bytes
+import random
+
+key = get_random_bytes(16)  # KNOWN to attacker
+
+def encryption_oracle(plaintext: bytes) -> bytes:
+    """Encrypts with either ECB or CBC (randomly chosen). Returns ciphertext."""
+    if random.choice([True, False]):
+        cipher = AES.new(key, AES.MODE_ECB)
+        return cipher.encrypt(pad(plaintext, 16))
+    else:
+        iv = get_random_bytes(16)
+        cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+        return iv + cipher.encrypt(pad(plaintext, 16))  # IV prepended
+
+# You can choose what plaintext to encrypt
+# Determine if ECB or CBC was used for each call
+
+# YOUR APPROACH:
+# Method 1: Send repeated blocks and check for repeated ciphertext blocks
+# Method 2: Since you have the key, decrypt with ECB and check if it makes sense
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Send <code>b'\x00' * 48</code> (3 identical blocks). If ECB: all ciphertext blocks are identical. If CBC: prepended IV makes the ciphertext 16 bytes longer, and blocks are all different. Check ciphertext length and block repetition.</p>
+          </div>
+        </div>
+
+        <!-- CTF 9 -->
+        <div class="ctf-card">
+          <h4>Challenge 9: CBC IV Recovery from First Block</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A server uses the encryption key as the IV (IV=Key). You can submit ciphertexts and receive error messages containing the decrypted plaintext. Recover the key.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+
+key = get_random_bytes(16)
+iv = key  # VULNERABILITY: IV = Key
+
+def encrypt(plaintext: bytes) -> bytes:
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    return cipher.encrypt(plaintext)  # Assumes pre-padded
+
+def decrypt_and_verify(ciphertext: bytes):
+    """
+    Decrypts and checks content validity.
+    Returns plaintext in error message if invalid characters found.
+    """
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    plaintext = cipher.decrypt(ciphertext)
+    if any(b > 127 for b in plaintext):
+        # Error message leaks plaintext!
+        return {"status": "error", "message": f"Invalid characters in decrypted data", "plaintext": plaintext}
+    return {"status": "ok"}
+
+# You have a captured ciphertext (3 blocks):
+captured = encrypt(b"A" * 48)
+print(f"Captured ciphertext: {captured.hex()}")
+
+# YOUR ATTACK:
+# 1. Take first block C1 of captured ciphertext
+# 2. Submit crafted ciphertext: C1 || \x00*16 || C1
+# 3. From leaked plaintext: P1' XOR P3' = IV = Key
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>Craft: <code>C1 + b'\x00'*16 + C1</code>. Decryption gives P1'=D(C1)⊕IV and P3'=D(C1)⊕0=D(C1). So <code>P1' ⊕ P3' = IV = Key</code>. The zero block in the middle likely causes high bytes in P2', triggering the error message that leaks all plaintext blocks.</p>
+          </div>
+        </div>
+
+        <!-- CTF 10 -->
+        <div class="ctf-card">
+          <h4>Challenge 10: Multi-Block CBC Manipulation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A server encrypts JSON data with CBC. Modify the ciphertext to change <code>{"user":"guest","admin":false}</code> to have <code>"admin":true</code> while keeping valid JSON.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+import json
+
+key = get_random_bytes(16)
+iv = get_random_bytes(16)
+
+def create_session(username):
+    """Creates encrypted session token."""
+    data = json.dumps({"user": username, "admin": False})
+    # Resulting JSON: {"user": "guest", "admin": false}
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    return iv + cipher.encrypt(pad(data.encode(), 16))
+
+def verify_session(token):
+    """Decrypts and parses session. Returns parsed data."""
+    token_iv = token[:16]
+    ct = token[16:]
+    cipher = AES.new(key, AES.MODE_CBC, iv=token_iv)
+    try:
+        pt = unpad(cipher.decrypt(ct), 16)
+        data = json.loads(pt)
+        return data
+    except Exception as e:
+        return {"error": str(e)}
+
+# You get this token as "guest"
+token = create_session("guest")
+print(f"Token: {token.hex()}")
+print(f"Verified: {verify_session(token)}")
+
+# YOUR GOAL: Modify the token so verify_session returns {"admin": true}
+# Constraints:
+#   - You don't know the key
+#   - The decrypted text must be valid JSON
+#   - The JSON must have "admin": true (or "admin":true)
+#
+# HINT: Since IV is prepended and you control it, you can
+# bit-flip the IV to modify the FIRST block of plaintext.
+# The first block (bytes 0-15) is: {"user": "guest"
+# You need to think about what changes to make...
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p>The IV controls the first plaintext block. Plaintext is <code>{"user": "guest", "admin": false}</code>. Block 0 (16 bytes): <code>{"user": "guest"</code>. You can XOR bytes in the IV to change block 0 content. Strategy: change the username portion to inject JSON that closes the object early or overwrites the admin field. For example, flip bytes to change <code>"guest"</code> to <code>"a","admin":true}</code> — but you need to ensure the overall JSON is still parseable (even if it has trailing garbage that gets ignored by a lenient parser, or you truncate).</p>
+          </div>
+        </div>
+
+        <!-- CTF 11 -->
+        <div class="ctf-card">
+          <h4>Challenge 11: RC4 Key Scheduling Weakness</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">An application uses RC4 with a predictable key format: "SECRET_" + 3 random digits. Intercept the ciphertext and brute-force the key.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from Crypto.Cipher import ARC4
+from Crypto.Random import get_random_bytes
+import random
+
+# Server uses weak key format
+suffix = f"{random.randint(0,999):03d}"
+key = f"SECRET_{suffix}".encode()
+
+FLAG = b"FLAG{rc4_weak_key_space}"
+cipher = ARC4.new(key)
+ciphertext = cipher.encrypt(FLAG)
+
+# GIVEN:
+print(f"Ciphertext: {ciphertext.hex()}")
+print(f"Key format: SECRET_XXX where XXX is 000-999")
+
+# YOUR ATTACK: Only 1000 possible keys!
+# Try each, check if decrypted text starts with "FLAG{"
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show Hint</button>
+          <div class="hint-content" style="display:none">
+            <p><code>for i in range(1000): key = f"SECRET_{i:03d}".encode(); pt = ARC4.new(key).decrypt(ciphertext); if pt.startswith(b"FLAG{"): print(pt)</code></p>
+          </div>
+        </div>
+
+      </div>
+
+    </div><!-- /tab-content -->
+  </div><!-- /container -->
+</div>
+</body>
+</html>

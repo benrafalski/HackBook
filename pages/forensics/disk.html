@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Disk Forensics</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Disk Forensics</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <h2>Disk Imaging</h2>
+        <p>Always work on a forensic copy, never the original evidence. Create bit-for-bit images and verify integrity with hashes.</p>
+
+        <h3>dd / dcfldd</h3>
+<pre><code class="language-bash"># Basic disk image with dd
+dd if=/dev/sda of=evidence.img bs=4096 conv=noerror,sync status=progress
+
+# Hash while imaging
+dd if=/dev/sda bs=4096 conv=noerror,sync | tee evidence.img | md5sum > evidence.md5
+
+# dcfldd — forensic-enhanced dd with built-in hashing
+dcfldd if=/dev/sda of=evidence.img bs=4096 hash=md5,sha256 hashlog=hashes.txt
+
+# Split into chunks
+dcfldd if=/dev/sda of=evidence split=2G splitformat=000 hash=sha256
+
+# Verify image integrity
+md5sum evidence.img
+sha256sum evidence.img</code></pre>
+
+        <h3>FTK Imager (Windows)</h3>
+        <p>GUI-based forensic imager. Supports E01 (EnCase), AFF, raw (dd) formats. Generates hash verification automatically. Can also mount images for read-only browsing.</p>
+<pre><code class="language-bash"># Mount E01 image on Linux with ewfmount
+ewfmount evidence.E01 /mnt/ewf/
+mount -o ro,loop /mnt/ewf/ewf1 /mnt/evidence/
+
+# Convert E01 to raw
+ewfexport evidence.E01</code></pre>
+
+        <h2>File Systems</h2>
+
+        <h3>Ext4 Structure</h3>
+        <table>
+          <tr><th>Component</th><th>Description</th></tr>
+          <tr><td>Superblock</td><td>FS metadata — block size, inode count, mount time. Backup copies at block group boundaries.</td></tr>
+          <tr><td>Block Group Descriptor</td><td>Pointers to block/inode bitmaps and inode table for each group.</td></tr>
+          <tr><td>Inode Table</td><td>Each inode stores permissions, timestamps, size, data block pointers. No filename — that's in the directory entry.</td></tr>
+          <tr><td>Extents</td><td>Ext4 uses extent trees instead of indirect blocks. Each extent maps a contiguous range of logical blocks to physical blocks.</td></tr>
+          <tr><td>Journal</td><td>Logs metadata (and optionally data) changes before committing. Recovery goldmine — contains deleted file metadata.</td></tr>
+        </table>
+<pre><code class="language-bash"># Superblock info
+dumpe2fs /dev/sda1 | head -50
+tune2fs -l /dev/sda1
+
+# List inodes
+debugfs /dev/sda1
+debugfs: ls -l /
+debugfs: stat &lt;inode_number&gt;
+debugfs: cat &lt;inode_number&gt;
+
+# Recover deleted files via journal
+debugfs: lsdel              # list recently deleted inodes
+debugfs: dump &lt;inode&gt; /tmp/recovered_file</code></pre>
+
+        <h3>NTFS Structure</h3>
+        <table>
+          <tr><th>Component</th><th>Description</th></tr>
+          <tr><td>$MFT</td><td>Master File Table — one record (1024 bytes) per file/dir. Contains all metadata and small file data (resident).</td></tr>
+          <tr><td>$MFT Entry</td><td>Header + attributes: $STANDARD_INFORMATION, $FILE_NAME, $DATA, $INDEX_ROOT, $INDEX_ALLOCATION.</td></tr>
+          <tr><td>$LogFile</td><td>Transaction journal for NTFS metadata. Records create/delete/rename operations.</td></tr>
+          <tr><td>$UsnJrnl</td><td>USN Change Journal — logs every file/dir change with reason codes. Located at $Extend\$UsnJrnl:$J.</td></tr>
+          <tr><td>$Bitmap</td><td>Cluster allocation bitmap. Shows which clusters are in use.</td></tr>
+        </table>
+
+        <h3>FAT32 Structure</h3>
+        <table>
+          <tr><th>Component</th><th>Description</th></tr>
+          <tr><td>Boot Sector</td><td>Volume info, cluster size, FAT location, root dir cluster.</td></tr>
+          <tr><td>FAT (File Allocation Table)</td><td>Linked list of clusters per file. Entry = next cluster number, 0x0FFFFFFF = end-of-chain, 0x00000000 = free.</td></tr>
+          <tr><td>Directory Entry</td><td>32 bytes: 8.3 filename, attributes, timestamps, starting cluster, file size. Deleted files have 0xE5 as first byte.</td></tr>
+          <tr><td>Data Area</td><td>Actual file content in clusters. Slack space between end-of-file and end-of-cluster can contain remnant data.</td></tr>
+        </table>
+
+        <h2>File Carving</h2>
+        <p>Recovers files from raw disk images by scanning for known file signatures (magic bytes), ignoring filesystem metadata entirely.</p>
+<pre><code class="language-bash"># foremost — carve by file headers/footers
+foremost -t all -i evidence.img -o /output/foremost/
+foremost -t jpg,png,pdf,doc,zip -i evidence.img -o /output/foremost/
+
+# scalpel — faster, config-driven carving
+# Edit /etc/scalpel/scalpel.conf to uncomment desired file types
+scalpel -c /etc/scalpel/scalpel.conf -o /output/scalpel/ evidence.img
+
+# binwalk — firmware/embedded file extraction
+binwalk evidence.img                    # scan for signatures
+binwalk -e evidence.img                 # extract embedded files
+binwalk --dd='.*' evidence.img          # extract everything
+
+# bulk_extractor — carves emails, URLs, credit cards, etc.
+bulk_extractor -o /output/bulk/ evidence.img</code></pre>
+
+        <h3>Common File Signatures</h3>
+        <table>
+          <tr><th>File Type</th><th>Magic Bytes (hex)</th><th>Footer</th></tr>
+          <tr><td>JPEG</td><td><code>FF D8 FF E0</code> / <code>FF D8 FF E1</code></td><td><code>FF D9</code></td></tr>
+          <tr><td>PNG</td><td><code>89 50 4E 47 0D 0A 1A 0A</code></td><td><code>49 45 4E 44 AE 42 60 82</code></td></tr>
+          <tr><td>PDF</td><td><code>25 50 44 46</code> (%PDF)</td><td><code>25 25 45 4F 46</code> (%%EOF)</td></tr>
+          <tr><td>ZIP/DOCX</td><td><code>50 4B 03 04</code></td><td><code>50 4B 05 06</code></td></tr>
+          <tr><td>GIF</td><td><code>47 49 46 38</code></td><td><code>00 3B</code></td></tr>
+          <tr><td>ELF</td><td><code>7F 45 4C 46</code></td><td>—</td></tr>
+          <tr><td>PE/EXE</td><td><code>4D 5A</code></td><td>—</td></tr>
+        </table>
+
+        <h2>Deleted File Recovery</h2>
+<pre><code class="language-bash"># PhotoRec — file-system-aware recovery
+photorec evidence.img
+# Interactive menu: select partition → file types → destination
+
+# TestDisk — partition and filesystem recovery
+testdisk evidence.img
+# Analyse → partition type → Advanced → list/recover files
+
+# extundelete — ext3/ext4 specific
+extundelete evidence.img --restore-all
+extundelete evidence.img --restore-file path/to/file
+extundelete evidence.img --after 1700000000    # by timestamp
+
+# NTFS: ntfsundelete
+ntfsundelete /dev/sda1 -s                       # scan for deleted
+ntfsundelete /dev/sda1 -u -i 12345 -o recovered # undelete by inode
+ntfsundelete /dev/sda1 -u -m '*.docx'           # by pattern</code></pre>
+
+        <h2>Timestamps &amp; Timeline Analysis</h2>
+        <h3>MACB Timestamps</h3>
+        <table>
+          <tr><th>Letter</th><th>Meaning</th><th>NTFS ($SI)</th><th>NTFS ($FN)</th><th>Ext4</th></tr>
+          <tr><td><strong>M</strong></td><td>Modified</td><td>Content modified</td><td>Content modified</td><td>mtime</td></tr>
+          <tr><td><strong>A</strong></td><td>Accessed</td><td>Last accessed</td><td>Last accessed</td><td>atime</td></tr>
+          <tr><td><strong>C</strong></td><td>Changed</td><td>MFT entry modified</td><td>MFT entry modified</td><td>ctime (metadata change)</td></tr>
+          <tr><td><strong>B</strong></td><td>Born (created)</td><td>File created</td><td>File created</td><td>crtime (ext4 only)</td></tr>
+        </table>
+        <p><strong>Key insight:</strong> NTFS stores timestamps in both <code>$STANDARD_INFORMATION</code> (easily modified by users) and <code>$FILE_NAME</code> (only modified by the kernel). Compare both to detect <strong>timestomping</strong>.</p>
+<pre><code class="language-bash"># Extract MFT and parse timestamps
+# analyzeMFT
+analyzeMFT.py -f '$MFT' -o mft_output.csv
+
+# MFTECmd (Eric Zimmerman tools, Windows)
+MFTECmd.exe -f '$MFT' --csv output/ --csvf mft.csv
+
+# mactime — Sleuth Kit timeline tool
+fls -r -m "/" evidence.img > bodyfile.txt
+mactime -b bodyfile.txt -d > timeline.csv
+mactime -b bodyfile.txt 2024-01-01..2024-12-31 > filtered_timeline.csv
+
+# stat on mounted image
+stat /mnt/evidence/suspicious_file.txt</code></pre>
+
+        <h2>NTFS Artifacts</h2>
+
+        <h3>$MFT Analysis</h3>
+<pre><code class="language-bash"># Extract $MFT from image
+icat -o &lt;partition_offset&gt; evidence.img 0 > '$MFT'
+
+# Parse with istat
+istat -o &lt;offset&gt; evidence.img &lt;inode&gt;
+
+# Resident data — small files stored entirely inside MFT record
+# $DATA attribute < ~700 bytes fits in the MFT entry itself</code></pre>
+
+        <h3>Alternate Data Streams (ADS)</h3>
+        <p>NTFS allows multiple data streams per file. The default (unnamed) stream is what you normally see. Additional named streams are hidden from normal directory listings.</p>
+<pre><code class="language-bash"># Windows — create and read ADS
+echo "hidden data" > normal.txt:secret.txt
+more < normal.txt:secret.txt
+dir /r                                    # shows ADS entries
+
+# Detect ADS with Sleuth Kit
+fls -r evidence.img | grep -i ":"
+
+# Extract ADS
+icat -o &lt;offset&gt; evidence.img &lt;inode&gt;:&lt;stream_name&gt; > extracted_ads</code></pre>
+
+        <h3>$LogFile and $UsnJrnl</h3>
+<pre><code class="language-bash"># Extract $LogFile
+icat -o &lt;offset&gt; evidence.img 2 > '$LogFile'
+
+# Parse USN Journal
+# Extract $UsnJrnl:$J
+icat -o &lt;offset&gt; evidence.img &lt;usnjrnl_inode&gt;-128-4 > usnjrnl.bin
+
+# Parse with usnjrnl_parse or MFTECmd
+python usnjrnl_parse.py -f usnjrnl.bin -o usnjrnl.csv</code></pre>
+
+        <h2>Ext4 Artifacts</h2>
+<pre><code class="language-bash"># Journal recovery — ext4 journal contains old inode data
+# Dump journal
+debugfs -R "dump &lt;8&gt; /tmp/journal.bin" /dev/sda1
+
+# extjournal — parse journal for deleted file metadata
+# jcat (Sleuth Kit)
+jcat -f ext4 evidence.img &lt;journal_block&gt;
+
+# Inode analysis
+istat -f ext4 evidence.img &lt;inode&gt;
+
+# Find deleted inodes
+ils -f ext4 evidence.img           # list deleted inodes
+ils -f ext4 -r evidence.img       # only removed files</code></pre>
+
+        <h2>Partition Analysis</h2>
+<pre><code class="language-bash"># mmls — display partition layout (Sleuth Kit)
+mmls evidence.img
+# DOS Partition Table
+# Offset    Length    Description
+# 0000000   0000001  Primary Table (#0)
+# 0000001   0002047  Unallocated
+# 0002048   1048576  Linux (0x83)
+
+# fdisk
+fdisk -l evidence.img
+
+# Identify filesystem type
+fsstat -o 2048 evidence.img
+
+# Hidden partitions — check for gaps between partitions
+# HPA (Host Protected Area) / DCO (Device Configuration Overlay)
+hdparm -N /dev/sda              # check HPA
+hdparm --dco-identify /dev/sda  # check DCO</code></pre>
+
+        <h2>Sleuth Kit &amp; Autopsy</h2>
+        <p>The Sleuth Kit (TSK) is the CLI forensic toolkit. Autopsy is its GUI frontend.</p>
+        <table>
+          <tr><th>Tool</th><th>Purpose</th><th>Example</th></tr>
+          <tr><td><code>mmls</code></td><td>Partition layout</td><td><code>mmls evidence.img</code></td></tr>
+          <tr><td><code>fsstat</code></td><td>FS details</td><td><code>fsstat -o 2048 evidence.img</code></td></tr>
+          <tr><td><code>fls</code></td><td>List files (incl. deleted)</td><td><code>fls -r -o 2048 evidence.img</code></td></tr>
+          <tr><td><code>istat</code></td><td>Inode metadata</td><td><code>istat -o 2048 evidence.img 15</code></td></tr>
+          <tr><td><code>icat</code></td><td>Extract file by inode</td><td><code>icat -o 2048 evidence.img 15 > file</code></td></tr>
+          <tr><td><code>blkstat</code></td><td>Block/cluster info</td><td><code>blkstat -o 2048 evidence.img 1000</code></td></tr>
+          <tr><td><code>blkcat</code></td><td>Extract raw block</td><td><code>blkcat -o 2048 evidence.img 1000</code></td></tr>
+          <tr><td><code>sigfind</code></td><td>Find data by signature</td><td><code>sigfind -o 2048 evidence.img FFD8FF</code></td></tr>
+          <tr><td><code>tsk_recover</code></td><td>Recover all deleted files</td><td><code>tsk_recover -o 2048 evidence.img /output/</code></td></tr>
+          <tr><td><code>sorter</code></td><td>Sort files by type</td><td><code>sorter -o 2048 evidence.img /output/</code></td></tr>
+        </table>
+
+        <h2>Evidence of Execution</h2>
+
+        <h3>Prefetch (Windows)</h3>
+<pre><code class="language-bash"># Location: C:\Windows\Prefetch\
+# Format: APPNAME-HASH.pf
+# Contains: exe name, run count, last 8 run times, files/dirs accessed
+
+# Parse with PECmd (Eric Zimmerman)
+PECmd.exe -f "C:\Windows\Prefetch\CMD.EXE-4A81B364.pf"
+PECmd.exe -d "C:\Windows\Prefetch" --csv output/ --csvf prefetch.csv
+
+# Linux — parse with prefetchparser
+python prefetch_parser.py APPNAME.pf</code></pre>
+
+        <h3>Amcache / ShimCache</h3>
+<pre><code class="language-bash"># Amcache: C:\Windows\AppCompat\Programs\Amcache.hve
+# Tracks: exe path, SHA1 hash, first execution time, publisher
+AmcacheParser.exe -f Amcache.hve --csv output/ --csvf amcache.csv
+
+# ShimCache (AppCompatCache): SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache
+# Tracks: exe path, last modified time, execution flag
+AppCompatCacheParser.exe -f SYSTEM --csv output/ --csvf shimcache.csv</code></pre>
+
+        <h2>Registry Analysis</h2>
+<pre><code class="language-bash"># Registry hive locations (Windows):
+# HKLM\SAM        → C:\Windows\System32\config\SAM
+# HKLM\SECURITY   → C:\Windows\System32\config\SECURITY
+# HKLM\SOFTWARE   → C:\Windows\System32\config\SOFTWARE
+# HKLM\SYSTEM     → C:\Windows\System32\config\SYSTEM
+# HKCU (per user) → C:\Users\&lt;user&gt;\NTUSER.DAT
+# HKCU\Software\Classes → C:\Users\&lt;user&gt;\AppData\Local\Microsoft\Windows\UsrClass.dat
+
+# RegRipper — automated registry parsing
+regripper -r SAM -p samparse
+regripper -r NTUSER.DAT -p userassist
+regripper -r SOFTWARE -p uninstall
+regripper -r SYSTEM -p compname
+
+# Key artifacts:
+# UserAssist   — GUI programs run (ROT13 encoded), run count, last run
+# MRU lists    — recently accessed files per application
+# ShellBags    — folder access history (even deleted folders)
+# TypedPaths   — Explorer address bar history
+# RunMRU       — Run dialog history</code></pre>
+
+        <h2>Browser Artifacts</h2>
+<pre><code class="language-bash"># Chrome (SQLite databases):
+# History     → AppData\Local\Google\Chrome\User Data\Default\History
+# Cookies     → AppData\Local\Google\Chrome\User Data\Default\Cookies
+# Login Data  → AppData\Local\Google\Chrome\User Data\Default\Login Data
+# Bookmarks   → AppData\Local\Google\Chrome\User Data\Default\Bookmarks (JSON)
+
+# Firefox:
+# places.sqlite   → history + bookmarks
+# cookies.sqlite  → cookies
+# logins.json     → saved passwords (encrypted with key4.db)
+
+# Parse with sqlite3
+sqlite3 History "SELECT url, title, datetime(last_visit_time/1000000-11644473600,'unixepoch') FROM urls ORDER BY last_visit_time DESC LIMIT 20;"
+
+# Hindsight — Chrome forensic tool
+hindsight.py -i "User Data/Default" -o chrome_report</code></pre>
+
+        <h2>LNK Files</h2>
+        <p>Windows shortcut files created automatically when files are opened. Persist even after the target file is deleted.</p>
+<pre><code class="language-bash"># Location: C:\Users\&lt;user&gt;\AppData\Roaming\Microsoft\Windows\Recent\
+# Contains: target path, MAC timestamps of target, volume serial, drive type,
+#           NetBIOS name, MAC address (older versions)
+
+# Parse with LECmd (Eric Zimmerman)
+LECmd.exe -f "recent_file.lnk"
+LECmd.exe -d "C:\Users\user\AppData\Roaming\Microsoft\Windows\Recent" --csv output/
+
+# Python parsing
+python lnk_parser.py suspicious.lnk</code></pre>
+
+        <h2>Recycle Bin</h2>
+<pre><code class="language-bash"># Location: C:\$Recycle.Bin\&lt;SID&gt;\
+# $I files — metadata: original path, deletion timestamp, file size
+# $R files — actual file content
+
+# Parse $I files
+python rbin_parser.py '$I*'
+
+# RBCmd (Eric Zimmerman)
+RBCmd.exe -d "C:\$Recycle.Bin\S-1-5-21-..." --csv output/
+
+# Manual parsing — $I file structure:
+# Offset 0x00: header (8 bytes)
+# Offset 0x08: file size (8 bytes)
+# Offset 0x10: deletion timestamp (8 bytes, FILETIME)
+# Offset 0x18: original file path (Unicode)</code></pre>
+
+        <h2>USB Forensics</h2>
+<pre><code class="language-bash"># Windows Registry keys for USB history:
+# SYSTEM\CurrentControlSet\Enum\USB       — VID/PID, serial number
+# SYSTEM\CurrentControlSet\Enum\USBSTOR   — device description, serial
+# SYSTEM\MountedDevices                    — drive letter assignments
+# SOFTWARE\Microsoft\Windows Portable Devices\Devices — friendly name
+# NTUSER.DAT\Software\Microsoft\Windows\CurrentVersion\Explorer\MountPoints2 — user interaction
+
+# Setupapi.dev.log — timestamps of USB device installation
+# Location: C:\Windows\INF\setupapi.dev.log
+grep -i "device install" setupapi.dev.log
+
+# RegRipper USB plugins
+regripper -r SYSTEM -p usbstor
+regripper -r SYSTEM -p usbdevices
+
+# Linux USB artifacts
+# /var/log/syslog or journalctl — USB connect/disconnect events
+grep -i usb /var/log/syslog</code></pre>
+
+        <h2>Anti-Forensics Detection</h2>
+        <table>
+          <tr><th>Technique</th><th>Detection Method</th></tr>
+          <tr><td><strong>Timestomping</strong></td><td>Compare $STANDARD_INFORMATION vs $FILE_NAME timestamps in MFT. $FN timestamps can only be modified by the kernel.</td></tr>
+          <tr><td><strong>File wiping</strong></td><td>Look for overwrite patterns (all zeros, random data) in unallocated space. Tools like sdelete leave artifacts in Prefetch/USN Journal.</td></tr>
+          <tr><td><strong>Log clearing</strong></td><td>Event ID 1102 (Security log cleared), gaps in log timestamps, missing expected events.</td></tr>
+          <tr><td><strong>Hidden partitions</strong></td><td>Compare disk size reported by <code>mmls</code> vs physical size. Check for HPA/DCO with <code>hdparm</code>.</td></tr>
+          <tr><td><strong>Steganography</strong></td><td>Statistical analysis of image files (chi-square, RS analysis). Tools: <code>stegdetect</code>, <code>zsteg</code>, <code>steghide</code>.</td></tr>
+          <tr><td><strong>Encryption</strong></td><td>High entropy in file/partition data. Look for known headers (LUKS, BitLocker, VeraCrypt).</td></tr>
+          <tr><td><strong>Data hiding in slack</strong></td><td>Compare file size in directory entry vs allocated clusters. Examine cluster slack with <code>blkcat</code>.</td></tr>
+        </table>
+<pre><code class="language-bash"># Detect timestomping with analyzeMFT
+analyzeMFT.py -f '$MFT' -o mft.csv
+# Compare SI_Created vs FN_Created columns — large discrepancies = timestomping
+
+# Entropy analysis for encrypted/wiped areas
+ent suspicious_file            # check randomness
+binwalk -E evidence.img        # entropy graph
+
+# Detect known wiping tool artifacts
+grep -r "sdelete" prefetch/
+grep -r "eraser" prefetch/
+grep -r "ccleaner" prefetch/</code></pre>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Create and Analyze a Disk Image</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Create a forensic disk image using dd, verify integrity with hashing, and examine the image with basic tools.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create a small test filesystem
+dd if=/dev/zero of=test_disk.img bs=1M count=64
+mkfs.ext4 test_disk.img
+mkdir /mnt/lab1
+mount -o loop test_disk.img /mnt/lab1
+
+# Populate with test files
+echo "This is a public document" > /mnt/lab1/public.txt
+echo "SECRET_FLAG{imaging_101}" > /mnt/lab1/secret.txt
+mkdir /mnt/lab1/documents
+cp /etc/passwd /mnt/lab1/documents/users.txt
+
+umount /mnt/lab1</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Create a forensic image with <code>dcfldd if=test_disk.img of=evidence.img hash=sha256 hashlog=evidence.hash</code></li>
+              <li>Verify the image: <code>sha256sum evidence.img</code> and compare with hashlog</li>
+              <li>Get partition info: <code>mmls evidence.img</code> and <code>fsstat evidence.img</code></li>
+              <li>List all files: <code>fls -r evidence.img</code></li>
+              <li>Extract a file by inode: <code>icat evidence.img &lt;inode&gt; > recovered.txt</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: File Carving with Foremost</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Recover files from a disk image using file carving tools without relying on filesystem metadata.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create image with embedded files
+dd if=/dev/zero of=carve_disk.img bs=1M count=32
+mkfs.ext4 carve_disk.img
+mount -o loop carve_disk.img /mnt/lab2
+
+# Add various file types
+cp /path/to/sample.jpg /mnt/lab2/photo.jpg
+echo "%PDF-1.4 fake pdf content" > /mnt/lab2/document.pdf
+echo "PK" | cat - /path/to/sample.zip > /mnt/lab2/archive.zip
+echo "FLAG{carved_from_the_void}" > /mnt/lab2/flag.txt
+
+# Delete some files to simulate evidence destruction
+rm /mnt/lab2/flag.txt
+rm /mnt/lab2/photo.jpg
+umount /mnt/lab2</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>foremost -t all -i carve_disk.img -o /output/lab2/</code></li>
+              <li>Examine the <code>audit.txt</code> output — what file types were recovered?</li>
+              <li>Try <code>scalpel</code> with a custom config — uncomment only jpg and pdf</li>
+              <li>Use <code>binwalk carve_disk.img</code> to identify embedded signatures</li>
+              <li>Compare results between foremost and scalpel — which recovered more?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Deleted File Recovery</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Recover deleted files from ext4 and NTFS filesystems using dedicated recovery tools.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Ext4 recovery scenario
+dd if=/dev/zero of=ext4_recovery.img bs=1M count=64
+mkfs.ext4 ext4_recovery.img
+mount -o loop ext4_recovery.img /mnt/lab3
+
+echo "CONFIDENTIAL: FLAG{deleted_not_gone}" > /mnt/lab3/classified.txt
+echo "Meeting notes for project alpha" > /mnt/lab3/notes.txt
+cp /usr/bin/ls /mnt/lab3/suspicious_binary
+sync
+rm /mnt/lab3/classified.txt /mnt/lab3/suspicious_binary
+umount /mnt/lab3</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Use <code>fls ext4_recovery.img</code> to list files — find deleted entries (marked with <code>*</code>)</li>
+              <li>Get inode details with <code>istat ext4_recovery.img &lt;inode&gt;</code></li>
+              <li>Recover file content: <code>icat ext4_recovery.img &lt;inode&gt; > recovered.txt</code></li>
+              <li>Try <code>extundelete ext4_recovery.img --restore-all</code></li>
+              <li>Use <code>tsk_recover ext4_recovery.img /output/recovered/</code></li>
+              <li>Verify recovered file integrity with <code>md5sum</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: NTFS MFT Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Extract and parse the $MFT from an NTFS image. Identify file metadata, resident data, and deleted file records.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create NTFS test image
+dd if=/dev/zero of=ntfs_lab.img bs=1M count=128
+mkfs.ntfs -f ntfs_lab.img
+mount -o loop ntfs_lab.img /mnt/lab4
+
+echo "Employee records" > /mnt/lab4/employees.txt
+echo "FLAG{mft_reveals_all}" > /mnt/lab4/secret_memo.txt
+rm /mnt/lab4/secret_memo.txt
+umount /mnt/lab4</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Find the partition offset: <code>mmls ntfs_lab.img</code></li>
+              <li>Extract the MFT: <code>icat -o &lt;offset&gt; ntfs_lab.img 0 > mft.bin</code></li>
+              <li>Parse with <code>analyzeMFT.py -f mft.bin -o mft.csv</code></li>
+              <li>Open the CSV — find the deleted <code>secret_memo.txt</code> entry</li>
+              <li>Check if file data is resident (stored inside the MFT record itself)</li>
+              <li>Extract the content: <code>icat -o &lt;offset&gt; ntfs_lab.img &lt;inode&gt;</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Alternate Data Streams Detection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Create, detect, and extract NTFS Alternate Data Streams that hide data within normal-looking files.</p>
+          <div class="setup-code">
+            <p><strong>Setup (Windows):</strong></p>
+<pre><code class="language-bash"># Create test files with ADS
+echo "Normal readme content" > readme.txt
+echo "FLAG{hidden_in_plain_sight}" > readme.txt:hidden_flag.txt
+echo "C2 server: 10.10.10.10" > readme.txt:c2_config.txt
+echo "Just a normal image" > photo.jpg
+echo "Encoded payload data" > photo.jpg:payload.bin
+
+# Or setup on Linux with NTFS image:
+dd if=/dev/zero of=ads_lab.img bs=1M count=64
+mkfs.ntfs -f ads_lab.img
+mount -o loop ads_lab.img /mnt/lab5
+# Use ntfs-3g to create ADS files</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Use <code>dir /r</code> (Windows) to list files with ADS</li>
+              <li>Read hidden streams: <code>more &lt; readme.txt:hidden_flag.txt</code></li>
+              <li>From forensic image: <code>fls -r ntfs_lab.img | grep ":"</code> to find ADS</li>
+              <li>Extract ADS with <code>icat</code>: <code>icat -o &lt;offset&gt; ntfs_lab.img &lt;inode&gt;:&lt;stream&gt;</code></li>
+              <li>Document all ADS found and their contents</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Timeline Construction</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Build a forensic timeline from filesystem metadata using Sleuth Kit's mactime and correlate events.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create image with time-sequenced activity
+dd if=/dev/zero of=timeline_lab.img bs=1M count=64
+mkfs.ext4 timeline_lab.img
+mount -o loop timeline_lab.img /mnt/lab6
+
+# Simulate activity over time
+echo "Initial setup" > /mnt/lab6/setup.log
+sleep 2
+echo "User data" > /mnt/lab6/user_data.txt
+sleep 2
+echo "FLAG{timeline_tells_the_story}" > /mnt/lab6/exfil_data.txt
+sleep 2
+cp /mnt/lab6/exfil_data.txt /mnt/lab6/backup_copy.txt
+rm /mnt/lab6/exfil_data.txt
+umount /mnt/lab6</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Generate a bodyfile: <code>fls -r -m "/" timeline_lab.img > body.txt</code></li>
+              <li>Create the timeline: <code>mactime -b body.txt -d > timeline.csv</code></li>
+              <li>Filter by date range: <code>mactime -b body.txt 2024-01-01..2024-12-31</code></li>
+              <li>Identify the sequence: creation → copy → deletion of the exfil file</li>
+              <li>Correlate the deleted file's timestamps with the backup copy</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Registry Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Extract forensic artifacts from Windows registry hives using RegRipper. Identify user activity, installed software, and system configuration.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Mount a Windows forensic image or use sample hives
+mount -o ro,loop windows_evidence.img /mnt/lab7
+
+# Copy registry hives
+cp /mnt/lab7/Windows/System32/config/SAM ./
+cp /mnt/lab7/Windows/System32/config/SYSTEM ./
+cp /mnt/lab7/Windows/System32/config/SOFTWARE ./
+cp /mnt/lab7/Users/suspect/NTUSER.DAT ./</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>regripper -r SAM -p samparse</code> — extract user accounts and last login times</li>
+              <li>Run <code>regripper -r NTUSER.DAT -p userassist</code> — find programs the user executed</li>
+              <li>Run <code>regripper -r NTUSER.DAT -p typedpaths</code> — check Explorer address bar history</li>
+              <li>Run <code>regripper -r NTUSER.DAT -p recentdocs</code> — recently opened documents</li>
+              <li>Run <code>regripper -r SOFTWARE -p uninstall</code> — installed programs</li>
+              <li>Run <code>regripper -r SYSTEM -p usbstor</code> — USB device history</li>
+              <li>Correlate: did the user plug in a USB, open sensitive docs, then run a wiping tool?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Browser Artifacts Extraction</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Extract and analyze browser history, downloads, cookies, and cached pages from Chrome/Firefox databases.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Copy browser data from forensic image
+cp -r /mnt/evidence/Users/suspect/AppData/Local/Google/Chrome/User\ Data/Default/ ./chrome_data/
+
+# Or use Firefox
+cp /mnt/evidence/Users/suspect/AppData/Roaming/Mozilla/Firefox/Profiles/*.default/places.sqlite ./</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Query Chrome history:
+<pre><code class="language-bash">sqlite3 chrome_data/History \
+  "SELECT url, title, datetime(last_visit_time/1000000-11644473600,'unixepoch') as visit_time
+   FROM urls ORDER BY last_visit_time DESC LIMIT 30;"</code></pre></li>
+              <li>Query Chrome downloads:
+<pre><code class="language-bash">sqlite3 chrome_data/History \
+  "SELECT target_path, tab_url, total_bytes,
+   datetime(start_time/1000000-11644473600,'unixepoch')
+   FROM downloads;"</code></pre></li>
+              <li>Extract cached pages from <code>chrome_data/Cache/</code></li>
+              <li>Parse Firefox <code>places.sqlite</code> for bookmarks and history</li>
+              <li>Look for evidence of visiting file-sharing or paste sites</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Sleuth Kit Command Mastery</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Practice the full Sleuth Kit workflow — from partition discovery to file extraction — on a multi-partition image.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create a multi-partition image using losetup + fdisk
+dd if=/dev/zero of=multi_part.img bs=1M count=256
+# Use fdisk to create 2 partitions, format as ext4 and ntfs
+# Populate with files and delete some
+
+# Or download a practice image:
+# NIST CFReDS, Digital Corpora, or CyberDefenders samples</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li><code>img_stat multi_part.img</code> — image metadata</li>
+              <li><code>mmls multi_part.img</code> — find partition offsets</li>
+              <li><code>fsstat -o &lt;offset&gt; multi_part.img</code> — filesystem details per partition</li>
+              <li><code>fls -r -o &lt;offset&gt; multi_part.img</code> — recursive file listing</li>
+              <li><code>fls -r -d -o &lt;offset&gt; multi_part.img</code> — deleted files only</li>
+              <li><code>istat -o &lt;offset&gt; multi_part.img &lt;inode&gt;</code> — inspect specific file</li>
+              <li><code>icat -o &lt;offset&gt; multi_part.img &lt;inode&gt; > recovered</code> — extract file</li>
+              <li>Generate a full timeline and look for suspicious gaps</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Partition Recovery</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Recover a deleted or damaged partition from a disk image using TestDisk and manual analysis.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create image with a partition, then destroy the partition table
+dd if=/dev/zero of=damaged_disk.img bs=1M count=128
+# Create partition, format, add files including flag
+# Then overwrite the first 512 bytes (MBR) with zeros:
+dd if=/dev/zero of=damaged_disk.img bs=512 count=1 conv=notrunc</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Verify the partition table is destroyed: <code>mmls damaged_disk.img</code> (should fail or show nothing)</li>
+              <li>Use <code>testdisk damaged_disk.img</code> → Analyse → search for lost partitions</li>
+              <li>Alternatively, manually find the filesystem: <code>sigfind -t ext4 damaged_disk.img</code></li>
+              <li>Once the offset is found, try: <code>fls -o &lt;found_offset&gt; damaged_disk.img</code></li>
+              <li>Recover the files from the rediscovered partition</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: USB Artifact Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Trace USB device connection history from Windows registry hives and system logs to prove a specific device was connected.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Extract registry hives from a Windows forensic image
+cp /mnt/evidence/Windows/System32/config/SYSTEM ./
+cp /mnt/evidence/Windows/INF/setupapi.dev.log ./
+
+# For Linux host analysis
+cp /var/log/syslog ./syslog_backup</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>regripper -r SYSTEM -p usbstor</code> to list USB storage devices</li>
+              <li>Run <code>regripper -r SYSTEM -p usbdevices</code> for USB device details</li>
+              <li>Parse <code>setupapi.dev.log</code> for first-install timestamps: <code>grep -i "device install" setupapi.dev.log</code></li>
+              <li>Cross-reference device serial numbers across USBSTOR, MountedDevices, and MountPoints2</li>
+              <li>Build a timeline: when was the USB first connected, last connected, and which drive letter was assigned?</li>
+              <li>Check if any files were accessed from the USB drive using LNK files and RecentDocs</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Anti-Forensics Detection</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Identify evidence of anti-forensic techniques applied to a disk image — timestomping, file wiping, data hiding.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create an image with anti-forensic artifacts
+dd if=/dev/zero of=antiforensics.img bs=1M count=128
+mkfs.ntfs -f antiforensics.img
+mount -o loop antiforensics.img /mnt/lab12
+
+# Create and timestomp a file (simulated — modify MFT $SI timestamps)
+echo "Backdoor config" > /mnt/lab12/system_update.log
+touch -t 201901011200 /mnt/lab12/system_update.log    # fake old timestamp
+
+# Create and wipe a file (leaves wiping artifacts)
+echo "Exfiltrated passwords" > /mnt/lab12/data.txt
+shred -n 3 -z /mnt/lab12/data.txt
+rm /mnt/lab12/data.txt
+
+umount /mnt/lab12</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Extract and parse the MFT: compare $STANDARD_INFORMATION vs $FILE_NAME timestamps</li>
+              <li>Look for files where $SI creation time is much earlier than $FN creation time (timestomping indicator)</li>
+              <li>Check for wiping tool artifacts in Prefetch: <code>grep -ri "sdelete\|eraser\|bleachbit\|ccleaner" prefetch/</code></li>
+              <li>Examine USN Journal for delete/overwrite entries that correlate with the wiped file</li>
+              <li>Run <code>binwalk -E antiforensics.img</code> — look for regions of unusually high entropy (encrypted or wiped data)</li>
+              <li>Document all anti-forensic indicators found and which technique was used</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: The Deleted Evidence</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A suspect deleted a file containing credentials from an ext4 filesystem. Recover it from the disk image.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup
+dd if=/dev/zero of=ctf1.img bs=1M count=32
+mkfs.ext4 ctf1.img
+mount -o loop ctf1.img /mnt/ctf1
+echo "admin:FLAG{recovery_is_not_deletion}" > /mnt/ctf1/credentials.txt
+echo "Decoy file" > /mnt/ctf1/readme.txt
+sync
+rm /mnt/ctf1/credentials.txt
+umount /mnt/ctf1</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>fls ctf1.img</code> to find deleted entries (prefixed with <code>*</code>). Get the inode number of the deleted file, then <code>icat ctf1.img &lt;inode&gt;</code> to recover its content. Alternatively, <code>tsk_recover ctf1.img /output/</code> recovers everything.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Hidden in the Stream</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">An attacker hid data inside an NTFS Alternate Data Stream. Find the flag hidden within a normal-looking text file.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup (Windows)
+echo "Company quarterly report - nothing suspicious here." > report.txt
+echo "FLAG{ads_are_sneaky}" > report.txt:secret.txt
+echo "More hidden data" > report.txt:config.dat
+
+# Create forensic image of the directory
+# Or setup on Linux with NTFS:
+dd if=/dev/zero of=ctf2.img bs=1M count=32
+mkfs.ntfs -f ctf2.img
+# mount and add files with ADS using ntfs-3g</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>On Windows, use <code>dir /r</code> to reveal ADS. On a forensic image, <code>fls -r ctf2.img | grep ":"</code> will show named data streams. Extract with <code>icat -o &lt;offset&gt; ctf2.img &lt;inode&gt;:&lt;stream_name&gt;</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Timeline Puzzle</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">An insider exfiltrated data over several days. Reconstruct the timeline from the disk image to determine when and what files were copied to a USB drive. The flag is the exact timestamp of the exfiltration.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup
+dd if=/dev/zero of=ctf3.img bs=1M count=64
+mkfs.ext4 ctf3.img
+mount -o loop ctf3.img /mnt/ctf3
+
+# Simulate multi-day activity
+touch -t 202401150900 /mnt/ctf3/project_plan.docx
+touch -t 202401160830 /mnt/ctf3/budget.xlsx
+touch -t 202401161400 /mnt/ctf3/FLAG_202401161423.txt
+echo "FLAG{timeline_20240116T142300Z}" > /mnt/ctf3/FLAG_202401161423.txt
+touch -t 202401170900 /mnt/ctf3/meeting_notes.txt
+
+# Access some files at different times to create timeline noise
+touch -a -t 202401161430 /mnt/ctf3/budget.xlsx
+umount /mnt/ctf3</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Build a bodyfile with <code>fls -r -m "/" ctf3.img > body.txt</code>, then <code>mactime -b body.txt -d > timeline.csv</code>. Sort by timestamp and look for file creation events on Jan 16 around 14:23. The flag format includes the ISO 8601 timestamp.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Registry Secrets</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Extract a password stored in a Windows registry hive. The suspect saved credentials in a custom registry key.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Setup — create a test registry hive with python-registry
+# pip install python-registry
+from Registry import Registry
+
+# Or manually: use regedit to create:
+# HKCU\Software\CustomApp\Settings
+#   Value: "APIKey" = "FLAG{registry_treasure_hunt}"
+#   Value: "Server" = "192.168.1.100"
+#   Value: "Port" = 4444
+
+# For the challenge, provide the NTUSER.DAT file</code></pre>
+<pre><code class="language-bash"># Parse with RegRipper or python-registry
+regripper -r NTUSER.DAT -a > full_dump.txt
+grep -i "flag\|password\|key\|secret" full_dump.txt</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>regripper -r NTUSER.DAT -a</code> to dump all plugins, then search the output. Or use <code>reglookup NTUSER.DAT | grep -i "customapp"</code> to find the key path. The flag is in a value named <code>APIKey</code> under <code>Software\CustomApp\Settings</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Browser Breadcrumbs</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The suspect visited a site and downloaded a file before deleting browser history. Recover the URL and download path from residual browser artifacts.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — provide a Chrome "History" SQLite database with planted data
+# The database should contain:
+#   urls table: entry for "https://evil-share.example.com/FLAG{browser_forensics_ftw}.zip"
+#   downloads table: target_path with the flag filename
+
+# Partial history clearing leaves:
+# - Favicons database still has domain entries
+# - Cache may retain downloaded content
+# - Media History / Top Sites can have references</code></pre>
+<pre><code class="language-bash"># Analysis
+sqlite3 History "SELECT * FROM urls WHERE url LIKE '%flag%' OR url LIKE '%evil%';"
+sqlite3 History "SELECT target_path, tab_url FROM downloads;"
+sqlite3 Favicons "SELECT page_url FROM icon_mapping;"</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Even if the main history is cleared, check the <code>downloads</code> table — it may still have entries. Also check <code>Favicons</code>, <code>Top Sites</code>, and <code>Shortcuts</code> databases. The flag is embedded in the download URL.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Partition Within a Partition</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A disk image contains a hidden partition that doesn't appear in the standard partition table. Find and extract the flag from it.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup
+dd if=/dev/zero of=ctf6.img bs=1M count=256
+
+# Create normal partition (first 128MB)
+# Leave gap, then create a hidden ext4 filesystem at offset 150MB
+# that is NOT in the partition table
+dd if=/dev/zero bs=1M count=64 | mkfs.ext4 - 2>/dev/null > hidden_part.img
+mount -o loop hidden_part.img /mnt/hidden
+echo "FLAG{hidden_partition_found}" > /mnt/hidden/flag.txt
+umount /mnt/hidden
+
+# Embed hidden partition into main image at specific offset
+dd if=hidden_part.img of=ctf6.img bs=1M seek=150 conv=notrunc</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>mmls ctf6.img</code> — note gaps between partitions and unallocated space. Use <code>sigfind -t ext4 ctf6.img</code> to find filesystem superblocks. Calculate the sector offset, then <code>fls -o &lt;offset&gt; ctf6.img</code> to browse the hidden partition.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Recycle Bin Forensics</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">The suspect "deleted" a sensitive document, but it's still in the Recycle Bin. Parse the $I metadata file to find the original path and recover the content from the $R file.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Setup — create mock $I and $R files
+import struct
+import datetime
+
+# $I file format (Windows 10+):
+# 0x00: Version (2, 8 bytes)
+# 0x08: File size (8 bytes)
+# 0x10: Deletion timestamp (FILETIME, 8 bytes)
+# 0x18: Filename length (4 bytes)
+# 0x1C: Original path (UTF-16LE)
+
+original_path = r"C:\Users\suspect\Documents\FLAG{recycle_bin_treasure}.docx"
+path_bytes = original_path.encode('utf-16-le')
+filetime = 133500000000000000  # ~Jan 2024
+
+with open('$IABCDEF.docx', 'wb') as f:
+    f.write(struct.pack('&lt;Q', 2))               # version
+    f.write(struct.pack('&lt;Q', 15234))            # file size
+    f.write(struct.pack('&lt;Q', filetime))          # deletion time
+    f.write(struct.pack('&lt;I', len(original_path)))# path length
+    f.write(path_bytes)                           # original path
+
+# $R file contains the actual file content
+with open('$RABCDEF.docx', 'w') as f:
+    f.write("Document content with FLAG{recycle_bin_treasure}")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Parse the <code>$I</code> file to get the original path and deletion timestamp. Read bytes at offset 0x1C as UTF-16LE for the original filename. The matching <code>$R</code> file (same suffix) contains the actual file data. Use <code>RBCmd.exe</code> or the Python struct module to parse.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: LNK File Investigation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A suspicious LNK file was found in the suspect's Recent folder. Parse it to discover what file was accessed, from which volume, and when.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Provide a .lnk file from:
+# C:\Users\suspect\AppData\Roaming\Microsoft\Windows\Recent\
+
+# LNK files contain:
+# - Target file path (even if target is deleted)
+# - Target MAC timestamps
+# - Volume serial number and type
+# - Drive letter / network share path
+# - Working directory
+# - Sometimes: MAC address, NetBIOS name
+
+# Parse with LECmd
+LECmd.exe -f suspicious.lnk
+
+# Or with lnkparse (Python)
+pip install lnkparse
+python -c "import lnkparse; print(lnkparse.lnk_file('suspicious.lnk').print_json())"</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>LECmd.exe -f suspicious.lnk</code> or <code>lnkparse</code> to extract the target path. The flag is in the target filename. Check the volume serial number — if it doesn't match the local drive, the file was on removable media. Cross-reference with USB artifact analysis.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Timestomping Detected</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">An attacker modified file timestamps to blend in. Analyze the NTFS MFT to find files where $STANDARD_INFORMATION and $FILE_NAME timestamps don't match — the flag is hidden in the timestomped file.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup
+dd if=/dev/zero of=ctf9.img bs=1M count=128
+mkfs.ntfs -f ctf9.img
+mount -o loop ctf9.img /mnt/ctf9
+
+# Create files with normal timestamps
+echo "Normal file 1" > /mnt/ctf9/report_2024.txt
+echo "Normal file 2" > /mnt/ctf9/invoice.pdf
+
+# Create the malicious file
+echo "FLAG{timestomping_caught_red_handed}" > /mnt/ctf9/svchost_update.log
+
+# Timestomp it to look old (modifies $SI but not $FN)
+touch -t 202001011200 /mnt/ctf9/svchost_update.log
+umount /mnt/ctf9</code></pre>
+<pre><code class="language-bash"># Analysis approach
+icat -o &lt;offset&gt; ctf9.img 0 > mft.bin
+analyzeMFT.py -f mft.bin -o mft.csv
+
+# In the CSV, compare columns:
+# SI_Created vs FN_Created
+# SI_Modified vs FN_Modified
+# Large discrepancies = timestomping</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Extract the MFT and parse it with <code>analyzeMFT.py</code>. Look for entries where the $STANDARD_INFORMATION created/modified timestamps are significantly earlier than the $FILE_NAME timestamps. The $FN timestamps reflect the actual creation time (kernel-controlled). The timestomped file is <code>svchost_update.log</code> — extract its content with <code>icat</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Full Disk Investigation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A corporate laptop was seized. The disk image contains evidence of data exfiltration. Find all 5 flag fragments scattered across different artifact locations to reconstruct the full flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># This challenge uses a prepared multi-artifact disk image containing:
+# Fragment 1: Deleted file in Recycle Bin → FLAG_PART1{full_disk_}
+# Fragment 2: NTFS ADS on a normal file → FLAG_PART2{investigation_}
+# Fragment 3: Browser download history   → FLAG_PART3{requires_}
+# Fragment 4: Registry Run key value     → FLAG_PART4{all_the_}
+# Fragment 5: File slack space           → FLAG_PART5{skills}
+
+# Full flag: FLAG{full_disk_investigation_requires_all_the_skills}</code></pre>
+<pre><code class="language-bash"># Investigation workflow
+# 1. Image → hash → partition layout
+mmls full_disk.img
+
+# 2. Filesystem analysis per partition
+fls -r -o &lt;offset&gt; full_disk.img
+
+# 3. Check deleted files + Recycle Bin
+fls -r -d -o &lt;offset&gt; full_disk.img
+
+# 4. Scan for ADS
+fls -r -o &lt;offset&gt; full_disk.img | grep ":"
+
+# 5. Extract browser databases + registry hives
+# 6. Parse with sqlite3 + regripper
+# 7. Check slack space with blkcat</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Work systematically through each artifact class: (1) <code>fls -d</code> for deleted files including Recycle Bin, (2) <code>fls | grep ":"</code> for ADS, (3) <code>sqlite3</code> on the Chrome History database for downloads, (4) <code>regripper -r SOFTWARE -p run</code> for Run key values, (5) <code>blkcat</code> to read beyond EOF in allocated clusters for slack space data. Concatenate all 5 parts.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

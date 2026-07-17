@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Network Scanning</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Network Scanning</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <h2>Nmap Fundamentals</h2>
+        <p>Nmap (Network Mapper) is the de facto standard for network discovery and security auditing. Root/sudo is required for raw socket scans (SYN, UDP, OS detection).</p>
+
+        <h3>Basic Syntax</h3>
+<pre><code class="language-bash">nmap [scan type] [options] [target]
+
+# Target formats
+nmap 192.168.1.1              # single host
+nmap 192.168.1.0/24           # CIDR subnet
+nmap 192.168.1.1-254          # range
+nmap -iL targets.txt          # from file
+nmap 192.168.1.1 --exclude 192.168.1.5</code></pre>
+
+        <h3>Port States</h3>
+        <table>
+          <tr><th>State</th><th>Meaning</th></tr>
+          <tr><td><code>open</code></td><td>Application actively accepting connections</td></tr>
+          <tr><td><code>closed</code></td><td>Port reachable but no application listening (responds with RST)</td></tr>
+          <tr><td><code>filtered</code></td><td>Packet dropped by firewall — no response or ICMP unreachable</td></tr>
+          <tr><td><code>unfiltered</code></td><td>Port accessible but can't determine open/closed (ACK scan only)</td></tr>
+          <tr><td><code>open|filtered</code></td><td>No response — could be open or filtered (UDP, IP protocol scans)</td></tr>
+          <tr><td><code>closed|filtered</code></td><td>Can't determine if closed or filtered (IP ID idle scan only)</td></tr>
+        </table>
+
+        <h2>Scan Types</h2>
+
+        <h3>TCP SYN Scan (Half-Open) — Default</h3>
+        <p>Sends SYN, waits for SYN/ACK (open) or RST (closed). Never completes the handshake → stealthier. Requires root.</p>
+<pre><code class="language-bash">sudo nmap -sS 10.10.10.1</code></pre>
+
+        <h3>TCP Connect Scan</h3>
+        <p>Full TCP handshake via <code>connect()</code> syscall. No root needed but slower and logged by target.</p>
+<pre><code class="language-bash">nmap -sT 10.10.10.1</code></pre>
+
+        <h3>UDP Scan</h3>
+        <p>Sends UDP packets. Open ports rarely respond; closed ports return ICMP port unreachable. Very slow — use with specific ports.</p>
+<pre><code class="language-bash">sudo nmap -sU 10.10.10.1
+sudo nmap -sU -p 53,161,500 10.10.10.1     # target specific UDP ports
+sudo nmap -sU -sS 10.10.10.1               # combined TCP SYN + UDP</code></pre>
+
+        <h3>Service/Version Detection</h3>
+        <p>Probes open ports to determine service name, version, and extra info. Sends application-layer probes.</p>
+<pre><code class="language-bash">nmap -sV 10.10.10.1
+nmap -sV --version-intensity 5 10.10.10.1   # 0 (light) to 9 (all probes)</code></pre>
+
+        <h3>Default Scripts + Version Detection</h3>
+<pre><code class="language-bash">nmap -sC 10.10.10.1          # runs default NSE scripts
+nmap -A 10.10.10.1           # aggressive: -sV -sC -O --traceroute</code></pre>
+
+        <h3>OS Detection</h3>
+<pre><code class="language-bash">sudo nmap -O 10.10.10.1
+sudo nmap -O --osscan-guess 10.10.10.1    # force best guess</code></pre>
+
+        <h3>Other Scan Types</h3>
+        <table>
+          <tr><th>Flag</th><th>Scan</th><th>Use</th></tr>
+          <tr><td><code>-sA</code></td><td>ACK scan</td><td>Map firewall rules (filtered vs unfiltered)</td></tr>
+          <tr><td><code>-sN</code></td><td>Null scan</td><td>No flags set — evade non-stateful firewalls</td></tr>
+          <tr><td><code>-sF</code></td><td>FIN scan</td><td>Only FIN flag — bypass simple packet filters</td></tr>
+          <tr><td><code>-sX</code></td><td>Xmas scan</td><td>FIN+PSH+URG — same evasion use as null/FIN</td></tr>
+          <tr><td><code>-sW</code></td><td>Window scan</td><td>Like ACK but examines TCP window size</td></tr>
+          <tr><td><code>-sI zombie</code></td><td>Idle scan</td><td>Completely blind scan via zombie host</td></tr>
+        </table>
+
+        <h2>Host Discovery</h2>
+<pre><code class="language-bash"># Ping sweep — find live hosts (no port scan)
+nmap -sn 10.10.10.0/24
+
+# Skip discovery — scan even if host appears down
+nmap -Pn 10.10.10.1
+
+# TCP SYN ping on specific ports
+nmap -PS22,80,443 10.10.10.1
+
+# TCP ACK ping
+nmap -PA80,443 10.10.10.1
+
+# UDP ping
+nmap -PU53,161 10.10.10.1
+
+# ICMP echo + timestamp + netmask
+nmap -PE -PP -PM 10.10.10.0/24
+
+# ARP discovery (LAN only, very reliable)
+nmap -PR 192.168.1.0/24</code></pre>
+
+        <h2>Timing Templates</h2>
+        <table>
+          <tr><th>Flag</th><th>Name</th><th>Use Case</th></tr>
+          <tr><td><code>-T0</code></td><td>Paranoid</td><td>IDS evasion — 5 min between probes</td></tr>
+          <tr><td><code>-T1</code></td><td>Sneaky</td><td>IDS evasion — 15 sec between probes</td></tr>
+          <tr><td><code>-T2</code></td><td>Polite</td><td>Reduced bandwidth — 0.4 sec between probes</td></tr>
+          <tr><td><code>-T3</code></td><td>Normal</td><td>Default — balanced speed</td></tr>
+          <tr><td><code>-T4</code></td><td>Aggressive</td><td>Fast scan — assumes reliable network</td></tr>
+          <tr><td><code>-T5</code></td><td>Insane</td><td>Fastest — may miss ports on slow networks</td></tr>
+        </table>
+<pre><code class="language-bash"># CTF / lab: fast and aggressive
+nmap -T4 -p- 10.10.10.1
+
+# Stealthy engagement
+sudo nmap -T1 -sS 10.10.10.1</code></pre>
+
+        <h2>Port Specification</h2>
+<pre><code class="language-bash">nmap -p 80 10.10.10.1              # single port
+nmap -p 80,443,8080 10.10.10.1     # multiple ports
+nmap -p 1-1000 10.10.10.1          # range
+nmap -p- 10.10.10.1                # all 65535 ports
+nmap --top-ports 100 10.10.10.1    # top 100 most common
+nmap -p U:53,161,T:80,443 10.10.10.1  # specify protocol</code></pre>
+
+        <h2>Output Formats</h2>
+<pre><code class="language-bash">nmap -oN scan.txt 10.10.10.1      # normal (human-readable)
+nmap -oX scan.xml 10.10.10.1      # XML (for tools like searchsploit)
+nmap -oG scan.gnmap 10.10.10.1    # grepable (one host per line)
+nmap -oA scan_all 10.10.10.1      # all three formats at once</code></pre>
+        <p><code>-oA</code> is the best default — generates .nmap, .xml, and .gnmap simultaneously.</p>
+
+        <h2>NSE — Nmap Scripting Engine</h2>
+        <p>Lua scripts located in <code>/usr/share/nmap/scripts/</code>. Massively extend nmap's capabilities.</p>
+
+        <h3>Script Categories</h3>
+        <table>
+          <tr><th>Category</th><th>Description</th></tr>
+          <tr><td><code>auth</code></td><td>Authentication bypass / credential checks</td></tr>
+          <tr><td><code>broadcast</code></td><td>Host discovery via broadcast</td></tr>
+          <tr><td><code>brute</code></td><td>Brute force login attempts</td></tr>
+          <tr><td><code>default</code></td><td>Safe scripts run with <code>-sC</code></td></tr>
+          <tr><td><code>discovery</code></td><td>Enumerate info (DNS, SNMP, SMB shares, etc.)</td></tr>
+          <tr><td><code>exploit</code></td><td>Attempt to exploit vulnerabilities</td></tr>
+          <tr><td><code>fuzzer</code></td><td>Send unexpected data to services</td></tr>
+          <tr><td><code>intrusive</code></td><td>May crash target — not safe</td></tr>
+          <tr><td><code>malware</code></td><td>Check for known backdoors/malware</td></tr>
+          <tr><td><code>safe</code></td><td>Won't crash target</td></tr>
+          <tr><td><code>version</code></td><td>Advanced version detection</td></tr>
+          <tr><td><code>vuln</code></td><td>Check for known vulnerabilities</td></tr>
+        </table>
+
+        <h3>Running Scripts</h3>
+<pre><code class="language-bash"># Run specific script
+nmap --script=http-title 10.10.10.1
+
+# Run by category
+nmap --script=vuln 10.10.10.1
+nmap --script="safe and discovery" 10.10.10.1
+
+# Run multiple scripts
+nmap --script=http-title,http-headers 10.10.10.1
+
+# Wildcard match
+nmap --script="http-*" 10.10.10.1
+
+# Pass arguments to scripts
+nmap --script=http-brute --script-args http-brute.path=/admin 10.10.10.1</code></pre>
+
+        <h3>Useful Scripts</h3>
+<pre><code class="language-bash"># Vulnerability scanning
+nmap --script=vuln 10.10.10.1
+
+# SMB enumeration
+nmap --script=smb-enum-shares,smb-enum-users -p 445 10.10.10.1
+nmap --script=smb-vuln-* -p 445 10.10.10.1
+
+# HTTP enumeration
+nmap --script=http-enum 10.10.10.1
+nmap --script=http-title,http-headers,http-methods -p 80,443 10.10.10.1
+
+# DNS zone transfer
+nmap --script=dns-zone-transfer --script-args dns-zone-transfer.domain=target.com -p 53 10.10.10.1
+
+# FTP anonymous login
+nmap --script=ftp-anon -p 21 10.10.10.1
+
+# SSH brute force
+nmap --script=ssh-brute -p 22 10.10.10.1
+
+# SSL/TLS checks
+nmap --script=ssl-enum-ciphers,ssl-cert -p 443 10.10.10.1
+
+# Search for scripts
+ls /usr/share/nmap/scripts/ | grep smb
+nmap --script-help=http-enum</code></pre>
+
+        <h2>Firewall / IDS Evasion</h2>
+<pre><code class="language-bash"># Fragment packets (split into 8-byte fragments)
+sudo nmap -f 10.10.10.1
+
+# Custom MTU (must be multiple of 8)
+sudo nmap --mtu 24 10.10.10.1
+
+# Decoy scan — mix your IP with decoys
+sudo nmap -D RND:5 10.10.10.1                    # 5 random decoys
+sudo nmap -D 10.10.10.50,10.10.10.51,ME 10.10.10.1   # specific decoys
+
+# Spoof source port (some firewalls allow port 53/80)
+sudo nmap --source-port 53 10.10.10.1
+sudo nmap -g 80 10.10.10.1                       # -g is shorthand
+
+# Append random data to packets
+sudo nmap --data-length 25 10.10.10.1
+
+# Spoof MAC address
+sudo nmap --spoof-mac 0 10.10.10.1               # random MAC
+sudo nmap --spoof-mac Dell 10.10.10.1             # vendor prefix
+
+# Use specific scan types to bypass stateless firewalls
+sudo nmap -sN 10.10.10.1    # NULL — no flags
+sudo nmap -sF 10.10.10.1    # FIN only
+sudo nmap -sX 10.10.10.1    # Xmas — FIN+PSH+URG
+
+# Combine techniques
+sudo nmap -f --data-length 50 -D RND:3 -g 53 -T2 -sS 10.10.10.1</code></pre>
+
+        <h2>Masscan</h2>
+        <p>Masscan is the fastest port scanner — can scan the entire internet in minutes. Uses its own TCP stack (bypasses OS kernel). Great for initial wide sweeps, then follow up with nmap for details.</p>
+<pre><code class="language-bash"># Basic scan — rate is packets per second
+sudo masscan 10.10.10.0/24 -p 80,443 --rate=1000
+
+# Scan all ports on a subnet
+sudo masscan 10.10.10.0/24 -p 0-65535 --rate=10000
+
+# Output to file (use with nmap for service detection)
+sudo masscan 10.10.10.0/24 -p 0-65535 --rate=5000 -oL masscan_results.txt
+
+# Convert masscan output → nmap target list
+cat masscan_results.txt | grep open | awk '{print $4}' | sort -u > targets.txt
+nmap -sV -sC -iL targets.txt</code></pre>
+
+        <h2>RustScan</h2>
+        <p>Fast port scanner written in Rust. Scans ports then automatically pipes results to nmap for service detection.</p>
+<pre><code class="language-bash"># Basic scan — finds open ports, then runs nmap
+rustscan -a 10.10.10.1
+
+# Specify ports
+rustscan -a 10.10.10.1 -p 80,443
+
+# All ports with custom nmap flags
+rustscan -a 10.10.10.1 -r 1-65535 -- -sV -sC
+
+# Adjust batch size (concurrent connections)
+rustscan -a 10.10.10.1 -b 1000
+
+# Multiple targets
+rustscan -a 10.10.10.1,10.10.10.2,10.10.10.3</code></pre>
+
+        <h2>Web Directory Scanning</h2>
+
+        <h3>Gobuster</h3>
+<pre><code class="language-bash"># Directory brute force
+gobuster dir -u http://10.10.10.1 -w /usr/share/wordlists/dirb/common.txt
+
+# With extensions
+gobuster dir -u http://10.10.10.1 -w /usr/share/wordlists/dirb/common.txt -x php,html,txt,bak
+
+# Virtual host enumeration
+gobuster vhost -u http://target.com -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+
+# DNS subdomain enumeration
+gobuster dns -d target.com -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+
+# Increase threads
+gobuster dir -u http://10.10.10.1 -w wordlist.txt -t 50
+
+# Follow redirects, hide status codes
+gobuster dir -u http://10.10.10.1 -w wordlist.txt -r -b 404,403</code></pre>
+
+        <h3>ffuf (Fuzz Faster U Fool)</h3>
+<pre><code class="language-bash"># Directory fuzzing (FUZZ is the placeholder keyword)
+ffuf -u http://10.10.10.1/FUZZ -w /usr/share/wordlists/dirb/common.txt
+
+# Extension fuzzing
+ffuf -u http://10.10.10.1/indexFUZZ -w /usr/share/seclists/Discovery/Web-Content/web-extensions.txt
+
+# Filter by response size / status / words / lines
+ffuf -u http://10.10.10.1/FUZZ -w wordlist.txt -fc 404        # filter code
+ffuf -u http://10.10.10.1/FUZZ -w wordlist.txt -fs 4242       # filter size
+ffuf -u http://10.10.10.1/FUZZ -w wordlist.txt -fw 12         # filter word count
+
+# POST parameter fuzzing
+ffuf -u http://10.10.10.1/login -X POST -d "user=admin&pass=FUZZ" -w passwords.txt -fc 401
+
+# Subdomain fuzzing
+ffuf -u http://FUZZ.target.com -w subdomains.txt -fc 301
+
+# Header fuzzing
+ffuf -u http://10.10.10.1 -H "Host: FUZZ.target.com" -w subdomains.txt -fs 0
+
+# Multiple wordlists (clusterbomb)
+ffuf -u http://10.10.10.1 -H "Host: FUZZ.target.com" -w subdomains.txt:FUZZ</code></pre>
+
+        <h2>Enum4linux</h2>
+        <p>SMB/NetBIOS enumeration tool for Windows/Samba targets.</p>
+<pre><code class="language-bash"># Full enumeration
+enum4linux -a 10.10.10.1
+
+# Enumerate users
+enum4linux -U 10.10.10.1
+
+# Enumerate shares
+enum4linux -S 10.10.10.1
+
+# Enumerate groups
+enum4linux -G 10.10.10.1
+
+# Provide credentials
+enum4linux -u 'admin' -p 'password' -a 10.10.10.1
+
+# enum4linux-ng (updated Python version)
+enum4linux-ng -A 10.10.10.1</code></pre>
+
+        <h2>Nikto</h2>
+        <p>Web server vulnerability scanner. Checks for dangerous files, outdated software, misconfigurations.</p>
+<pre><code class="language-bash"># Basic scan
+nikto -h http://10.10.10.1
+
+# Scan specific port
+nikto -h 10.10.10.1 -p 8080
+
+# Scan HTTPS
+nikto -h https://10.10.10.1
+
+# Save output
+nikto -h http://10.10.10.1 -o results.html -Format htm
+
+# Use proxy
+nikto -h http://10.10.10.1 -useproxy http://127.0.0.1:8080
+
+# Scan specific CGI directories
+nikto -h http://10.10.10.1 -Cgidirs /cgi-bin/</code></pre>
+
+        <h2>CTF Recon Methodology</h2>
+        <p>Systematic approach for CTF/HTB box enumeration:</p>
+<pre><code class="language-bash"># 1. Fast port discovery
+rustscan -a $IP -- -sV -sC
+# OR
+nmap -T4 -p- --min-rate=1000 $IP -oA ports
+
+# 2. Detailed scan on discovered ports
+nmap -sV -sC -p 22,80,443,8080 $IP -oA detailed
+
+# 3. UDP quick check (top 20 ports)
+sudo nmap -sU --top-ports 20 $IP -oA udp
+
+# 4. Vulnerability scan
+nmap --script=vuln -p 22,80,443 $IP
+
+# 5. Web enumeration (if HTTP found)
+gobuster dir -u http://$IP -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -x php,html,txt -t 50
+nikto -h http://$IP
+
+# 6. SMB enumeration (if 445 open)
+enum4linux -a $IP
+nmap --script=smb-enum-shares,smb-enum-users -p 445 $IP
+
+# 7. Always check
+curl -v http://$IP                  # headers, redirects
+whatweb http://$IP                  # tech stack fingerprint
+searchsploit [service] [version]   # known exploits</code></pre>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Basic Nmap Scan Methodology</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Perform a structured nmap scan against a target machine, progressing from host discovery to full service enumeration.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong> Use any vulnerable VM (Metasploitable2, DVWA, or a HackTheBox starting point machine).</p>
+<pre><code class="language-bash"># Step 1: Verify the target is alive
+nmap -sn $IP
+
+# Step 2: Quick scan — top 1000 ports
+nmap -T4 $IP -oN quick_scan.txt
+
+# Step 3: Full port scan
+nmap -T4 -p- $IP -oN all_ports.txt
+
+# Step 4: Service version detection on open ports (replace ports)
+nmap -sV -sC -p 21,22,80,445 $IP -oA detailed_scan
+
+# Step 5: Save results in all formats for later analysis
+nmap -sV -sC -p 21,22,80,445 $IP -oA full_results</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run each scan step and compare the output</li>
+              <li>Identify all services and their versions from the detailed scan</li>
+              <li>Review the <code>-oG</code> output and use <code>grep</code> to extract open ports</li>
+              <li>Use <code>searchsploit</code> against discovered service versions</li>
+            </ol>
+<pre><code class="language-bash"># Parse grepable output
+cat full_results.gnmap | grep open | awk -F'/' '{print $1}' | sort -u
+
+# Search for exploits
+searchsploit vsftpd 2.3.4
+searchsploit apache 2.4</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: NSE Script Exploration</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use NSE scripts to enumerate services, discover vulnerabilities, and extract information beyond basic port scanning.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong> Target a machine with HTTP (80/443), SMB (445), and FTP (21) open.</p>
+<pre><code class="language-bash"># Task 1: Discover available scripts for a service
+ls /usr/share/nmap/scripts/ | grep http | head -20
+nmap --script-help=http-enum
+
+# Task 2: Run safe discovery scripts on HTTP
+nmap --script="http-title,http-headers,http-methods,http-enum" -p 80 $IP
+
+# Task 3: Check for HTTP vulnerabilities
+nmap --script="http-vuln-*" -p 80 $IP
+
+# Task 4: SMB enumeration with scripts
+nmap --script="smb-enum-shares,smb-enum-users,smb-os-discovery" -p 445 $IP
+
+# Task 5: Check for SMB vulnerabilities (EternalBlue, etc.)
+nmap --script="smb-vuln-*" -p 445 $IP
+
+# Task 6: FTP checks
+nmap --script="ftp-anon,ftp-syst,ftp-vsftpd-backdoor" -p 21 $IP
+
+# Task 7: Run script with arguments
+nmap --script=http-brute --script-args \
+  http-brute.path=/admin,userdb=users.txt,passdb=passwords.txt -p 80 $IP</code></pre>
+            <p><strong>Analysis:</strong></p>
+            <ol>
+              <li>Compare output from <code>-sC</code> (default scripts) vs targeted script runs</li>
+              <li>Identify which scripts produced actionable results</li>
+              <li>Document any credentials, shares, or vulns found</li>
+              <li>Write a one-liner to run the most useful scripts for a given service</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Full Recon Pipeline</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Build and execute a complete automated reconnaissance pipeline combining multiple scanning tools.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong> Target a machine with multiple services. Create a recon script.</p>
+<pre><code class="language-bash">#!/bin/bash
+# recon.sh — Full automated recon pipeline
+# Usage: ./recon.sh &lt;target_ip&gt;
+
+IP=$1
+OUTDIR="recon_$IP"
+mkdir -p $OUTDIR
+
+echo "[*] Phase 1: Fast port discovery with RustScan"
+rustscan -a $IP -b 1000 -- -oN $OUTDIR/rustscan.txt 2>/dev/null
+PORTS=$(grep "open" $OUTDIR/rustscan.txt | grep -oP '\d+/open' | cut -d'/' -f1 | tr '\n' ',' | sed 's/,$//')
+
+echo "[*] Phase 2: Detailed nmap scan on ports: $PORTS"
+nmap -sV -sC -p $PORTS $IP -oA $OUTDIR/detailed
+
+echo "[*] Phase 3: UDP quick scan"
+sudo nmap -sU --top-ports 20 $IP -oN $OUTDIR/udp.txt
+
+echo "[*] Phase 4: Vulnerability scan"
+nmap --script=vuln -p $PORTS $IP -oN $OUTDIR/vulns.txt
+
+# Web enumeration if port 80 or 443 found
+if echo $PORTS | grep -qE '(^|,)(80|443|8080|8443)(,|$)'; then
+    echo "[*] Phase 5: Web enumeration"
+    gobuster dir -u http://$IP -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt \
+      -x php,html,txt -t 50 -o $OUTDIR/gobuster.txt 2>/dev/null
+    nikto -h http://$IP -o $OUTDIR/nikto.html -Format htm 2>/dev/null
+fi
+
+# SMB enumeration if port 445 found
+if echo $PORTS | grep -qE '(^|,)445(,|$)'; then
+    echo "[*] Phase 6: SMB enumeration"
+    enum4linux -a $IP > $OUTDIR/enum4linux.txt 2>/dev/null
+fi
+
+echo "[+] Recon complete. Results in $OUTDIR/"
+ls -la $OUTDIR/</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the pipeline against a vulnerable VM</li>
+              <li>Review each output file and correlate findings across tools</li>
+              <li>Extend the script: add <code>whatweb</code>, <code>searchsploit</code> auto-search, DNS enumeration</li>
+              <li>Create a summary report from the combined results</li>
+              <li>Identify at least 3 potential attack vectors from the recon data</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Masscan vs Nmap Comparison</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Compare masscan's speed against nmap for full port scans. Understand when to use each tool and how to combine them.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Full port scan with nmap (note the time)
+time nmap -T4 -p- $IP -oN nmap_full.txt
+
+# Full port scan with masscan (MUCH faster)
+time sudo masscan $IP -p 0-65535 --rate=1000 -oL masscan_full.txt
+
+# Compare results
+grep "open" nmap_full.txt | awk -F/ '{print $1}' | sort -n > nmap_ports.txt
+grep "open" masscan_full.txt | awk '{print $3}' | sort -n > masscan_ports.txt
+diff nmap_ports.txt masscan_ports.txt
+
+# Best practice: masscan for discovery, nmap for enumeration
+PORTS=$(grep "open" masscan_full.txt | awk '{print $3}' | tr '\n' ',' | sed 's/,$//')
+nmap -sV -sC -p $PORTS $IP -oA combined_results</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Service Fingerprinting Deep Dive</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Manually fingerprint services using banner grabbing, probe responses, and nmap version detection internals.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Manual banner grab with netcat
+nc -nv $IP 22 < /dev/null    # SSH banner
+nc -nv $IP 21 < /dev/null    # FTP banner
+
+# HTTP fingerprinting
+curl -sI http://$IP | head -20
+echo -e "HEAD / HTTP/1.0\r\n\r\n" | nc $IP 80
+
+# Nmap version probes — see what probes it sends
+nmap -sV --version-trace -p 80 $IP 2>&1 | head -50
+
+# Examine nmap's probe file
+grep -A5 "Probe TCP GetRequest" /usr/share/nmap/nmap-service-probes
+
+# Compare nmap -sV vs manual probing
+nmap -sV -p 22,80,443 $IP --version-all</code></pre>
+<pre><code class="language-python"># Python banner grabber
+import socket
+
+def grab_banner(host, port, probe=b""):
+    try:
+        s = socket.socket()
+        s.settimeout(3)
+        s.connect((host, port))
+        if probe:
+            s.send(probe)
+        banner = s.recv(4096)
+        s.close()
+        return banner.decode(errors="ignore").strip()
+    except Exception as e:
+        return str(e)
+
+target = "TARGET_IP"
+probes = {
+    22: b"",
+    80: b"HEAD / HTTP/1.0\r\n\r\n",
+    21: b"",
+    25: b"EHLO test\r\n",
+}
+for port, probe in probes.items():
+    print(f"Port {port}: {grab_banner(target, port, probe)[:200]}")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: OS Detection Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use TCP/IP stack fingerprinting to identify operating systems. Understand how nmap's OS detection works under the hood.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Basic OS detection
+sudo nmap -O $IP
+
+# Aggressive OS guess
+sudo nmap -O --osscan-guess --max-os-tries 3 $IP
+
+# Verbose output showing the probes and responses
+sudo nmap -O -v --packet-trace $IP 2>&1 | grep -E "OS:|SCAN|SEQ|OPS|WIN|T1|T2"
+
+# Compare OS detection across multiple targets
+for ip in 10.10.10.1 10.10.10.2 10.10.10.3; do
+  echo "=== $ip ==="
+  sudo nmap -O --osscan-guess $ip 2>/dev/null | grep "OS details"
+done
+
+# Manual TCP fingerprinting with scapy
+sudo python3 -c "
+from scapy.all import *
+# Send SYN with specific options to analyze response
+pkt = IP(dst='$IP')/TCP(dport=80, flags='S', options=[('MSS',1460),('WScale',2),('Timestamp',(123,0)),('SAckOK',b'')])
+resp = sr1(pkt, timeout=2)
+if resp:
+    print(f'Window: {resp[TCP].window}')
+    print(f'Options: {resp[TCP].options}')
+    print(f'TTL: {resp[IP].ttl}')
+    print(f'DF: {resp[IP].flags}')
+"</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Custom NSE Script Writing</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write a custom Nmap Scripting Engine (NSE) script to detect a specific service or vulnerability.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># NSE script: detect if an HTTP server has directory listing enabled
+cat > /usr/share/nmap/scripts/http-dirlist-check.nse &lt;&lt; 'EOF'
+local http = require "http"
+local shortport = require "shortport"
+local stdnse = require "stdnse"
+
+description = [[Checks if HTTP directory listing is enabled.]]
+author = "HackBook"
+license = "Same as Nmap--See https://nmap.org/book/man-legal.html"
+categories = {"discovery", "safe"}
+
+portrule = shortport.http
+
+action = function(host, port)
+  local paths = {"/", "/images/", "/uploads/", "/backup/", "/css/"}
+  local results = {}
+
+  for _, path in ipairs(paths) do
+    local resp = http.get(host, port, path)
+    if resp and resp.status == 200 then
+      if resp.body and resp.body:match("Index of") then
+        table.insert(results, path .. " - Directory listing ENABLED")
+      end
+    end
+  end
+
+  if #results > 0 then
+    return stdnse.format_output(true, results)
+  end
+end
+EOF
+
+# Update script database and run
+nmap --script-updatedb
+nmap --script=http-dirlist-check -p 80 $IP</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: UDP Scanning Techniques</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Master UDP scanning — understand why it's slow, interpret results, and use protocol-specific probes to get accurate results.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Basic UDP scan (very slow — top 1000 ports)
+sudo nmap -sU $IP
+
+# Fast: scan only common UDP services
+sudo nmap -sU -p 53,67,68,69,123,161,162,500,514,1900 $IP
+
+# Combined TCP+UDP for comprehensive coverage
+sudo nmap -sS -sU -p T:1-1000,U:53,67,69,123,161,500 $IP
+
+# Increase speed with version detection (helps identify open ports)
+sudo nmap -sU -sV --version-intensity 0 $IP
+
+# Use protocol-specific probes
+# DNS probe
+echo -ne '\x00\x1e\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07version\x04bind\x00\x00\x10\x00\x03' | nc -u -w2 $IP 53 | xxd
+
+# SNMP probe
+echo -ne '\x30\x26\x02\x01\x01\x04\x06public\xa0\x19\x02\x04\x71\xc4\xea\x76\x02\x01\x00\x02\x01\x00\x30\x0b\x30\x09\x06\x05\x2b\x06\x01\x02\x01\x05\x00' | nc -u -w2 $IP 161 | xxd</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Vulnerability Scanning Pipeline</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Combine nmap vuln scripts with searchsploit to build an automated vulnerability discovery workflow.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">#!/bin/bash
+# vuln_scan.sh — automated vulnerability pipeline
+IP=$1
+
+# Phase 1: Service detection
+nmap -sV -p- --min-rate=1000 $IP -oA services 2>/dev/null
+
+# Phase 2: Vuln scripts on discovered ports
+PORTS=$(grep "open" services.nmap | cut -d/ -f1 | tr '\n' ',' | sed 's/,$//')
+nmap --script=vuln -p $PORTS $IP -oN vulns.txt 2>/dev/null
+
+# Phase 3: searchsploit against discovered versions
+echo "=== Exploit Search ==="
+grep "open" services.nmap | while read line; do
+    service=$(echo "$line" | awk '{for(i=3;i<=NF;i++) printf "%s ", $i}')
+    echo "--- $service ---"
+    searchsploit "$service" 2>/dev/null | head -10
+done
+
+# Phase 4: Check for default credentials
+nmap --script=ftp-anon,ssh-auth-methods,http-default-accounts -p $PORTS $IP</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Banner Grabbing Automation</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Build a multi-threaded banner grabber that connects to all open ports and collects service banners for analysis.</p>
+          <div class="setup-code">
+<pre><code class="language-python">#!/usr/bin/env python3
+import socket
+import threading
+from queue import Queue
+import sys
+import json
+
+target = sys.argv[1]
+ports = [int(p) for p in sys.argv[2].split(",")] if len(sys.argv) > 2 else range(1, 1001)
+results = {}
+lock = threading.Lock()
+q = Queue()
+
+PROBES = {
+    "http": b"HEAD / HTTP/1.0\r\nHost: target\r\n\r\n",
+    "smtp": b"EHLO scanner\r\n",
+    "ftp": b"",
+    "default": b"",
+}
+
+def grab(port):
+    for probe_name, probe in PROBES.items():
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(3)
+            s.connect((target, port))
+            if probe:
+                s.send(probe)
+            banner = s.recv(4096).decode(errors="ignore").strip()
+            s.close()
+            if banner:
+                with lock:
+                    results[port] = {"probe": probe_name, "banner": banner[:500]}
+                return
+        except:
+            pass
+
+def worker():
+    while not q.empty():
+        grab(q.get())
+        q.task_done()
+
+for p in ports:
+    q.put(p)
+for _ in range(50):
+    threading.Thread(target=worker, daemon=True).start()
+q.join()
+
+for port in sorted(results):
+    print(f"[{port}] {results[port]['banner'][:100]}")
+print(json.dumps(results, indent=2))</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: IDS Evasion Testing</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Test nmap evasion techniques against an IDS (Snort/Suricata) and observe which scans get detected and which evade detection.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup: Suricata on the target network monitoring scans
+sudo suricata -c /etc/suricata/suricata.yaml -i eth0 &amp;
+tail -f /var/log/suricata/fast.log
+
+# Test 1: Standard SYN scan (should be detected)
+sudo nmap -sS $IP
+
+# Test 2: Slow scan (evade rate-based detection)
+sudo nmap -sS -T0 --max-retries 1 --max-rate 1 $IP
+
+# Test 3: Fragmented packets
+sudo nmap -sS -f -f $IP        # double fragmentation (8-byte frags)
+
+# Test 4: Decoy scan
+sudo nmap -sS -D 10.0.0.1,10.0.0.2,ME,10.0.0.3 $IP
+
+# Test 5: Source port spoofing
+sudo nmap -sS -g 53 $IP        # appear as DNS traffic
+
+# Test 6: Idle/zombie scan (completely stealth)
+sudo nmap -sI zombie_host:80 $IP
+
+# Test 7: Custom packet with data padding
+sudo nmap -sS --data-length 120 $IP
+
+# Compare: check Suricata alerts for each technique
+grep "nmap\|scan\|portscan" /var/log/suricata/fast.log</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Scan Result Parsing with Python</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Parse nmap XML output programmatically to extract hosts, ports, services, and generate structured reports.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Generate XML output
+nmap -sV -sC -p- $IP -oX scan_results.xml</code></pre>
+<pre><code class="language-python">#!/usr/bin/env python3
+import xml.etree.ElementTree as ET
+import json
+import sys
+
+tree = ET.parse(sys.argv[1] if len(sys.argv) > 1 else "scan_results.xml")
+root = tree.getroot()
+
+report = []
+for host in root.findall("host"):
+    ip = host.find("address").get("addr")
+    entry = {"ip": ip, "ports": []}
+
+    os_match = host.find(".//osmatch")
+    if os_match is not None:
+        entry["os"] = os_match.get("name")
+
+    for port in host.findall(".//port"):
+        state = port.find("state").get("state")
+        if state == "open":
+            svc = port.find("service")
+            port_info = {
+                "port": int(port.get("portid")),
+                "protocol": port.get("protocol"),
+                "service": svc.get("name", "unknown") if svc is not None else "unknown",
+                "version": svc.get("product", "") + " " + svc.get("version", "") if svc is not None else "",
+            }
+            entry["ports"].append(port_info)
+    report.append(entry)
+
+# Output as JSON
+print(json.dumps(report, indent=2))
+
+# Summary
+for host in report:
+    print(f"\n{host['ip']} ({host.get('os', 'unknown OS')})")
+    for p in host["ports"]:
+        print(f"  {p['port']}/{p['protocol']}  {p['service']}  {p['version']}")</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Identify the Services</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A target machine is running several services. Identify all services, their exact versions, and the underlying OS.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Target: 10.10.10.50
+# Task: Find ALL open ports and identify every service version.
+# The flag is the concatenation of the SSH version + HTTP server version.
+# Example flag format: FLAG{OpenSSH_8.2p1_Apache_2.4.41}</code></pre>
+            <p><strong>Rules:</strong></p>
+            <ul>
+              <li>Must scan all 65535 TCP ports</li>
+              <li>Must identify exact version strings (not just service names)</li>
+              <li>Must determine the OS</li>
+              <li>Document your full methodology</li>
+            </ul>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Start with <code>nmap -T4 -p- 10.10.10.50</code> to find all open ports, then run <code>nmap -sV -sC -O -p [ports] 10.10.10.50</code> for detailed enumeration. Check banner text carefully — sometimes nmap's version detection misses details that <code>nc -nv 10.10.10.50 [port]</code> reveals.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Find the Hidden Port</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A target appears to have only ports 22 and 80 open on a quick scan. There's a hidden service on a non-standard high port. Find it.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Target: 10.10.10.75
+# Quick scan shows only 22 and 80.
+# There's a service hiding on a high port (above 10000).
+# Find it and retrieve the flag from that service.
+
+# Your default scan:
+nmap 10.10.10.75
+# Shows: 22/tcp open ssh, 80/tcp open http
+# But there's more...</code></pre>
+            <p><strong>Rules:</strong></p>
+            <ul>
+              <li>A default nmap scan won't find it (only scans top 1000 ports)</li>
+              <li>The service responds to HTTP requests</li>
+              <li>The flag is served at the root path of the hidden service</li>
+            </ul>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Default nmap only scans the top 1000 ports. Use <code>nmap -p- 10.10.10.75</code> or <code>nmap -p 10000-65535 10.10.10.75</code> to find high ports. For speed, use <code>masscan 10.10.10.75 -p 0-65535 --rate=1000</code> or <code>rustscan -a 10.10.10.75</code>. Once found, <code>curl http://10.10.10.75:[port]/</code> to grab the flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Evade the Firewall</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A target has firewall rules that block standard nmap scans. Your SYN scan shows all ports as filtered. Find a way to determine which ports are actually open.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Target: 10.10.10.99
+# Standard scans return:
+nmap -sS 10.10.10.99
+# All 1000 ports shown as "filtered"
+
+# The firewall:
+# - Drops SYN packets from non-whitelisted sources
+# - Allows traffic from source port 53 (DNS)
+# - Does not inspect fragmented packets properly
+# - ACK packets pass through (stateless inspection)
+
+# Find the 3 open ports and identify their services.
+# Flag format: FLAG{port1_port2_port3}</code></pre>
+            <p><strong>Rules:</strong></p>
+            <ul>
+              <li>Standard SYN scan is blocked — you must use evasion techniques</li>
+              <li>Combine multiple evasion methods</li>
+              <li>Confirm results with at least two different approaches</li>
+            </ul>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Try these evasion techniques: (1) Source port spoofing: <code>sudo nmap -g 53 -sS 10.10.10.99</code> — the firewall allows traffic from DNS port 53. (2) Fragmentation: <code>sudo nmap -f -sS 10.10.10.99</code> — split packets to bypass inspection. (3) ACK scan first to map filtered vs unfiltered: <code>sudo nmap -sA 10.10.10.99</code>, then use source port 53 on unfiltered ports. (4) Combine: <code>sudo nmap -f -g 53 --data-length 50 -T2 -sS -p- 10.10.10.99</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Network Topology Mapper</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Given access to one machine on the network, discover all subnets and map the network topology. Three flags are hidden on hosts in different subnets. Submit all three.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Step 1: Discover local subnets from routing table
+ip route
+arp -a
+
+# Step 2: Scan discovered subnets
+for subnet in 10.10.10.0/24 10.10.20.0/24 172.16.0.0/24; do
+  nmap -sn $subnet -oG - | grep "Up" | awk '{print $2}'
+done
+
+# Step 3: Pivot — if a host has multiple interfaces
+# Use that host to reach new subnets
+# Check each discovered host for dual-homing
+nmap -sV -p 22 10.10.10.0/24 -oG - | grep "open"
+# SSH in and check their routes: ip route</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Start with <code>ip route</code> and <code>arp -a</code> on your initial foothold. Ping sweep each discovered subnet. One host is dual-homed (two network interfaces) — SSH into it and discover the third subnet from there. Each flag is served on port 8080.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Firewall Rule Enumeration</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A target firewall has specific rules allowing certain ports from certain source ports. Map out the complete firewall ruleset. The flag is the sorted list of allowed destination ports when scanning from source port 53.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Test with different source ports
+for sport in 53 80 443 8080; do
+  echo "=== Source port $sport ==="
+  sudo nmap -sS -g $sport -p 1-1000 $IP --open -oG - 2>/dev/null | grep open
+done
+
+# ACK scan to differentiate filtered vs unfiltered
+sudo nmap -sA -p 1-1000 $IP
+
+# Window scan for more detail
+sudo nmap -sW -p 1-1000 $IP
+
+# Flag format: FLAG{port1,port2,port3,...}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The firewall is stateless and only checks source port for some rules. Use <code>-g 53</code> to set source port to DNS. Combine SYN scan with ACK scan results — ports that are "unfiltered" on ACK but "filtered" on SYN have a specific source-port-based allow rule.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Service Version Exploitation</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Scan the target, identify all services and versions. One service has a known backdoor. Exploit it to get the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Detailed version scan
+nmap -sV --version-all -p- $IP
+
+# Search for known exploits
+searchsploit [service name] [version]
+
+# Common backdoored versions to look for:
+# vsftpd 2.3.4 — backdoor on port 6200
+# ProFTPD 1.3.3c — command execution
+# UnrealIRCd 3.2.8.1 — backdoor</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Look for vsftpd 2.3.4 — it has a famous backdoor triggered by sending a username containing <code>:)</code>. This opens a shell on port 6200. Connect with <code>nc $IP 6200</code> after triggering it.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Custom NSE Challenge</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A custom service on port 7777 implements a challenge-response protocol. Write an NSE script that automatically solves the challenge and retrieves the flag. The protocol: server sends a hex-encoded number, you must respond with its SHA256 hash.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">cat > solve_challenge.nse &lt;&lt; 'NSEOF'
+local nmap = require "nmap"
+local shortport = require "shortport"
+local openssl = require "openssl"
+
+description = [[Solve the custom challenge-response on port 7777]]
+portrule = shortport.port_or_service(7777, "challenge")
+
+action = function(host, port)
+  local socket = nmap.new_socket()
+  socket:connect(host, port)
+  local status, challenge = socket:receive_lines(1)
+  if not status then return "Failed to receive challenge" end
+
+  -- SHA256 hash the challenge
+  local hash = openssl.digest("sha256", challenge)
+  socket:send(hash .. "\n")
+
+  local status, response = socket:receive_lines(1)
+  socket:close()
+  return response  -- should contain the flag
+end
+NSEOF
+
+nmap --script=solve_challenge.nse -p 7777 $IP</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The challenge value changes each connection. Your NSE script must: (1) connect, (2) read the challenge string, (3) compute SHA256 of the raw string (not hex-decoded), (4) send the hash back as lowercase hex. The flag comes in the next response line.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Zombie Scan Discovery</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">You need to scan a target without any packets originating from your IP. Find a suitable zombie host on the network (one with predictable IP ID sequences) and perform an idle scan.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Step 1: Find zombie candidates — hosts with incremental IP IDs
+sudo nmap --script ipidseq 10.10.10.0/24 -oG - | grep "Incremental"
+
+# Step 2: Verify the zombie
+sudo nmap -O -v ZOMBIE_IP | grep "IP ID"
+
+# Step 3: Perform the idle scan
+sudo nmap -sI ZOMBIE_IP:80 TARGET_IP -p 1-1000 -Pn
+
+# Step 4: Verify results with a direct scan from a different source
+# Compare open ports found via idle scan vs direct scan</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>nmap --script ipidseq</code> to find hosts with "Incremental" IP ID sequences — these are suitable zombies. Printers and older Windows machines often work. The idle scan sends packets from the zombie's IP, so the target never sees your address. Use <code>-Pn</code> since you can't ping through the zombie.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Automated Recon Report</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Write a Python script that takes nmap XML output, cross-references services with the CVE database, and generates an HTML report. Run it against the challenge target and find the flag in one of the CVE descriptions.</p>
+          <div class="setup-code">
+<pre><code class="language-python">#!/usr/bin/env python3
+import xml.etree.ElementTree as ET
+import requests
+import sys
+
+tree = ET.parse(sys.argv[1])
+root = tree.getroot()
+
+print("&lt;html>&lt;body>&lt;h1>Recon Report&lt;/h1>")
+for host in root.findall("host"):
+    ip = host.find("address").get("addr")
+    print(f"&lt;h2>{ip}&lt;/h2>&lt;table border=1>")
+    print("&lt;tr>&lt;th>Port&lt;/th>&lt;th>Service&lt;/th>&lt;th>Version&lt;/th>&lt;th>CVEs&lt;/th>&lt;/tr>")
+
+    for port in host.findall(".//port"):
+        if port.find("state").get("state") != "open":
+            continue
+        svc = port.find("service")
+        product = svc.get("product", "") if svc is not None else ""
+        version = svc.get("version", "") if svc is not None else ""
+
+        # Query CVE (use NIST NVD or cve.circl.lu)
+        cves = ""
+        if product and version:
+            r = requests.get(f"https://cve.circl.lu/api/search/{product}/{version}",
+                           timeout=5)
+            if r.ok and r.json():
+                cves = ", ".join(c["id"] for c in r.json()[:5])
+
+        print(f"&lt;tr>&lt;td>{port.get('portid')}&lt;/td>&lt;td>{product}&lt;/td>"
+              f"&lt;td>{version}&lt;/td>&lt;td>{cves}&lt;/td>&lt;/tr>")
+    print("&lt;/table>")
+print("&lt;/body>&lt;/html>")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Parse the XML with ElementTree. For CVE lookup, use <code>cve.circl.lu</code> API (no auth needed). The flag is embedded in the description of one of the CVEs matching a service on the target. Check CVE descriptions for <code>FLAG{</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Scan Through the Proxy</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You can only reach the target through a SOCKS proxy. Perform a full scan through the proxy and identify all services. The flag is in the banner of a service on a high port.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Option 1: nmap through proxychains
+echo "socks4 127.0.0.1 1080" >> /etc/proxychains4.conf
+proxychains nmap -sT -Pn -p 1-65535 $IP
+# Note: only TCP connect (-sT) works through SOCKS, not SYN scan
+
+# Option 2: Use nmap's --proxies
+nmap -sT -Pn --proxies socks4://127.0.0.1:1080 -p 1-65535 $IP
+
+# Option 3: Manual scanning with proxychains + nc
+for port in $(seq 1 65535); do
+  proxychains nc -zv -w1 $IP $port 2>&1 | grep "open" &amp;
+  [ $((port % 100)) -eq 0 ] && wait
+done</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>SYN scans don't work through SOCKS — use <code>-sT</code> (connect scan). Add <code>-Pn</code> to skip host discovery since ICMP doesn't go through SOCKS either. The service is on a port above 40000. Use <code>proxychains nc -v $IP PORT</code> for banner grabbing once found.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

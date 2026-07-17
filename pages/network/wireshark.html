@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Wireshark</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Wireshark &amp; Packet Analysis</h1>
+    <hr>
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ==================== NOTES TAB ==================== -->
+      <div class="tab-content active" id="notes">
+
+        <!-- Wireshark Interface -->
+        <h2>Wireshark Interface Overview</h2>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Panel</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Packet List</td><td>Top pane — one row per packet with summary columns (No., Time, Source, Destination, Protocol, Info)</td></tr>
+            <tr><td>Packet Details</td><td>Middle pane — protocol tree showing each layer's decoded fields</td></tr>
+            <tr><td>Packet Bytes</td><td>Bottom pane — raw hex and ASCII dump of the selected packet</td></tr>
+            <tr><td>Display Filter Bar</td><td>Top toolbar — enter display filters to narrow visible packets</td></tr>
+            <tr><td>Status Bar</td><td>Bottom — shows packet count, displayed count, profile name</td></tr>
+          </tbody>
+        </table>
+<pre><code class="language-bash"># Launch Wireshark
+wireshark                      # GUI
+wireshark -i eth0              # start capture immediately
+wireshark -r capture.pcap      # open existing pcap
+wireshark -k -i eth0           # start capture on launch</code></pre>
+
+        <!-- Capture vs Display Filters -->
+        <h2>Capture Filters vs Display Filters</h2>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Feature</th><th>Capture Filter</th><th>Display Filter</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>When applied</td><td>Before capture — only matching packets are saved</td><td>After capture — filters what's displayed</td></tr>
+            <tr><td>Syntax</td><td>BPF (Berkeley Packet Filter)</td><td>Wireshark's own syntax</td></tr>
+            <tr><td>Set in</td><td>Capture → Options → capture filter field</td><td>Display filter bar at top</td></tr>
+            <tr><td>Performance</td><td>Reduces pcap size, more efficient</td><td>Full pcap captured, filter on the fly</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Capture Filter Examples (BPF Syntax)</h3>
+<pre><code class="language-bash"># Only capture traffic to/from a host
+host 192.168.1.100
+
+# Only capture traffic on specific port
+port 80
+port 443
+
+# Capture a subnet
+net 192.168.1.0/24
+
+# Capture only TCP SYN packets
+tcp[tcpflags] &amp; (tcp-syn) != 0
+
+# Exclude SSH traffic
+not port 22
+
+# Combine filters
+host 192.168.1.100 and port 80
+host 10.10.10.1 and not port 22</code></pre>
+
+        <!-- Essential Display Filters -->
+        <h2>Essential Display Filters</h2>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Filter</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>ip.addr == 192.168.1.100</code></td><td>Traffic to/from IP</td></tr>
+            <tr><td><code>ip.src == 10.10.10.1</code></td><td>Source IP only</td></tr>
+            <tr><td><code>ip.dst == 10.10.10.1</code></td><td>Destination IP only</td></tr>
+            <tr><td><code>tcp.port == 80</code></td><td>TCP port (src or dst)</td></tr>
+            <tr><td><code>tcp.dstport == 443</code></td><td>TCP destination port</td></tr>
+            <tr><td><code>udp.port == 53</code></td><td>UDP DNS traffic</td></tr>
+            <tr><td><code>http</code></td><td>All HTTP traffic</td></tr>
+            <tr><td><code>http.request</code></td><td>HTTP requests only</td></tr>
+            <tr><td><code>http.response</code></td><td>HTTP responses only</td></tr>
+            <tr><td><code>http.request.method == "POST"</code></td><td>POST requests (look for creds)</td></tr>
+            <tr><td><code>http.request.uri contains "login"</code></td><td>URIs containing "login"</td></tr>
+            <tr><td><code>dns</code></td><td>All DNS traffic</td></tr>
+            <tr><td><code>dns.qry.name contains "evil"</code></td><td>DNS queries with keyword</td></tr>
+            <tr><td><code>tcp.flags.syn == 1 &amp;&amp; tcp.flags.ack == 0</code></td><td>SYN packets only (new connections)</td></tr>
+            <tr><td><code>tcp.flags.rst == 1</code></td><td>RST packets (connection resets)</td></tr>
+            <tr><td><code>tcp.analysis.retransmission</code></td><td>Retransmitted packets</td></tr>
+            <tr><td><code>frame.contains "password"</code></td><td>Frames containing string (case-sensitive)</td></tr>
+            <tr><td><code>frame.len > 1000</code></td><td>Large packets</td></tr>
+            <tr><td><code>arp</code></td><td>All ARP traffic</td></tr>
+            <tr><td><code>icmp</code></td><td>All ICMP traffic</td></tr>
+            <tr><td><code>tls</code></td><td>TLS/SSL traffic</td></tr>
+            <tr><td><code>ftp</code></td><td>FTP control channel</td></tr>
+            <tr><td><code>ftp-data</code></td><td>FTP data transfers</td></tr>
+            <tr><td><code>smtp</code></td><td>Email (SMTP) traffic</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Combining Filters</h3>
+<pre><code class="language-bash"># AND / OR / NOT
+ip.addr == 192.168.1.100 &amp;&amp; tcp.port == 80
+http || dns
+!arp &amp;&amp; !dns
+
+# Parentheses for grouping
+(ip.src == 10.10.10.1 || ip.src == 10.10.10.2) &amp;&amp; http
+
+# Contains (substring match)
+http.host contains "example"
+frame.contains "FLAG{"
+
+# Matches (regex)
+http.request.uri matches ".*\\.php$"
+
+# In operator
+tcp.port in {80, 443, 8080, 8443}
+ip.addr in {10.10.10.0/24}</code></pre>
+
+        <!-- Following Streams -->
+        <h2>Following Streams</h2>
+        <p>Right-click a packet → <strong>Follow</strong> → TCP/UDP/HTTP/TLS Stream. Reconstructs the full conversation in a readable format.</p>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Stream Type</th><th>Use Case</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>TCP Stream</td><td>See full TCP conversation — HTTP requests/responses, FTP commands, etc.</td></tr>
+            <tr><td>UDP Stream</td><td>DNS queries/responses, DHCP exchanges</td></tr>
+            <tr><td>HTTP Stream</td><td>Reconstructed HTTP request + response with decompressed body</td></tr>
+            <tr><td>TLS Stream</td><td>Encrypted data (need SSLKEYLOGFILE to decrypt)</td></tr>
+          </tbody>
+        </table>
+<pre><code class="language-bash"># After following a stream, Wireshark auto-applies a filter:
+tcp.stream eq 5        # shows only packets in stream #5
+
+# Navigate between streams
+# Use arrows in the stream window, or change the stream number in the filter</code></pre>
+
+        <!-- Protocol Hierarchy & Expert Info -->
+        <h2>Protocol Hierarchy &amp; Expert Info</h2>
+<pre><code class="language-bash"># Statistics → Protocol Hierarchy
+# Shows percentage breakdown of all protocols in the capture
+# Quick way to identify what kind of traffic dominates
+
+# Analyze → Expert Information
+# Flags: errors, warnings, notes, chats
+# Highlights: retransmissions, zero-window, RST floods, malformed packets
+# Great for spotting anomalies and attack indicators</code></pre>
+
+        <!-- tshark -->
+        <h2>tshark CLI</h2>
+        <p>Command-line Wireshark. Same display filter syntax. Essential for scripting and server-side analysis.</p>
+<pre><code class="language-bash"># Basic capture
+sudo tshark -i eth0
+
+# Capture with display filter
+sudo tshark -i eth0 -Y "http.request"
+
+# Read pcap with filter
+tshark -r capture.pcap -Y "dns"
+
+# Extract specific fields
+tshark -r capture.pcap -Y "http.request" \
+  -T fields -e ip.src -e http.request.method -e http.host -e http.request.uri
+
+# Extract DNS queries
+tshark -r capture.pcap -Y "dns.qry.name" \
+  -T fields -e dns.qry.name | sort | uniq -c | sort -rn
+
+# Save filtered packets to new pcap
+tshark -r large.pcap -Y "http" -w http_only.pcap
+
+# Capture N packets then stop
+sudo tshark -i eth0 -c 100 -w quick_capture.pcap
+
+# Follow TCP stream
+tshark -r capture.pcap -z follow,tcp,ascii,0
+
+# Protocol hierarchy
+tshark -r capture.pcap -z io,phs
+
+# Statistics — conversations
+tshark -r capture.pcap -z conv,tcp
+tshark -r capture.pcap -z conv,ip
+
+# Extract HTTP objects
+tshark -r capture.pcap --export-objects http,./extracted_files/</code></pre>
+
+        <!-- Pcap Analysis Methodology -->
+        <h2>Pcap Analysis Methodology (CTF)</h2>
+        <p>Systematic approach when handed a pcap in a CTF:</p>
+<pre><code class="language-bash"># 1. Get an overview — what protocols are present?
+tshark -r challenge.pcap -z io,phs -q
+
+# 2. Check conversations — who talked to whom?
+tshark -r challenge.pcap -z conv,ip -q
+
+# 3. Look for low-hanging fruit
+# HTTP requests
+tshark -r challenge.pcap -Y "http.request" -T fields -e http.host -e http.request.uri
+# DNS queries (check for tunneling)
+tshark -r challenge.pcap -Y "dns.qry.name" -T fields -e dns.qry.name | sort -u
+# Search for flag format
+tshark -r challenge.pcap -Y 'frame.contains "FLAG"' 
+# or in Wireshark: Edit → Find Packet → String → "FLAG{"
+
+# 4. Extract files
+# Wireshark: File → Export Objects → HTTP / SMB / TFTP
+tshark -r challenge.pcap --export-objects http,./http_files/
+
+# 5. Check for credentials
+tshark -r challenge.pcap -Y "http.request.method == POST" -T fields \
+  -e ip.src -e http.request.uri -e urlencoded-form.value
+tshark -r challenge.pcap -Y "ftp.request.command == PASS" -T fields -e ftp.request.arg
+
+# 6. Look for anomalies
+# ICMP with unusual payload sizes
+tshark -r challenge.pcap -Y "icmp &amp;&amp; data.len > 0" -T fields -e data.data
+# DNS with long subdomain names (tunneling)
+tshark -r challenge.pcap -Y "dns.qry.name" -T fields -e dns.qry.name | awk '{if(length($0)>50)print}'</code></pre>
+
+        <!-- Extracting Files -->
+        <h2>Extracting Files from Pcaps</h2>
+<pre><code class="language-bash"># Wireshark GUI
+# File → Export Objects → HTTP   (downloads, uploads, images)
+# File → Export Objects → SMB    (file shares)
+# File → Export Objects → TFTP   (firmware, configs)
+# File → Export Objects → IMF    (email messages)
+
+# tshark
+tshark -r capture.pcap --export-objects http,./output_dir/
+tshark -r capture.pcap --export-objects smb,./smb_files/
+
+# NetworkMiner (GUI tool — auto-extracts files, images, credentials)
+networkminer capture.pcap
+
+# foremost / binwalk (carve files from raw data)
+foremost -i capture.pcap -o carved_files/
+binwalk -e capture.pcap
+
+# Manual extraction — follow TCP stream → Save As → Raw
+# Then use file command to identify and rename</code></pre>
+
+        <!-- Finding Credentials -->
+        <h2>Finding Credentials in Pcaps</h2>
+<pre><code class="language-bash"># HTTP POST (form login)
+tshark -r capture.pcap -Y "http.request.method == POST" -T fields \
+  -e frame.number -e ip.src -e http.host -e http.request.uri
+
+# Then follow the HTTP stream of matching packets
+# Look for: username=, password=, passwd=, login=, user=
+
+# HTTP Basic Auth (Base64)
+tshark -r capture.pcap -Y "http.authorization" -T fields -e http.authorization
+# Decode: echo "dXNlcjpwYXNz" | base64 -d
+
+# FTP credentials (cleartext)
+tshark -r capture.pcap -Y "ftp.request.command == USER || ftp.request.command == PASS" \
+  -T fields -e ftp.request.command -e ftp.request.arg
+
+# Telnet (cleartext, character-by-character)
+tshark -r capture.pcap -Y "telnet.data" -T fields -e telnet.data
+
+# SMTP auth
+tshark -r capture.pcap -Y "smtp" | grep -i "AUTH\|USER\|PASS"
+
+# POP3
+tshark -r capture.pcap -Y "pop.request" -T fields -e pop.request.command -e pop.request.parameter
+
+# NTLM / Kerberos — use NetworkMiner or ntlmrelayx tools
+# For NTLM hashes in SMB:
+tshark -r capture.pcap -Y "ntlmssp.auth" -T fields -e ntlmssp.auth.username -e ntlmssp.auth.domain</code></pre>
+
+        <!-- Common CTF Pcap Patterns -->
+        <h2>Common CTF Pcap Patterns</h2>
+
+        <h3>HTTP Flag Exfiltration</h3>
+<pre><code class="language-bash"># Flag hidden in HTTP headers, cookies, POST data, or URL parameters
+tshark -r ctf.pcap -Y "http" -T fields -e http.cookie -e http.set_cookie
+tshark -r ctf.pcap -Y "http.request" -T fields -e http.request.uri | grep -i flag
+tshark -r ctf.pcap -Y "http.response" -T fields -e http.response.code -e http.content_type
+
+# Check custom headers
+tshark -r ctf.pcap -Y "http" -V | grep -i "X-Flag\|X-Secret\|X-Hidden"</code></pre>
+
+        <h3>DNS Tunneling</h3>
+<pre><code class="language-bash"># Data encoded in DNS subdomain labels
+tshark -r ctf.pcap -Y "dns.qry.name" -T fields -e dns.qry.name | sort -u
+
+# Look for long, hex/base64-encoded subdomains:
+#   64686973206973207468652064617461.evil.com
+# Extract and decode:
+tshark -r ctf.pcap -Y "dns.qry.name contains evil.com" -T fields -e dns.qry.name | \
+  sed 's/.evil.com//' | xxd -r -p
+
+# TXT record responses can also carry data
+tshark -r ctf.pcap -Y "dns.txt" -T fields -e dns.txt</code></pre>
+
+        <h3>ICMP Data Exfiltration</h3>
+<pre><code class="language-bash"># Data hidden in ICMP echo request/reply payloads
+tshark -r ctf.pcap -Y "icmp" -T fields -e data.data
+
+# Extract and decode
+tshark -r ctf.pcap -Y "icmp.type == 8" -T fields -e data.data | tr -d ':' | xxd -r -p
+
+# Check for varying payload sizes (each packet = one character)
+tshark -r ctf.pcap -Y "icmp" -T fields -e data.len</code></pre>
+
+        <h3>FTP Transfers</h3>
+<pre><code class="language-bash"># FTP uses separate control (21) and data channels
+# Find commands
+tshark -r ctf.pcap -Y "ftp.request" -T fields -e ftp.request.command -e ftp.request.arg
+
+# Find transferred files (follow FTP-DATA streams)
+tshark -r ctf.pcap -Y "ftp-data" -T fields -e tcp.stream | sort -u
+# Then follow each stream in Wireshark → Save As → Raw</code></pre>
+
+        <!-- tcpdump -->
+        <h2>tcpdump Basics</h2>
+<pre><code class="language-bash"># Capture all traffic on interface
+sudo tcpdump -i eth0
+
+# Capture with BPF filter
+sudo tcpdump -i eth0 host 192.168.1.100
+sudo tcpdump -i eth0 port 80
+sudo tcpdump -i eth0 'host 10.10.10.1 and port 443'
+
+# Save to pcap file
+sudo tcpdump -i eth0 -w capture.pcap
+
+# Read pcap
+tcpdump -r capture.pcap
+
+# Show packet contents (ASCII)
+sudo tcpdump -i eth0 -A port 80
+
+# Show hex + ASCII
+sudo tcpdump -i eth0 -XX port 80
+
+# Capture N packets
+sudo tcpdump -i eth0 -c 100
+
+# Don't resolve hostnames (faster)
+sudo tcpdump -i eth0 -n
+
+# Verbose output
+sudo tcpdump -i eth0 -v       # verbose
+sudo tcpdump -i eth0 -vv      # more verbose
+
+# Capture SYN packets only
+sudo tcpdump -i eth0 'tcp[tcpflags] &amp; (tcp-syn) != 0'
+
+# Capture specific packet size
+sudo tcpdump -i eth0 -s 0     # full packets (no truncation)
+
+# Useful combo for CTF pcap quick-look
+tcpdump -r capture.pcap -n -A | head -200</code></pre>
+
+        <h3>Wireshark Keyboard Shortcuts</h3>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Shortcut</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>Ctrl+E</code></td><td>Start/stop capture</td></tr>
+            <tr><td><code>Ctrl+F</code></td><td>Find packet (by string, hex, regex)</td></tr>
+            <tr><td><code>Ctrl+G</code></td><td>Go to packet number</td></tr>
+            <tr><td><code>Ctrl+Shift+E</code></td><td>Export specified packets</td></tr>
+            <tr><td><code>Ctrl+/</code></td><td>Focus display filter bar</td></tr>
+            <tr><td><code>Ctrl+R</code></td><td>Reload file</td></tr>
+          </tbody>
+        </table>
+
+      </div>
+
+      <!-- ==================== LAB TAB ==================== -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Basic Wireshark Capture &amp; Filtering</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Capture live traffic with Wireshark, apply capture and display filters, and identify key protocol fields in common traffic.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong> Wireshark installed. Access to a network interface (Wi-Fi or Ethernet). Generate some traffic by browsing websites.</p>
+<pre><code class="language-bash"># Step 1: Start a capture on your primary interface
+# Wireshark → select interface → Start (or Ctrl+E)
+
+# Step 2: Generate traffic — open a browser, visit http://example.com
+
+# Step 3: Stop capture (Ctrl+E) and apply display filters
+
+# Filter only HTTP traffic
+http
+
+# Filter by destination IP
+ip.dst == 93.184.216.34
+
+# Find DNS lookups for example.com
+dns.qry.name == "example.com"
+
+# Show only SYN packets (new connections)
+tcp.flags.syn == 1 &amp;&amp; tcp.flags.ack == 0
+
+# Show only packets larger than 500 bytes
+frame.len > 500</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Capture 60 seconds of normal browsing traffic</li>
+              <li>Use Protocol Hierarchy (Statistics → Protocol Hierarchy) to identify the top 5 protocols</li>
+              <li>Filter to show only DNS queries — identify all domains resolved</li>
+              <li>Follow a TCP stream for an HTTP request — identify the request method, path, and response code</li>
+              <li>Use Expert Information to find any warnings or errors</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Extract Files from HTTP Traffic</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Capture HTTP traffic containing file downloads and extract the transferred files using Wireshark's Export Objects feature and manual stream extraction.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong> Set up a simple HTTP server and download files from it. Capture the traffic.</p>
+<pre><code class="language-bash"># On one machine — serve files over HTTP
+cd /tmp &amp;&amp; echo "SECRET_DATA_12345" > secret.txt
+python3 -m http.server 8080
+
+# On another machine (or same machine) — start Wireshark capture, then download
+curl http://&lt;server_ip&gt;:8080/secret.txt -o /dev/null
+wget http://&lt;server_ip&gt;:8080/secret.txt</code></pre>
+<pre><code class="language-bash"># Method 1: Export Objects
+# File → Export Objects → HTTP → Save All (or select specific files)
+
+# Method 2: Follow HTTP Stream
+# Filter: http.request.uri contains "secret"
+# Right-click packet → Follow → HTTP Stream
+# Save the response body
+
+# Method 3: tshark extraction
+tshark -r capture.pcap --export-objects http,./extracted/
+ls -la ./extracted/
+
+# Method 4: Manual — filter for the GET request, note the TCP stream number
+tshark -r capture.pcap -Y "http.request.uri contains secret" \
+  -T fields -e tcp.stream
+# Follow that stream: tshark -r capture.pcap -z follow,tcp,raw,&lt;stream_num&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Download 3 different file types (txt, png, zip) from the HTTP server while capturing</li>
+              <li>Extract all files using Export Objects — verify they match the originals (use <code>md5sum</code>)</li>
+              <li>Manually follow a TCP stream and save the raw response body</li>
+              <li>Use tshark to extract files non-interactively</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Analyze Suspicious Traffic Patterns</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Analyze a pcap file containing mixed legitimate and malicious traffic. Identify C2 beaconing, data exfiltration, and lateral movement indicators.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong> Use a pcap from <a href="https://www.malware-traffic-analysis.net/">malware-traffic-analysis.net</a> or generate your own with a C2 framework in a lab.</p>
+<pre><code class="language-bash"># Step 1: Protocol overview — what stands out?
+tshark -r suspicious.pcap -z io,phs -q
+
+# Step 2: Conversation analysis — who talks to whom, how much data?
+tshark -r suspicious.pcap -z conv,ip -q
+# Look for: unusual destinations, high volume to single IP, periodic connections
+
+# Step 3: Check for beaconing (regular interval connections)
+tshark -r suspicious.pcap -Y "ip.dst == &lt;suspect_ip&gt;" \
+  -T fields -e frame.time_delta_displayed | head -30
+# Consistent intervals (e.g., every 60s) = beaconing
+
+# Step 4: DNS analysis — look for tunneling or DGA domains
+tshark -r suspicious.pcap -Y "dns.qry.name" -T fields -e dns.qry.name | \
+  awk '{print length, $0}' | sort -rn | head -20
+# Long random-looking domains = DGA or tunneling
+
+# Step 5: HTTP analysis — user agents, POST data sizes
+tshark -r suspicious.pcap -Y "http.request" -T fields \
+  -e ip.dst -e http.request.method -e http.host -e http.user_agent | sort | uniq -c | sort -rn
+
+# Step 6: Check for data exfil — large outbound transfers
+tshark -r suspicious.pcap -z conv,tcp -q
+# Sort by bytes — large outbound to external IP = exfil
+
+# Step 7: Look for lateral movement (internal → internal on SMB/RDP/WinRM)
+tshark -r suspicious.pcap -Y "ip.src == 192.168.0.0/16 &amp;&amp; ip.dst == 192.168.0.0/16 &amp;&amp; (tcp.port == 445 || tcp.port == 3389 || tcp.port == 5985)"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Identify the compromised host(s) and the C2 server IP</li>
+              <li>Determine the beaconing interval</li>
+              <li>Extract any exfiltrated data or transferred files</li>
+              <li>Map the attack timeline: initial compromise → C2 → lateral movement → exfil</li>
+              <li>Write tshark one-liners to detect each stage</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Protocol Dissection Deep Dive</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Dissect specific protocol layers in Wireshark. Understand how each layer encapsulates the next and how to inspect individual fields.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Generate traffic with known protocols
+# DNS
+dig example.com
+# HTTP
+curl http://example.com
+# ICMP
+ping -c 3 8.8.8.8
+# Capture all of it
+sudo tcpdump -i eth0 -w protocols.pcap -c 100</code></pre>
+            <p><strong>Tasks in Wireshark:</strong></p>
+            <ol>
+              <li>Select a DNS packet → expand each layer (Ethernet, IP, UDP, DNS) → note byte offsets</li>
+              <li>Right-click a field → "Apply as Column" to track it across packets</li>
+              <li>Use "Decode As" to force interpretation of a port as a specific protocol</li>
+              <li>Compare HTTP/1.1 vs HTTP/2 packet structure if available</li>
+              <li>Export packet dissection: right-click → Copy → All Visible Items</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Custom Display Filters Masterclass</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Master advanced Wireshark display filters including comparisons, contains, matches (regex), and field existence checks.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># String matching
+http.host contains "example"
+http.user_agent matches "(?i)mozilla"
+dns.qry.name contains "suspicious"
+
+# Numeric comparisons
+frame.len > 1000
+tcp.window_size &lt; 1024
+ip.ttl &lt; 10
+
+# Field existence
+tcp.analysis.retransmission
+tcp.analysis.zero_window
+http.response.code
+
+# Combining with logic operators
+(http.request.method == "POST") &amp;&amp; (http.content_length > 500)
+!(arp || dns) &amp;&amp; ip.addr == 192.168.1.100
+tcp.flags.syn == 1 &amp;&amp; tcp.flags.ack == 0     # SYN only (new connections)
+
+# Slice operators (byte-level filtering)
+eth.src[0:3] == aa:bb:cc                      # filter by OUI
+tcp.payload[0:4] == 47:45:54:20              # starts with "GET "
+
+# Time-based
+frame.time_relative > 60                      # after first 60 seconds
+
+# TCP analysis filters
+tcp.analysis.retransmission                   # retransmissions
+tcp.analysis.duplicate_ack                    # duplicate ACKs
+tcp.analysis.out_of_order                     # out of order segments</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Lua Dissector Writing</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write a custom Lua dissector for Wireshark to decode a proprietary protocol running on TCP port 9999.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Save as ~/.local/lib/wireshark/plugins/custom_proto.lua
+# The protocol: [2-byte length][1-byte command][payload]
+# Commands: 0x01=HELLO, 0x02=DATA, 0x03=BYE</code></pre>
+<pre><code class="language-python"># custom_proto.lua (Lua for Wireshark)
+custom_proto = Proto("CustomProto", "Custom Protocol")
+
+-- Field definitions
+local f_length = ProtoField.uint16("custom.length", "Length", base.DEC)
+local f_command = ProtoField.uint8("custom.command", "Command", base.HEX,
+    {[0x01] = "HELLO", [0x02] = "DATA", [0x03] = "BYE"})
+local f_payload = ProtoField.string("custom.payload", "Payload")
+
+custom_proto.fields = {f_length, f_command, f_payload}
+
+function custom_proto.dissector(buffer, pinfo, tree)
+    if buffer:len() &lt; 3 then return end
+
+    pinfo.cols.protocol = "CUSTOM"
+    local subtree = tree:add(custom_proto, buffer(), "Custom Protocol")
+
+    local length = buffer(0, 2):uint()
+    subtree:add(f_length, buffer(0, 2))
+    subtree:add(f_command, buffer(2, 1))
+
+    local cmd = buffer(2, 1):uint()
+    if cmd == 0x01 then
+        pinfo.cols.info = "HELLO"
+    elseif cmd == 0x02 then
+        local payload = buffer(3, length - 1):string()
+        subtree:add(f_payload, buffer(3, length - 1))
+        pinfo.cols.info = "DATA: " .. payload:sub(1, 50)
+    elseif cmd == 0x03 then
+        pinfo.cols.info = "BYE"
+    end
+end
+
+local tcp_port = DissectorTable.get("tcp.port")
+tcp_port:add(9999, custom_proto)</code></pre>
+<pre><code class="language-bash"># Load: Wireshark → Help → About → Folders → Personal Lua Plugins
+# Copy the .lua file there, then Ctrl+Shift+L to reload
+# Or launch with: wireshark -X lua_script:custom_proto.lua</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: tshark Automation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use tshark for command-line packet analysis, automated extraction, and pcap processing pipelines.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Basic tshark usage
+tshark -r capture.pcap -c 10                     # first 10 packets
+tshark -r capture.pcap -Y "http.request"         # display filter
+tshark -r capture.pcap -T fields -e ip.src -e ip.dst -e tcp.dstport
+
+# Extract specific fields as CSV
+tshark -r capture.pcap -Y "http.request" -T fields \
+  -e frame.time -e ip.src -e http.host -e http.request.uri \
+  -E header=y -E separator=, > http_requests.csv
+
+# Protocol statistics
+tshark -r capture.pcap -z io,phs -q              # protocol hierarchy
+tshark -r capture.pcap -z conv,tcp -q             # TCP conversations
+tshark -r capture.pcap -z endpoints,ip -q         # IP endpoints
+tshark -r capture.pcap -z http,tree -q            # HTTP statistics
+
+# Live capture with processing
+tshark -i eth0 -Y "dns.qry.name" -T fields -e dns.qry.name | \
+  sort | uniq -c | sort -rn | head -20
+
+# Automated DNS monitoring script
+tshark -i eth0 -Y "dns.qry.name" -T fields -e dns.qry.name 2>/dev/null | \
+  while read domain; do
+    echo "$(date +%T) $domain"
+    echo "$domain" >> dns_log.txt
+  done</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Pcap Merging, Splitting &amp; VoIP Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Merge multiple pcaps, split by conversation, and analyze VoIP (SIP/RTP) traffic to extract audio.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Merge pcaps
+mergecap -w combined.pcap file1.pcap file2.pcap file3.pcap
+
+# Split by TCP stream
+tshark -r combined.pcap -T fields -e tcp.stream | sort -nu | while read stream; do
+  tshark -r combined.pcap -Y "tcp.stream == $stream" -w "stream_$stream.pcap"
+done
+
+# Split by time interval (60 seconds each)
+editcap -i 60 large.pcap split_
+
+# Extract only specific time range
+editcap -A "2024-01-15 10:00:00" -B "2024-01-15 10:05:00" capture.pcap window.pcap
+
+# VoIP Analysis
+# Filter SIP signaling
+tshark -r voip.pcap -Y "sip"
+
+# In Wireshark: Telephony → VoIP Calls → select call → Play Streams
+# Or extract RTP audio:
+tshark -r voip.pcap -Y "rtp" -T fields -e rtp.payload | \
+  xxd -r -p > audio.raw
+# Convert raw audio: sox -r 8000 -e signed -b 16 -c 1 audio.raw audio.wav</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: TLS Decryption with Key Log</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Capture HTTPS traffic and decrypt it in Wireshark using the TLS session key log file (SSLKEYLOGFILE).</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Step 1: Set the SSLKEYLOGFILE environment variable
+export SSLKEYLOGFILE=/tmp/tls_keys.log
+
+# Step 2: Start Wireshark capture on your interface
+wireshark -i eth0 -k &amp;
+
+# Step 3: Generate HTTPS traffic (browser or curl use this env var)
+curl -s https://example.com > /dev/null
+# Or open Firefox/Chrome — they respect SSLKEYLOGFILE
+
+# Step 4: Stop capture
+
+# Step 5: Load the key log file in Wireshark
+# Edit → Preferences → Protocols → TLS → (Pre)-Master-Secret log filename
+# Browse to /tmp/tls_keys.log
+
+# Step 6: Now the TLS traffic should be decrypted!
+# You can see HTTP/2 frames, request/response content, etc.
+
+# Verify with tshark
+tshark -r capture.pcap -o tls.keylog_file:/tmp/tls_keys.log \
+  -Y "http2.headers.method" -T fields -e http2.headers.path</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: WiFi Capture Analysis</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Capture and analyze 802.11 WiFi traffic in monitor mode. Identify SSIDs, clients, and security protocols.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Enable monitor mode
+sudo airmon-ng start wlan0
+
+# Capture with Wireshark
+wireshark -i wlan0mon -k
+
+# Or with tcpdump
+sudo tcpdump -i wlan0mon -w wifi_capture.pcap
+
+# Display filters for WiFi analysis
+# All beacon frames (AP advertisements)
+wlan.fc.type_subtype == 0x08
+
+# Probe requests (clients looking for networks)
+wlan.fc.type_subtype == 0x04
+
+# Authentication frames
+wlan.fc.type_subtype == 0x0b
+
+# WPA/WPA2 4-way handshake (EAPOL)
+eapol
+
+# Filter by SSID
+wlan.ssid == "TargetNetwork"
+
+# tshark: list all SSIDs
+tshark -r wifi_capture.pcap -Y "wlan.fc.type_subtype == 0x08" \
+  -T fields -e wlan.ssid -e wlan.bssid | sort -u
+
+# Decrypt WPA2 traffic (if you have the PSK)
+# Edit → Preferences → Protocols → IEEE 802.11 → Decryption Keys → Edit
+# Add: wpa-pwd:password:SSID</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Expert Info &amp; Protocol Statistics</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use Wireshark's Expert Information and statistical tools to quickly identify network issues and anomalies.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Expert Info: Analyze → Expert Information
+# Categories: Error (red), Warning (yellow), Note (cyan), Chat (blue)
+
+# Key things to look for:
+# - TCP Retransmissions → packet loss or congestion
+# - TCP Zero Window → receiver buffer full
+# - TCP Out-of-Order → network path issues
+# - Duplicate ACKs → potential packet loss
+# - RST flags → connection resets
+
+# Statistics menu essentials:
+# Statistics → Conversations → sort by bytes → find top talkers
+# Statistics → Endpoints → identify all active hosts
+# Statistics → Protocol Hierarchy → protocol distribution
+# Statistics → IO Graphs → visualize traffic over time
+# Statistics → Flow Graph → TCP/HTTP sequence diagram
+
+# tshark equivalents
+tshark -r capture.pcap -z expert -q              # expert info summary
+tshark -r capture.pcap -z io,stat,1 -q           # 1-second interval stats
+tshark -r capture.pcap -z conv,tcp -q             # conversations
+tshark -r capture.pcap -z http,tree -q            # HTTP request/response tree
+
+# IO Graph: packets per second with specific filter
+tshark -r capture.pcap -z io,stat,1,"tcp.analysis.retransmission" -q</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Pcap Timeline Reconstruction &amp; Conversation Tracking</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Reconstruct a complete incident timeline from a pcap. Track conversations, follow streams, and build a narrative of network events.</p>
+          <div class="setup-code">
+<pre><code class="language-python">#!/usr/bin/env python3
+"""Build an incident timeline from a pcap file."""
+from scapy.all import *
+from collections import defaultdict
+import json
+
+pkts = rdpcap("incident.pcap")
+timeline = []
+conversations = defaultdict(lambda: {"packets": 0, "bytes": 0, "first": None, "last": None})
+
+for pkt in pkts:
+    ts = float(pkt.time)
+    event = {"time": ts}
+
+    if pkt.haslayer(IP):
+        src, dst = pkt[IP].src, pkt[IP].dst
+        key = tuple(sorted([src, dst]))
+        conv = conversations[key]
+        conv["packets"] += 1
+        conv["bytes"] += len(pkt)
+        if conv["first"] is None:
+            conv["first"] = ts
+
+        if pkt.haslayer(TCP):
+            flags = str(pkt[TCP].flags)
+            if flags == "S":
+                timeline.append({"time": ts, "type": "TCP_CONNECT",
+                    "src": src, "dst": dst, "port": pkt[TCP].dport})
+            elif "R" in flags:
+                timeline.append({"time": ts, "type": "TCP_RESET",
+                    "src": src, "dst": dst, "port": pkt[TCP].sport})
+
+        if pkt.haslayer(DNS) and pkt[DNS].qr == 0:
+            timeline.append({"time": ts, "type": "DNS_QUERY",
+                "src": src, "query": pkt[DNSQR].qname.decode()})
+
+        if pkt.haslayer(Raw):
+            payload = pkt[Raw].load
+            if b"HTTP" in payload:
+                timeline.append({"time": ts, "type": "HTTP",
+                    "src": src, "dst": dst, "data": payload[:100].decode(errors="ignore")})
+
+# Output timeline
+timeline.sort(key=lambda x: x["time"])
+for event in timeline[:50]:
+    print(f"[{event['time']:.3f}] {event['type']}: {event}")
+
+# Top conversations
+print("\n=== Top Conversations ===")
+for k, v in sorted(conversations.items(), key=lambda x: x[1]["bytes"], reverse=True)[:10]:
+    print(f"  {k[0]} ↔ {k[1]}: {v['packets']} pkts, {v['bytes']} bytes")</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== CTF TAB ==================== -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Find the Password</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A user logged into a website over HTTP. The pcap contains the login request. Find the submitted password.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Open the pcap
+wireshark login_capture.pcap
+
+# Filter for HTTP POST requests (login forms submit via POST)
+http.request.method == "POST"
+
+# Look at the packet list — find the login POST
+# Follow HTTP Stream (right-click → Follow → HTTP Stream)
+# The form data will show: username=admin&amp;password=FLAG{...}
+
+# tshark approach:
+tshark -r login_capture.pcap -Y "http.request.method == POST" \
+  -T fields -e http.file_data
+
+# Or search for common field names:
+tshark -r login_capture.pcap -Y "urlencoded-form.key == password" \
+  -T fields -e urlencoded-form.value
+
+# Flag format: FLAG{the_password}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Filter for <code>http.request.method == "POST"</code> and follow the HTTP stream of the login request. The password will be in the POST body as a form field. If there are multiple POST requests, check the one going to a path like <code>/login</code> or <code>/auth</code>. The password might be base64-encoded — check for and decode it.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Reassemble the File</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A file was transferred over TCP in the pcap. Reassemble it from the stream data and find the flag inside.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Step 1: Check what file types were transferred
+# File → Export Objects → HTTP → look for interesting files
+# Or check all protocols: SMB, TFTP, FTP-DATA
+
+# Step 2: If Export Objects doesn't work, find the transfer manually
+# Look for large TCP streams
+tshark -r challenge.pcap -z conv,tcp -q
+# The stream with the most bytes likely contains the file
+
+# Step 3: Follow the TCP stream
+# Wireshark: right-click → Follow → TCP Stream
+# Set "Show data as" → Raw → Save As → file.bin
+
+# Step 4: Identify the file type
+file file.bin
+# If it's a zip, image, PDF, etc. — open/extract accordingly
+
+# tshark approach — extract raw stream data
+tshark -r challenge.pcap -z follow,tcp,raw,&lt;stream_number&gt; | \
+  tail -n +7 | head -n -1 | xxd -r -p > file.bin
+
+# Step 5: Examine the file for the flag
+strings file.bin | grep FLAG
+# For images: exiftool file.bin, steghide extract -sf file.bin
+# For zips: unzip file.bin, then search contents
+
+# Flag format: FLAG{reassembled_data}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>tshark -z conv,tcp -q</code> to find the TCP stream with the most bytes transferred. Follow that stream in Wireshark and save the raw data. Use the <code>file</code> command to identify the file type. If it's a PNG/JPEG, open it. If it's a ZIP, extract it. If it's a binary, run <code>strings</code> on it. The flag may also be in the file metadata — check with <code>exiftool</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Decode the Covert Channel</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Someone is exfiltrating data through a covert ICMP channel. The flag is hidden in the ICMP echo request payloads. Extract and decode it.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Step 1: Filter for ICMP echo requests
+tshark -r covert.pcap -Y "icmp.type == 8"
+
+# Step 2: Extract the data payload from each echo request
+tshark -r covert.pcap -Y "icmp.type == 8" -T fields -e data.data
+
+# Step 3: The data may be encoded in different ways:
+
+# Method A: Each packet's payload is a hex-encoded chunk
+tshark -r covert.pcap -Y "icmp.type == 8" -T fields -e data.data | \
+  tr -d ':\n' | xxd -r -p
+
+# Method B: One byte per packet (payload length = the character)
+tshark -r covert.pcap -Y "icmp.type == 8" -T fields -e data.len | \
+  while read len; do printf "\\$(printf '%03o' $len)"; done
+
+# Method C: Data in the ICMP ID or sequence fields
+tshark -r covert.pcap -Y "icmp.type == 8" -T fields -e icmp.ident | \
+  while read id; do printf "\\$(printf '%03o' $((id)))"; done</code></pre>
+<pre><code class="language-python"># Python approach with scapy
+from scapy.all import *
+
+packets = rdpcap("covert.pcap")
+data = b""
+
+for pkt in packets:
+    if pkt.haslayer(ICMP) and pkt[ICMP].type == 8:  # echo request
+        if pkt.haslayer(Raw):
+            data += pkt[Raw].load
+
+print(data.decode(errors="ignore"))
+# Look for FLAG{...} in the output
+
+# If one byte per packet:
+flag = ""
+for pkt in packets:
+    if pkt.haslayer(ICMP) and pkt[ICMP].type == 8:
+        if pkt.haslayer(Raw):
+            flag += chr(pkt[Raw].load[0])
+print(flag)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Filter for ICMP echo requests (<code>icmp.type == 8</code>) and extract the <code>data.data</code> field. The payloads aren't random — they contain the flag encoded as hex or ASCII. Try concatenating all payloads and decoding. If the raw data doesn't make sense, try looking at only the first byte of each payload, or the ICMP sequence numbers as ASCII values. Use the scapy script for easy extraction and try multiple decoding strategies.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 4 -->
+        <div class="ctf-card">
+          <h4>Challenge 4: TLS Decryption Challenge</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You're given a pcap of HTTPS traffic and a TLS key log file. Decrypt the traffic and find the flag hidden in an API response body.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Load the key log file in Wireshark
+# Edit → Preferences → Protocols → TLS → Pre-Master-Secret log filename
+# Browse to: keylog.txt
+
+# Once decrypted, filter for the API response
+http2.headers.path contains "/api/secret"
+# Or for HTTP/1.1:
+http.request.uri contains "/api/secret"
+
+# Follow the HTTP stream to see the JSON response body
+
+# tshark approach:
+tshark -r encrypted.pcap -o tls.keylog_file:keylog.txt \
+  -Y "http.response" -T fields -e http.file_data | strings | grep -i flag
+
+# For HTTP/2:
+tshark -r encrypted.pcap -o tls.keylog_file:keylog.txt \
+  -Y "http2.data.data" -T fields -e http2.data.data | xxd -r -p</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Make sure you set the key log file path correctly in TLS preferences. After decryption, the traffic shows as HTTP/2. Use <code>http2.data.data</code> to extract response bodies. The flag is in a JSON response to a GET request to <code>/api/v1/flag</code>.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 5 -->
+        <div class="ctf-card">
+          <h4>Challenge 5: VoIP Eavesdropping</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A pcap contains a SIP/RTP phone call. Extract the audio and listen for the flag being spoken. Submit the spoken word as the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Method 1: Wireshark GUI
+# Telephony → VoIP Calls → select the call → Play Streams
+# Listen for the spoken flag
+
+# Method 2: Extract RTP payload manually
+tshark -r voip.pcap -Y "rtp" -T fields -e rtp.payload -e rtp.p_type | head
+
+# Determine codec from SDP
+tshark -r voip.pcap -Y "sip and sdp" -T fields -e sdp.media.media
+# Common: G.711 (payload type 0 = PCMU, 8 = PCMA)
+
+# Extract and convert audio
+tshark -r voip.pcap -Y "rtp.p_type == 0" -T fields -e rtp.payload | \
+  tr -d ':\n' | xxd -r -p > audio.raw
+sox -r 8000 -e mu-law -b 8 -c 1 -t raw audio.raw flag_audio.wav
+
+# Method 3: Wireshark → Telephony → RTP → RTP Streams → Analyze → Save</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use Wireshark's Telephony → VoIP Calls for the easiest approach. If the audio is garbled, check the codec — G.711 μ-law (type 0) and A-law (type 8) need different decoding. The flag is spelled out letter by letter in the audio.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 6 -->
+        <div class="ctf-card">
+          <h4>Challenge 6: Protocol Anomaly Detection</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A pcap appears to contain normal HTTP browsing traffic, but packets are being used to tunnel data. The tunneled data uses non-standard values in protocol fields. Find and extract the hidden data.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+
+pkts = rdpcap("anomaly.pcap")
+hidden = []
+
+for pkt in pkts:
+    if pkt.haslayer(IP) and pkt.haslayer(TCP) and pkt[TCP].dport == 80:
+        # Check for anomalies in IP header
+        # Normal IP ID is random/incremental — sequential ASCII is suspicious
+        ip_id = pkt[IP].id
+        if 32 &lt;= ip_id &lt;= 126:  # printable ASCII range
+            hidden.append(chr(ip_id))
+
+        # Also check: TTL variations, IP options, TCP reserved bits
+        # TCP timestamp low byte
+        for opt_name, opt_val in pkt[TCP].options:
+            if opt_name == "Timestamp":
+                ts_val = opt_val[0] &amp; 0xFF
+                if 32 &lt;= ts_val &lt;= 126:
+                    hidden.append(chr(ts_val))
+
+print("Hidden data (IP ID):", "".join(hidden[:50]))
+print("Look for FLAG{ pattern...")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The data is hidden in the IP Identification field of outbound HTTP packets. Extract the IP ID from each packet to port 80, convert to ASCII, and concatenate. Only use packets from the internal host (source IP starting with 192.168). The values form printable ASCII text including the flag.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 7 -->
+        <div class="ctf-card">
+          <h4>Challenge 7: WiFi Handshake Crack</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A pcap contains a captured WPA2 4-way handshake. Crack the PSK to decrypt the WiFi traffic and find the flag in an HTTP request.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Verify handshake is captured
+aircrack-ng wifi_handshake.pcap
+# Should show SSID and "1 handshake"
+
+# Crack with wordlist
+aircrack-ng -w /usr/share/wordlists/rockyou.txt wifi_handshake.pcap
+
+# Or with hashcat (faster, GPU)
+hcxpcapngtool -o hash.hc22000 wifi_handshake.pcap
+hashcat -m 22000 hash.hc22000 /usr/share/wordlists/rockyou.txt
+
+# Once cracked, decrypt in Wireshark:
+# Edit → Preferences → Protocols → IEEE 802.11 → Decryption Keys
+# Add: wpa-pwd:CRACKED_PASSWORD:SSID
+
+# Now filter for HTTP traffic
+http.request.uri contains "flag"</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The password is in the rockyou wordlist (top 10000). After cracking, add the decryption key in Wireshark as <code>wpa-pwd:password:SSID</code>. Reload the pcap — the 802.11 data frames will now be decrypted to show TCP/IP traffic inside. Filter for HTTP to find the flag.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 8 -->
+        <div class="ctf-card">
+          <h4>Challenge 8: Timing Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Data is being exfiltrated using inter-packet timing. Each bit of the flag is encoded as a time delay between consecutive ICMP packets: short delay = 0, long delay = 1. Decode the binary to ASCII.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+
+pkts = rdpcap("timing.pcap")
+icmp_pkts = [p for p in pkts if p.haslayer(ICMP) and p[ICMP].type == 8]
+
+# Calculate inter-packet delays
+delays = []
+for i in range(1, len(icmp_pkts)):
+    delta = float(icmp_pkts[i].time) - float(icmp_pkts[i-1].time)
+    delays.append(delta)
+
+# Determine threshold between short (0) and long (1) delays
+avg = sum(delays) / len(delays)
+bits = "".join("0" if d &lt; avg else "1" for d in delays)
+
+# Convert binary to ASCII (8 bits per character)
+flag = ""
+for i in range(0, len(bits) - 7, 8):
+    byte = bits[i:i+8]
+    flag += chr(int(byte, 2))
+print(f"Flag: {flag}")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Calculate the time delta between each consecutive ICMP echo request. Delays cluster around two values (e.g., 0.1s and 0.5s). Use the average as a threshold: below = 0, above = 1. Group the bits into 8-bit bytes and convert to ASCII.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 9 -->
+        <div class="ctf-card">
+          <h4>Challenge 9: Multi-Protocol Exfiltration</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Data was exfiltrated using three different protocols simultaneously: DNS (subdomain encoding), HTTP (custom headers), and ICMP (payload). Each carries one-third of the base64-encoded flag. Reassemble all three parts.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+import base64
+
+pkts = rdpcap("multi_exfil.pcap")
+dns_data, http_data, icmp_data = "", "", ""
+
+for pkt in pkts:
+    # Part 1: DNS — encoded in subdomain labels
+    if pkt.haslayer(DNSQR):
+        qname = pkt[DNSQR].qname.decode()
+        if "exfil.evil.com" in qname:
+            chunk = qname.split(".exfil.evil.com")[0].replace(".", "")
+            dns_data += chunk
+
+    # Part 2: HTTP — encoded in X-Data header
+    if pkt.haslayer(Raw) and b"X-Data:" in pkt[Raw].load:
+        line = [l for l in pkt[Raw].load.decode(errors="ignore").split("\r\n")
+                if l.startswith("X-Data:")][0]
+        http_data += line.split(": ")[1]
+
+    # Part 3: ICMP — in echo request payload
+    if pkt.haslayer(ICMP) and pkt[ICMP].type == 8 and pkt.haslayer(Raw):
+        icmp_data += pkt[Raw].load.decode(errors="ignore")
+
+combined = dns_data + http_data + icmp_data
+flag = base64.b64decode(combined).decode()
+print(f"Flag: {flag}")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Extract data from all three channels separately. DNS data is in subdomain labels before <code>.exfil.evil.com</code>. HTTP data is in a custom <code>X-Data</code> header. ICMP data is in echo request payloads. Concatenate in order (DNS + HTTP + ICMP) and base64-decode the result.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 10 -->
+        <div class="ctf-card">
+          <h4>Challenge 10: Conversation Tracker</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A pcap contains traffic from 50 hosts. One host communicated with more unique external IPs than any other. Find that host's IP and the count of unique external destinations. The flag is <code>FLAG{ip_count}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Method 1: tshark conversations
+tshark -r traffic.pcap -z conv,ip -q | sort -t'&lt;' -k5 -rn | head
+
+# Method 2: tshark fields + sort
+tshark -r traffic.pcap -T fields -e ip.src -e ip.dst | \
+  awk '$1 ~ /^192\.168/ {print $1, $2}' | \
+  sort -u | awk '{count[$1]++} END {for(ip in count) print count[ip], ip}' | \
+  sort -rn | head -5</code></pre>
+<pre><code class="language-python">from scapy.all import *
+from collections import defaultdict
+
+pkts = rdpcap("traffic.pcap")
+external_dests = defaultdict(set)
+
+for pkt in pkts:
+    if pkt.haslayer(IP):
+        src, dst = pkt[IP].src, pkt[IP].dst
+        if src.startswith("192.168.") and not dst.startswith("192.168."):
+            external_dests[src].add(dst)
+
+top = max(external_dests, key=lambda x: len(external_dests[x]))
+print(f"FLAG{{{top}_{len(external_dests[top])}}}")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Filter for traffic where the source is internal (192.168.x.x) and destination is external. Count unique destination IPs per source. The host with the most unique external destinations is likely compromised (C2 beaconing or scanning).</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

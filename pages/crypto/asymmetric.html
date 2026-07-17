@@ -1,0 +1,1823 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Asymmetric Cryptography</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+  <h1>Asymmetric Cryptography</h1>
+
+  <!-- Tab Navigation -->
+  <ul class="nav nav-tabs" id="mainTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="notes-tab" data-bs-toggle="tab" data-bs-target="#notes" type="button" role="tab" aria-controls="notes" aria-selected="true">Notes</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="lab-tab" data-bs-toggle="tab" data-bs-target="#lab" type="button" role="tab" aria-controls="lab" aria-selected="false">Labs</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="ctf-tab" data-bs-toggle="tab" data-bs-target="#ctf" type="button" role="tab" aria-controls="ctf" aria-selected="false">CTF Challenges</button>
+    </li>
+  </ul>
+
+  <!-- Tab Content -->
+  <div class="tab-content" id="mainTabContent">
+
+    <!-- ==================== NOTES TAB ==================== -->
+    <div class="tab-pane fade show active" id="notes" role="tabpanel" aria-labelledby="notes-tab">
+
+      <h2>RSA Fundamentals</h2>
+
+      <h3>Key Generation</h3>
+      <table class="table table-bordered">
+        <tr><th>Parameter</th><th>Description</th></tr>
+        <tr><td><code>p, q</code></td><td>Large random primes</td></tr>
+        <tr><td><code>n = p * q</code></td><td>Modulus (public)</td></tr>
+        <tr><td><code>φ(n) = (p-1)(q-1)</code></td><td>Euler's totient</td></tr>
+        <tr><td><code>e</code></td><td>Public exponent, typically 65537. Must satisfy <code>gcd(e, φ(n)) = 1</code></td></tr>
+        <tr><td><code>d = e⁻¹ mod φ(n)</code></td><td>Private exponent (modular inverse)</td></tr>
+        <tr><td>Public key</td><td><code>(n, e)</code></td></tr>
+        <tr><td>Private key</td><td><code>(n, d)</code> (or equivalently p, q, d)</td></tr>
+      </table>
+
+      <h3>Encryption / Decryption</h3>
+      <pre><code class="language-python"># Encryption: c = m^e mod n
+# Decryption: m = c^d mod n
+
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP
+
+# Generate key
+key = RSA.generate(2048)
+pub = key.publickey()
+
+# Encrypt
+cipher = PKCS1_OAEP.new(pub)
+ct = cipher.encrypt(b"secret message")
+
+# Decrypt
+cipher = PKCS1_OAEP.new(key)
+pt = cipher.decrypt(ct)
+</code></pre>
+
+      <h3>Signing / Verification</h3>
+      <pre><code class="language-python"># Sign:   sig = hash(m)^d mod n
+# Verify: hash(m) == sig^e mod n
+
+from Crypto.Signature import pkcs1_15
+from Crypto.Hash import SHA256
+
+h = SHA256.new(b"message to sign")
+signature = pkcs1_15.new(key).sign(h)
+
+# Verify
+try:
+    pkcs1_15.new(pub).verify(h, signature)
+    print("Valid signature")
+except (ValueError, TypeError):
+    print("Invalid signature")
+</code></pre>
+
+      <h2>RSA Math</h2>
+
+      <h3>Modular Exponentiation</h3>
+      <p>Python's built-in <code>pow(base, exp, mod)</code> uses fast modular exponentiation (square-and-multiply).</p>
+      <pre><code class="language-python">import gmpy2
+
+# c = m^e mod n
+c = pow(m, e, n)          # built-in
+c = gmpy2.powmod(m, e, n) # gmpy2 (faster for huge numbers)
+</code></pre>
+
+      <h3>Euler's Totient</h3>
+      <pre><code class="language-python"># For n = p * q (two primes):
+phi = (p - 1) * (q - 1)
+
+# For n = p1^a1 * p2^a2 * ... (general):
+# phi(n) = n * product(1 - 1/pi) for each prime factor pi
+
+# Carmichael's lambda (used in multi-prime RSA):
+from math import gcd
+from functools import reduce
+
+def lcm(a, b):
+    return a * b // gcd(a, b)
+
+# lambda(n) = lcm(p1-1, p2-1, ..., pk-1)
+lam = reduce(lcm, [p - 1 for p in prime_factors])
+</code></pre>
+
+      <h3>Extended Euclidean Algorithm</h3>
+      <pre><code class="language-python">def extended_gcd(a, b):
+    if a == 0:
+        return b, 0, 1
+    gcd_val, x1, y1 = extended_gcd(b % a, a)
+    x = y1 - (b // a) * x1
+    y = x1
+    return gcd_val, x, y
+
+def modinv(e, phi):
+    g, x, _ = extended_gcd(e % phi, phi)
+    if g != 1:
+        raise Exception("No modular inverse")
+    return x % phi
+
+# Or simply:
+d = pow(e, -1, phi)        # Python 3.8+
+d = gmpy2.invert(e, phi)   # gmpy2
+</code></pre>
+
+      <h2>RSA Attacks</h2>
+
+      <h3>Small e with Small Message</h3>
+      <p>If <code>m^e < n</code>, then <code>c = m^e</code> (no modular reduction). Just take the e-th root.</p>
+      <pre><code class="language-python">import gmpy2
+
+# e=3, m is small so m^3 < n
+m = gmpy2.iroot(c, e)[0]  # integer e-th root
+</code></pre>
+
+      <h3>Common Modulus Attack</h3>
+      <p>Same message encrypted with same n but different e₁, e₂ where <code>gcd(e1, e2) = 1</code>.</p>
+      <pre><code class="language-python">import gmpy2
+
+def common_modulus(n, e1, e2, c1, c2):
+    g, a, b = gmpy2.gcdext(e1, e2)
+    # a*e1 + b*e2 = 1
+    if a < 0:
+        c1 = gmpy2.invert(c1, n)
+        a = -a
+    if b < 0:
+        c2 = gmpy2.invert(c2, n)
+        b = -b
+    m = (pow(c1, a, n) * pow(c2, b, n)) % n
+    return m
+</code></pre>
+
+      <h3>Wiener's Attack (Small d)</h3>
+      <p>When <code>d < n^0.25 / 3</code>, the continued fraction expansion of <code>e/n</code> reveals <code>d</code>.</p>
+      <pre><code class="language-python">def wiener_attack(e, n):
+    # Compute continued fraction expansion of e/n
+    cf = continued_fraction(e, n)
+    convergents = get_convergents(cf)
+
+    for k, d in convergents:
+        if k == 0:
+            continue
+        # Check if phi = (e*d - 1) / k is valid
+        if (e * d - 1) % k != 0:
+            continue
+        phi = (e * d - 1) // k
+        # phi = n - p - q + 1, so p + q = n - phi + 1
+        s = n - phi + 1
+        # p and q are roots of x^2 - s*x + n = 0
+        disc = s * s - 4 * n
+        if disc < 0:
+            continue
+        t = gmpy2.isqrt(disc)
+        if t * t == disc:
+            return d
+    return None
+
+def continued_fraction(num, den):
+    cf = []
+    while den:
+        q = num // den
+        cf.append(q)
+        num, den = den, num - q * den
+    return cf
+
+def get_convergents(cf):
+    convergents = []
+    h_prev, h_curr = 0, 1
+    k_prev, k_curr = 1, 0
+    for a in cf:
+        h_prev, h_curr = h_curr, a * h_curr + h_prev
+        k_prev, k_curr = k_curr, a * k_curr + k_prev
+        convergents.append((h_curr, k_curr))
+    return convergents
+</code></pre>
+
+      <h3>Fermat Factorization (Close p and q)</h3>
+      <p>If <code>|p - q|</code> is small, n can be factored quickly.</p>
+      <pre><code class="language-python">import gmpy2
+
+def fermat_factor(n):
+    a = gmpy2.isqrt(n) + 1
+    b2 = a * a - n
+    while not gmpy2.is_square(b2):
+        a += 1
+        b2 = a * a - n
+    b = gmpy2.isqrt(b2)
+    return int(a - b), int(a + b)
+</code></pre>
+
+      <h3>Hastad's Broadcast Attack</h3>
+      <p>Same message sent to e recipients with different moduli. Use CRT to recover <code>m^e</code>, then take e-th root.</p>
+      <pre><code class="language-python">import gmpy2
+from functools import reduce
+
+def hastad_broadcast(ciphertexts, moduli, e):
+    # CRT to find m^e mod (n1*n2*...*ne)
+    N = reduce(lambda a, b: a * b, moduli)
+    result = 0
+    for ci, ni in zip(ciphertexts, moduli):
+        Ni = N // ni
+        yi = int(gmpy2.invert(Ni, ni))
+        result += ci * Ni * yi
+    result %= N
+    # Take e-th root
+    m, exact = gmpy2.iroot(result, e)
+    assert exact
+    return int(m)
+</code></pre>
+
+      <h3>Bleichenbacher's Attack (PKCS#1 v1.5 Padding Oracle)</h3>
+      <p>Adaptive chosen-ciphertext attack against PKCS#1 v1.5 padding. The oracle tells whether decrypted plaintext has valid <code>0x00 0x02</code> padding. Requires ~1 million queries to decrypt.</p>
+      <ul>
+        <li>Multiply ciphertext by <code>s^e mod n</code> to get <code>(m*s)^e mod n</code></li>
+        <li>Query oracle to check if <code>m*s mod n</code> starts with <code>0x00 0x02</code></li>
+        <li>Narrow down range of m iteratively</li>
+      </ul>
+
+      <h3>Franklin-Reiter Related Message Attack</h3>
+      <p>Two messages related by known linear function: <code>m2 = a*m1 + b mod n</code>, both encrypted with same (n, e=3).</p>
+      <pre><code class="language-python"># For e=3: uses polynomial GCD over Z_n[x]
+# c1 = m^3 mod n
+# c2 = (a*m + b)^3 mod n
+# GCD of (x^3 - c1) and ((a*x+b)^3 - c2) in Z_n[x] gives (x - m)
+
+def franklin_reiter(c1, c2, a, b, e, n):
+    # Using Sage or implementing polynomial GCD mod n
+    # f1 = x^e - c1
+    # f2 = (a*x + b)^e - c2
+    # gcd(f1, f2) = x - m (linear factor reveals m)
+    pass  # See Sage implementation in labs
+</code></pre>
+
+      <h3>Partial Key Exposure</h3>
+      <p>If lower bits of d are leaked (e.g., from side-channel), Coppersmith's method can recover the full key. Also applies when partial factorization info is known.</p>
+
+      <h2>Factoring Methods</h2>
+
+      <h3>Trial Division</h3>
+      <pre><code class="language-python">def trial_division(n, limit=1000000):
+    for i in range(2, limit):
+        if n % i == 0:
+            return i, n // i
+    return None
+</code></pre>
+
+      <h3>Pollard's Rho</h3>
+      <pre><code class="language-python">import math
+import random
+
+def pollard_rho(n):
+    if n % 2 == 0:
+        return 2
+    x = random.randint(2, n - 1)
+    y = x
+    c = random.randint(1, n - 1)
+    d = 1
+    while d == 1:
+        x = (x * x + c) % n
+        y = (y * y + c) % n
+        y = (y * y + c) % n
+        d = math.gcd(abs(x - y), n)
+    return d if d != n else None
+</code></pre>
+
+      <h3>Pollard's p-1</h3>
+      <p>Works when <code>p-1</code> has only small factors (B-smooth).</p>
+      <pre><code class="language-python">import math
+
+def pollard_p_minus_1(n, B=100000):
+    a = 2
+    for j in range(2, B + 1):
+        a = pow(a, j, n)
+    d = math.gcd(a - 1, n)
+    if 1 < d < n:
+        return d
+    return None
+</code></pre>
+
+      <h3>factordb.com</h3>
+      <pre><code class="language-python">import requests
+
+def factordb(n):
+    r = requests.get(f"http://factordb.com/api?query={n}")
+    data = r.json()
+    # status: 'FF' = fully factored, 'CF' = composite
+    factors = data['factors']
+    return factors  # list of [factor, exponent] pairs
+</code></pre>
+
+      <h3>Quadratic Sieve (Concepts)</h3>
+      <ul>
+        <li>Factor base: small primes p where n is a quadratic residue mod p</li>
+        <li>Sieve: find values of <code>x^2 - n</code> that factor completely over the factor base</li>
+        <li>Linear algebra: find subset whose product is a perfect square</li>
+        <li>Result: <code>x^2 ≡ y^2 (mod n)</code> → <code>gcd(x-y, n)</code> gives factor</li>
+        <li>Complexity: sub-exponential <code>L(1/2, 1)</code></li>
+      </ul>
+
+      <h2>RSA Padding Schemes</h2>
+
+      <h3>PKCS#1 v1.5</h3>
+      <pre><code class="language-bash"># Padding format (encryption):
+# 0x00 || 0x02 || [random non-zero bytes] || 0x00 || [message]
+
+# Padding format (signature):
+# 0x00 || 0x01 || [0xFF bytes] || 0x00 || [DigestInfo || hash]</code></pre>
+      <p><strong>Vulnerability:</strong> Bleichenbacher padding oracle. Also, for signatures with e=3, can forge by constructing valid-looking padding (Bleichenbacher '06 signature forgery).</p>
+
+      <h3>OAEP (Optimal Asymmetric Encryption Padding)</h3>
+      <ul>
+        <li>Uses two hash function calls (mask generation)</li>
+        <li>Provably secure in random oracle model</li>
+        <li>Structure: <code>m || 0...0 || 0x01</code> XOR with mask from random seed</li>
+        <li>Always use OAEP for RSA encryption in practice</li>
+      </ul>
+
+      <h2>Diffie-Hellman Key Exchange</h2>
+
+      <h3>The Math</h3>
+      <table class="table table-bordered">
+        <tr><th>Step</th><th>Alice</th><th>Bob</th></tr>
+        <tr><td>Public params</td><td colspan="2">Prime p, generator g</td></tr>
+        <tr><td>Private key</td><td>a (random)</td><td>b (random)</td></tr>
+        <tr><td>Public key</td><td>A = g^a mod p</td><td>B = g^b mod p</td></tr>
+        <tr><td>Shared secret</td><td>s = B^a mod p</td><td>s = A^b mod p</td></tr>
+      </table>
+      <p>Both compute <code>s = g^(ab) mod p</code>.</p>
+
+      <h3>Man-in-the-Middle (MITM)</h3>
+      <p>DH alone provides no authentication. Attacker intercepts and establishes separate keys with each party. Fix: authenticate with signatures or certificates.</p>
+
+      <h3>Small Subgroup Attack</h3>
+      <p>If attacker sends <code>g' = g^((p-1)/q)</code> where q is a small factor of p-1, the shared secret is confined to a small subgroup. Allows brute-force recovery of private key mod q.</p>
+      <p><strong>Mitigation:</strong> Use safe primes (p = 2q + 1), verify received values are in [2, p-2], or use elliptic curve DH.</p>
+
+      <h2>Elliptic Curve Cryptography (ECC)</h2>
+
+      <h3>Curve Equation</h3>
+      <p>Short Weierstrass form: <code>y² = x³ + ax + b (mod p)</code></p>
+      <p>The set of points on the curve plus the point at infinity forms an abelian group.</p>
+
+      <h3>Point Addition</h3>
+      <pre><code class="language-python"># Point addition on y^2 = x^3 + ax + b mod p
+def point_add(P, Q, a, p):
+    if P is None: return Q
+    if Q is None: return P
+    x1, y1 = P
+    x2, y2 = Q
+
+    if x1 == x2 and y1 != y2:
+        return None  # Point at infinity
+
+    if P == Q:
+        # Point doubling
+        lam = (3 * x1 * x1 + a) * pow(2 * y1, -1, p) % p
+    else:
+        lam = (y2 - y1) * pow(x2 - x1, -1, p) % p
+
+    x3 = (lam * lam - x1 - x2) % p
+    y3 = (lam * (x1 - x3) - y1) % p
+    return (x3, y3)
+
+def scalar_mult(k, P, a, p):
+    result = None
+    addend = P
+    while k:
+        if k & 1:
+            result = point_add(result, addend, a, p)
+        addend = point_add(addend, addend, a, p)
+        k >>= 1
+    return result
+</code></pre>
+
+      <h3>ECDH (Elliptic Curve Diffie-Hellman)</h3>
+      <pre><code class="language-python"># Public params: curve E, base point G, order n
+# Alice: private a, public A = a*G
+# Bob:   private b, public B = b*G
+# Shared: S = a*B = b*A = (a*b)*G
+</code></pre>
+
+      <h3>ECDSA (Elliptic Curve Digital Signature Algorithm)</h3>
+      <pre><code class="language-python"># Sign(message, private_key d):
+#   k = random nonce in [1, n-1]
+#   R = k*G, r = R.x mod n
+#   s = k^(-1) * (hash(m) + r*d) mod n
+#   signature = (r, s)
+
+# Verify(message, signature (r,s), public_key Q):
+#   w = s^(-1) mod n
+#   u1 = hash(m) * w mod n
+#   u2 = r * w mod n
+#   P = u1*G + u2*Q
+#   valid if P.x mod n == r
+</code></pre>
+
+      <h3>Invalid Curve Attack</h3>
+      <p>If implementation doesn't validate that received points are on the curve, attacker sends points on a weaker curve with small-order subgroup. Recovers private key via CRT after collecting enough relations.</p>
+
+      <h2>DSA / ECDSA Nonce Reuse</h2>
+      <p><strong>Sony PS3 hack (fail0verflow, 2010):</strong> Sony used the same nonce k for every ECDSA signature.</p>
+      <pre><code class="language-python"># If same k used for two signatures (r1=r2=r, s1, s2) on messages m1, m2:
+# s1 = k^(-1) * (h1 + r*d) mod n
+# s2 = k^(-1) * (h2 + r*d) mod n
+# s1 - s2 = k^(-1) * (h1 - h2) mod n
+# k = (h1 - h2) * (s1 - s2)^(-1) mod n
+# d = (s1*k - h1) * r^(-1) mod n
+
+def recover_key_from_nonce_reuse(h1, h2, s1, s2, r, n):
+    ds = (s1 - s2) % n
+    dh = (h1 - h2) % n
+    k = (dh * pow(ds, -1, n)) % n
+    d = ((s1 * k - h1) * pow(r, -1, n)) % n
+    return d, k
+</code></pre>
+
+      <h2>ElGamal Encryption</h2>
+      <pre><code class="language-python"># Key Generation: prime p, generator g, private x, public h = g^x mod p
+# Encrypt(m): random k, c1 = g^k mod p, c2 = m * h^k mod p
+# Decrypt(c1, c2): s = c1^x mod p, m = c2 * s^(-1) mod p
+
+def elgamal_encrypt(p, g, h, m):
+    import random
+    k = random.randint(2, p - 2)
+    c1 = pow(g, k, p)
+    c2 = (m * pow(h, k, p)) % p
+    return c1, c2
+
+def elgamal_decrypt(p, x, c1, c2):
+    s = pow(c1, x, p)
+    m = (c2 * pow(s, -1, p)) % p
+    return m
+</code></pre>
+
+      <h2>Tools & Commands</h2>
+
+      <h3>OpenSSL Key Inspection</h3>
+      <pre><code class="language-bash"># Generate RSA key
+openssl genrsa -out private.pem 2048
+
+# Extract public key
+openssl rsa -in private.pem -pubout -out public.pem
+
+# View key details (n, e, d, p, q)
+openssl rsa -in private.pem -text -noout
+
+# Parse public key
+openssl rsa -pubin -in public.pem -text -noout
+
+# Extract n and e from public key (Python)
+from Crypto.PublicKey import RSA
+key = RSA.import_key(open("public.pem").read())
+print(f"n = {key.n}")
+print(f"e = {key.e}")
+</code></pre>
+
+      <h3>SSH Key Analysis</h3>
+      <pre><code class="language-bash"># View SSH public key details
+ssh-keygen -e -f id_rsa.pub -m PKCS8 | openssl rsa -pubin -text -noout
+
+# Convert SSH key to PEM
+ssh-keygen -e -f id_rsa.pub -m PEM > pub.pem
+
+# Python extraction
+from Crypto.PublicKey import RSA
+key = RSA.import_key(open("id_rsa.pub").read())
+</code></pre>
+
+      <h3>Certificate Parsing</h3>
+      <pre><code class="language-bash"># View certificate
+openssl x509 -in cert.pem -text -noout
+
+# Extract public key from certificate
+openssl x509 -in cert.pem -pubkey -noout > pubkey.pem
+
+# Check certificate chain
+openssl verify -CAfile ca.pem cert.pem
+</code></pre>
+
+      <h3>Python Tools</h3>
+      <pre><code class="language-python"># pycryptodome
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Signature import pkcs1_15
+
+# gmpy2 - fast big number math
+import gmpy2
+gmpy2.iroot(n, 2)          # integer square root
+gmpy2.invert(e, phi)       # modular inverse
+gmpy2.powmod(m, e, n)      # modular exponentiation
+gmpy2.is_prime(n)          # primality test
+gmpy2.gcd(a, b)            # GCD
+gmpy2.gcdext(a, b)         # extended GCD
+
+# sympy
+from sympy import factorint, isprime, nextprime, mod_inverse
+
+# RsaCtfTool (automated)
+# git clone https://github.com/RsaCtfTool/RsaCtfTool
+# python3 RsaCtfTool.py --publickey pub.pem --uncipherfile flag.enc
+</code></pre>
+
+    </div>
+
+    <!-- ==================== LABS TAB ==================== -->
+    <div class="tab-pane fade" id="lab" role="tabpanel" aria-labelledby="lab-tab">
+
+      <h2>Lab 1: RSA Key Generation from Scratch (Easy)</h2>
+      <p>Generate RSA keys manually using gmpy2 and verify encrypt/decrypt works.</p>
+      <pre><code class="language-python">import gmpy2
+from gmpy2 import mpz
+import random
+
+def generate_rsa_keypair(bits=1024):
+    # Generate two random primes
+    state = gmpy2.random_state(random.randint(1, 2**32))
+    p = gmpy2.next_prime(gmpy2.mpz_random(state, mpz(2)**bits))
+    q = gmpy2.next_prime(gmpy2.mpz_random(state, mpz(2)**bits))
+
+    n = p * q
+    phi = (p - 1) * (q - 1)
+    e = mpz(65537)
+
+    assert gmpy2.gcd(e, phi) == 1, "e and phi not coprime"
+
+    d = gmpy2.invert(e, phi)
+
+    # Verify: e*d ≡ 1 (mod phi)
+    assert (e * d) % phi == 1
+
+    print(f"p = {p}")
+    print(f"q = {q}")
+    print(f"n = {n}")
+    print(f"e = {e}")
+    print(f"d = {d}")
+    print(f"Bits of n: {n.bit_length()}")
+
+    return (n, e), (n, d), (p, q)
+
+pub, priv, factors = generate_rsa_keypair(512)
+</code></pre>
+
+      <h2>Lab 2: RSA Encrypt/Decrypt Manually (Easy)</h2>
+      <p>Implement textbook RSA (no padding) to understand the raw math.</p>
+      <pre><code class="language-python">import gmpy2
+
+# Setup
+p = gmpy2.next_prime(2**256)
+q = gmpy2.next_prime(2**257)
+n = p * q
+phi = (p - 1) * (q - 1)
+e = 65537
+d = int(gmpy2.invert(e, phi))
+
+# Message to encrypt
+message = b"Hello RSA!"
+m = int.from_bytes(message, 'big')
+print(f"Plaintext as integer: {m}")
+
+assert m < n, "Message too large for modulus"
+
+# Encrypt: c = m^e mod n
+c = pow(m, e, n)
+print(f"Ciphertext: {c}")
+
+# Decrypt: m = c^d mod n
+decrypted_int = pow(c, d, n)
+decrypted_bytes = decrypted_int.to_bytes((decrypted_int.bit_length() + 7) // 8, 'big')
+print(f"Decrypted: {decrypted_bytes}")
+
+assert decrypted_bytes == message
+print("SUCCESS: Encrypt/Decrypt works!")
+</code></pre>
+
+      <h2>Lab 3: Factor Small n (Easy)</h2>
+      <p>Practice factoring RSA moduli using trial division and Pollard's rho.</p>
+      <pre><code class="language-python">import math
+import random
+import gmpy2
+
+# Challenge: factor these moduli
+challenges = [
+    77,            # trivial
+    323,           # 17 * 19
+    1000000007 * 1000000009,  # product of known primes
+    gmpy2.next_prime(2**40) * gmpy2.next_prime(2**41),  # ~80 bit
+]
+
+def trial_division(n, limit=10**6):
+    if n % 2 == 0:
+        return 2
+    for i in range(3, min(limit, int(math.isqrt(n)) + 1), 2):
+        if n % i == 0:
+            return i
+    return None
+
+def pollard_rho(n):
+    if n % 2 == 0:
+        return 2
+    x = random.randint(2, n - 1)
+    y = x
+    c = random.randint(1, n - 1)
+    d = 1
+    while d == 1:
+        x = (x * x + c) % n
+        y = (y * y + c) % n
+        y = (y * y + c) % n
+        d = math.gcd(abs(x - y), n)
+    return d if d != n else None
+
+for n in challenges:
+    print(f"\nn = {n} ({n.bit_length() if isinstance(n, int) else int(n).bit_length()} bits)")
+
+    # Try trial division first
+    p = trial_division(int(n))
+    if p:
+        print(f"  Trial division: {p} * {n // p}")
+        continue
+
+    # Try Pollard's rho
+    for _ in range(10):
+        p = pollard_rho(int(n))
+        if p and p != n:
+            print(f"  Pollard's rho: {p} * {n // p}")
+            break
+    else:
+        print("  Failed to factor (try larger methods)")
+</code></pre>
+
+      <h2>Lab 4: Wiener's Attack Implementation (Medium)</h2>
+      <p>Implement Wiener's attack against RSA with a deliberately small private exponent.</p>
+      <pre><code class="language-python">import gmpy2
+import random
+
+# Generate vulnerable key (small d)
+def gen_wiener_vulnerable():
+    while True:
+        p = gmpy2.next_prime(random.getrandbits(512))
+        q = gmpy2.next_prime(random.getrandbits(512))
+        n = p * q
+        phi = (p - 1) * (q - 1)
+        # Choose small d
+        d = gmpy2.next_prime(random.getrandbits(100))
+        if gmpy2.gcd(d, phi) != 1:
+            continue
+        e = int(gmpy2.invert(d, phi))
+        return int(n), int(e), int(d), int(p), int(q)
+
+n, e, real_d, real_p, real_q = gen_wiener_vulnerable()
+print(f"n bits: {n.bit_length()}, e bits: {e.bit_length()}, d bits: {real_d.bit_length()}")
+
+# Wiener's Attack
+def continued_fraction(num, den):
+    cf = []
+    while den:
+        q = num // den
+        cf.append(q)
+        num, den = den, num - q * den
+    return cf
+
+def convergents(cf):
+    h_prev, h_curr = 0, 1
+    k_prev, k_curr = 1, 0
+    result = []
+    for a in cf:
+        h_prev, h_curr = h_curr, a * h_curr + h_prev
+        k_prev, k_curr = k_curr, a * k_curr + k_prev
+        result.append((h_curr, k_curr))
+    return result
+
+def wiener_attack(e, n):
+    cf = continued_fraction(e, n)
+    for k, d in convergents(cf):
+        if k == 0 or d == 0:
+            continue
+        if (e * d - 1) % k != 0:
+            continue
+        phi = (e * d - 1) // k
+        # Check: n - phi + 1 = p + q, and p*q = n
+        s = n - phi + 1  # p + q
+        discriminant = s * s - 4 * n
+        if discriminant < 0:
+            continue
+        sqrt_disc = gmpy2.isqrt(discriminant)
+        if sqrt_disc * sqrt_disc == discriminant:
+            p = (s + sqrt_disc) // 2
+            q = (s - sqrt_disc) // 2
+            if p * q == n:
+                return int(d)
+    return None
+
+recovered_d = wiener_attack(e, n)
+print(f"\nRecovered d: {recovered_d}")
+print(f"Actual d:    {real_d}")
+print(f"Match: {recovered_d == real_d}")
+</code></pre>
+
+      <h2>Lab 5: Hastad's Broadcast Attack (Medium)</h2>
+      <p>Recover plaintext from e=3 broadcast encryption using CRT.</p>
+      <pre><code class="language-python">import gmpy2
+from functools import reduce
+
+# Setup: same message encrypted with e=3 to 3 different recipients
+def gen_hastad_challenge():
+    import random
+    message = b"CTF{hastad_broadcast_ftw}"
+    m = int.from_bytes(message, 'big')
+    e = 3
+
+    moduli = []
+    ciphertexts = []
+    for _ in range(3):
+        p = gmpy2.next_prime(random.getrandbits(512))
+        q = gmpy2.next_prime(random.getrandbits(512))
+        n = int(p * q)
+        c = pow(m, e, n)
+        moduli.append(n)
+        ciphertexts.append(c)
+
+    return ciphertexts, moduli, e, m
+
+ciphertexts, moduli, e, real_m = gen_hastad_challenge()
+print(f"e = {e}")
+print(f"Number of ciphertexts: {len(ciphertexts)}")
+
+# Chinese Remainder Theorem
+def crt(remainders, moduli):
+    N = reduce(lambda a, b: a * b, moduli)
+    result = 0
+    for ri, ni in zip(remainders, moduli):
+        Ni = N // ni
+        yi = int(gmpy2.invert(Ni, ni))
+        result += ri * Ni * yi
+    return result % N
+
+# Attack
+combined = crt(ciphertexts, moduli)
+m_recovered, is_exact = gmpy2.iroot(combined, e)
+assert is_exact, "Not a perfect cube - attack failed"
+
+recovered_bytes = int(m_recovered).to_bytes((int(m_recovered).bit_length() + 7) // 8, 'big')
+print(f"\nRecovered: {recovered_bytes}")
+print(f"Match: {int(m_recovered) == real_m}")
+</code></pre>
+
+      <h2>Lab 6: Common Modulus Attack (Medium)</h2>
+      <p>Same plaintext encrypted with same n but two different public exponents.</p>
+      <pre><code class="language-python">import gmpy2
+import random
+
+# Setup
+p = gmpy2.next_prime(random.getrandbits(512))
+q = gmpy2.next_prime(random.getrandbits(512))
+n = int(p * q)
+phi = int((p - 1) * (q - 1))
+
+# Two coprime public exponents
+e1 = 17
+e2 = 65537
+assert gmpy2.gcd(e1, e2) == 1
+
+# Encrypt same message with both
+message = b"CTF{common_modulus_attack}"
+m = int.from_bytes(message, 'big')
+c1 = pow(m, e1, n)
+c2 = pow(m, e2, n)
+
+print(f"n = {n}")
+print(f"e1 = {e1}, e2 = {e2}")
+print(f"c1 = {c1}")
+print(f"c2 = {c2}")
+
+# Attack: find a, b such that a*e1 + b*e2 = 1 (extended GCD)
+def common_modulus_attack(n, e1, e2, c1, c2):
+    g, a, b = gmpy2.gcdext(gmpy2.mpz(e1), gmpy2.mpz(e2))
+    assert g == 1, "e1 and e2 not coprime"
+
+    a, b = int(a), int(b)
+
+    # Handle negative exponents by using modular inverse
+    if a < 0:
+        c1 = int(gmpy2.invert(c1, n))
+        a = -a
+    if b < 0:
+        c2 = int(gmpy2.invert(c2, n))
+        b = -b
+
+    m = (pow(c1, a, n) * pow(c2, b, n)) % n
+    return m
+
+recovered = common_modulus_attack(n, e1, e2, c1, c2)
+recovered_bytes = recovered.to_bytes((recovered.bit_length() + 7) // 8, 'big')
+print(f"\nRecovered: {recovered_bytes}")
+assert recovered == m
+</code></pre>
+
+      <h2>Lab 7: Fermat Factorization (Medium)</h2>
+      <p>Factor n when p and q are close together.</p>
+      <pre><code class="language-python">import gmpy2
+import time
+
+# Generate vulnerable n (p and q close together)
+base = gmpy2.next_prime(2**512)
+p = gmpy2.next_prime(base)
+q = gmpy2.next_prime(p)  # Very close to p!
+n = int(p * q)
+
+print(f"n bits: {n.bit_length()}")
+print(f"|p - q| = {abs(int(p) - int(q))}")
+
+# Fermat's factorization
+def fermat_factor(n):
+    a = gmpy2.isqrt(n)
+    if a * a == n:
+        return int(a), int(a)
+    a += 1
+    iterations = 0
+    while True:
+        b2 = a * a - n
+        if gmpy2.is_square(b2):
+            b = gmpy2.isqrt(b2)
+            p = int(a + b)
+            q = int(a - b)
+            return p, q
+        a += 1
+        iterations += 1
+        if iterations > 1000000:
+            return None, None
+
+start = time.time()
+found_p, found_q = fermat_factor(n)
+elapsed = time.time() - start
+
+print(f"\nFactored in {elapsed:.4f} seconds")
+print(f"p = {found_p}")
+print(f"q = {found_q}")
+print(f"Verify: p*q == n: {found_p * found_q == n}")
+</code></pre>
+
+      <h2>Lab 8: RSA Signature Forgery with e=3 (Medium)</h2>
+      <p>Forge PKCS#1 v1.5 signatures when e=3 (Bleichenbacher '06 variant).</p>
+      <pre><code class="language-python">import gmpy2
+import hashlib
+
+# The vulnerability: with e=3 and PKCS#1 v1.5 signature verification
+# that doesn't check trailing bytes, we can forge signatures.
+#
+# Valid signature format (after s^e mod n):
+# 00 01 FF FF ... FF 00 [DigestInfo] [Hash] [garbage]
+#
+# If verifier only checks prefix and hash, we can construct a cube root.
+
+def forge_signature(message, key_size_bytes=256):
+    # Compute hash
+    h = hashlib.sha256(message).digest()
+
+    # SHA-256 DigestInfo prefix (DER encoded)
+    digest_info = bytes.fromhex(
+        "3031300d060960864801650304020105000420"
+    )
+
+    # Construct the padded block (PKCS#1 v1.5 signature format)
+    # 00 01 FF 00 [DigestInfo] [Hash] [garbage filled with 00s]
+    prefix = b'\x00\x01\xff\x00' + digest_info + h
+
+    # Pad to key_size_bytes with zeros (this is the "garbage" a bad verifier ignores)
+    block = prefix + b'\x00' * (key_size_bytes - len(prefix))
+
+    # Convert to integer
+    block_int = int.from_bytes(block, 'big')
+
+    # Take cube root (round up to ensure s^3 >= block)
+    s, exact = gmpy2.iroot(block_int, 3)
+    if not exact:
+        s += 1
+
+    # Verify: s^3 should start with our prefix
+    result = pow(int(s), 3)
+    result_bytes = result.to_bytes(key_size_bytes, 'big')
+
+    print(f"Message: {message}")
+    print(f"SHA-256: {h.hex()}")
+    print(f"Forged sig (first 40 bytes): {result_bytes[:40].hex()}")
+    print(f"Expected prefix:             {prefix[:40].hex()}")
+    print(f"Prefix match: {result_bytes[:len(prefix)] == prefix}")
+
+    return int(s)
+
+# Forge!
+forged = forge_signature(b"admin=true")
+</code></pre>
+
+      <h2>Lab 9: Diffie-Hellman Key Exchange Simulation (Easy)</h2>
+      <p>Simulate DH and demonstrate a MITM attack.</p>
+      <pre><code class="language-python">import random
+import gmpy2
+
+# Public parameters (using a safe prime)
+# In practice, use 2048+ bit primes
+p = int(gmpy2.next_prime(2**256))
+g = 2
+
+print(f"Public parameters:")
+print(f"  p = {p}")
+print(f"  g = {g}")
+
+# Normal key exchange
+a = random.randint(2, p - 2)  # Alice's private
+b = random.randint(2, p - 2)  # Bob's private
+
+A = pow(g, a, p)  # Alice's public
+B = pow(g, b, p)  # Bob's public
+
+# Shared secret
+s_alice = pow(B, a, p)
+s_bob = pow(A, b, p)
+
+print(f"\n--- Normal Exchange ---")
+print(f"Alice's shared secret: {s_alice}")
+print(f"Bob's shared secret:   {s_bob}")
+print(f"Match: {s_alice == s_bob}")
+
+# MITM Attack
+print(f"\n--- MITM Attack ---")
+m = random.randint(2, p - 2)  # Mallory's private key
+
+# Mallory intercepts and substitutes
+M_to_alice = pow(g, m, p)  # Mallory sends to Alice (instead of B)
+M_to_bob = pow(g, m, p)    # Mallory sends to Bob (instead of A)
+
+# Alice computes shared secret with Mallory (thinking it's Bob)
+s_alice_mallory = pow(M_to_alice, a, p)
+# Mallory computes same secret
+s_mallory_alice = pow(A, m, p)
+
+# Bob computes shared secret with Mallory (thinking it's Alice)
+s_bob_mallory = pow(M_to_bob, b, p)
+# Mallory computes same secret
+s_mallory_bob = pow(B, m, p)
+
+print(f"Alice<->Mallory shared: {s_alice_mallory == s_mallory_alice}")
+print(f"Bob<->Mallory shared:   {s_bob_mallory == s_mallory_bob}")
+print(f"Mallory can decrypt and re-encrypt all messages!")
+</code></pre>
+
+      <h2>Lab 10: ECDSA Nonce Reuse (Hard)</h2>
+      <p>Recover ECDSA private key when the same nonce is used for two signatures.</p>
+      <pre><code class="language-python">import hashlib
+import random
+from dataclasses import dataclass
+
+# Using secp256k1 parameters (Bitcoin curve)
+# y^2 = x^3 + 7 over Fp
+p = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+a = 0
+b = 7
+Gx = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
+Gy = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
+n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+G = (Gx, Gy)
+
+def modinv(a, m):
+    return pow(a, -1, m)
+
+def point_add(P, Q):
+    if P is None: return Q
+    if Q is None: return P
+    x1, y1 = P
+    x2, y2 = Q
+    if x1 == x2 and y1 != y2:
+        return None
+    if P == Q:
+        lam = (3 * x1 * x1 + a) * modinv(2 * y1, p) % p
+    else:
+        lam = (y2 - y1) * modinv(x2 - x1, p) % p
+    x3 = (lam * lam - x1 - x2) % p
+    y3 = (lam * (x1 - x3) - y1) % p
+    return (x3, y3)
+
+def scalar_mult(k, P):
+    result = None
+    addend = P
+    while k:
+        if k & 1:
+            result = point_add(result, addend)
+        addend = point_add(addend, addend)
+        k >>= 1
+    return result
+
+# Generate keypair
+d = random.randint(1, n - 1)  # private key
+Q = scalar_mult(d, G)          # public key
+
+# Sign two messages with SAME nonce (vulnerability!)
+k = random.randint(1, n - 1)  # REUSED nonce
+R = scalar_mult(k, G)
+r = R[0] % n
+
+m1 = b"First message"
+m2 = b"Second message"
+h1 = int(hashlib.sha256(m1).hexdigest(), 16) % n
+h2 = int(hashlib.sha256(m2).hexdigest(), 16) % n
+
+s1 = (modinv(k, n) * (h1 + r * d)) % n
+s2 = (modinv(k, n) * (h2 + r * d)) % n
+
+print(f"Signature 1: r={r}, s={s1}")
+print(f"Signature 2: r={r}, s={s2}")
+print(f"Same r value! Nonce reuse detected.\n")
+
+# ATTACK: Recover private key
+# k = (h1 - h2) / (s1 - s2) mod n
+k_recovered = ((h1 - h2) * modinv((s1 - s2) % n, n)) % n
+# d = (s1*k - h1) / r mod n
+d_recovered = ((s1 * k_recovered - h1) * modinv(r, n)) % n
+
+print(f"Recovered k: {k_recovered == k}")
+print(f"Recovered private key: {d_recovered == d}")
+print(f"Private key: {hex(d_recovered)}")
+</code></pre>
+
+      <h2>Lab 11: RSA Padding Oracle (Bleichenbacher) (Hard)</h2>
+      <p>Simplified Bleichenbacher attack against PKCS#1 v1.5 with a padding oracle.</p>
+      <pre><code class="language-python">import gmpy2
+import random
+import os
+
+# Simplified Bleichenbacher attack (concept demonstration)
+# Real attack requires ~1M oracle queries; this shows the principle
+
+KEY_BITS = 256  # Small for demonstration (real = 2048)
+KEY_BYTES = KEY_BITS // 8
+
+# Generate RSA key
+p = int(gmpy2.next_prime(random.getrandbits(KEY_BITS // 2)))
+q = int(gmpy2.next_prime(random.getrandbits(KEY_BITS // 2)))
+n = p * q
+e = 65537
+phi = (p - 1) * (q - 1)
+d = int(gmpy2.invert(e, phi))
+
+# PKCS#1 v1.5 padding
+def pkcs1_pad(message, key_bytes):
+    # 00 02 [random non-zero] 00 [message]
+    pad_len = key_bytes - 3 - len(message)
+    assert pad_len >= 8
+    padding = bytes([random.randint(1, 255) for _ in range(pad_len)])
+    return b'\x00\x02' + padding + b'\x00' + message
+
+def pkcs1_check(plaintext_int, key_bytes):
+    """Oracle: returns True if PKCS#1 v1.5 padding is valid"""
+    plaintext_bytes = plaintext_int.to_bytes(key_bytes, 'big')
+    return plaintext_bytes[0:2] == b'\x00\x02'
+
+# Encrypt a message
+secret = b"Hi"
+padded = pkcs1_pad(secret, KEY_BYTES)
+m = int.from_bytes(padded, 'big')
+c = pow(m, e, n)
+
+# The oracle
+def oracle(ciphertext):
+    """Decrypts and checks padding - simulates server behavior"""
+    plaintext = pow(ciphertext, d, n)
+    return pkcs1_check(plaintext, KEY_BYTES)
+
+# Bleichenbacher Step 1: Find s1 such that c * s1^e mod n has valid padding
+B = 2 ** (8 * (KEY_BYTES - 2))
+print(f"B = {B}")
+print(f"2B = {2*B}")
+print(f"3B-1 = {3*B - 1}")
+print(f"Valid padding range: [{2*B}, {3*B - 1}]")
+
+# Step 2: Search for conforming s values
+queries = 0
+s = n // (3 * B)  # Start search
+while True:
+    s += 1
+    queries += 1
+    # Compute c' = c * s^e mod n
+    c_prime = (c * pow(s, e, n)) % n
+    if oracle(c_prime):
+        print(f"\nFound conforming s = {s} after {queries} queries")
+        print(f"m*s mod n has valid PKCS padding")
+        break
+    if queries > 100000:
+        print("Demo limit reached")
+        break
+
+# In full attack: iteratively narrow the range of m using multiple s values
+# Each oracle query cuts the possible range roughly in half
+print(f"\nFull attack would continue narrowing interval [2B, 3B-1]")
+print(f"until single value m is determined (~log2(B) iterations)")
+</code></pre>
+
+      <h2>Lab 12: Franklin-Reiter Related Message Attack (Hard)</h2>
+      <p>Attack RSA when two related plaintexts are encrypted with e=3.</p>
+      <pre><code class="language-python">import gmpy2
+import random
+
+# Franklin-Reiter: if m2 = a*m1 + b (mod n), and both encrypted with e=3, same (n,e)
+# We can recover m1 using polynomial GCD
+
+# Setup
+p = int(gmpy2.next_prime(random.getrandbits(512)))
+q = int(gmpy2.next_prime(random.getrandbits(512)))
+n = p * q
+e = 3
+
+# Related messages: m2 = a*m1 + b mod n
+message = b"CTF{franklin_reiter_related_msg}"
+m1 = int.from_bytes(message, 'big')
+a = 1       # linear coefficient
+b = 2**64   # known constant (e.g., padding difference)
+m2 = (a * m1 + b) % n
+
+c1 = pow(m1, e, n)
+c2 = pow(m2, e, n)
+
+print(f"e = {e}")
+print(f"Relation: m2 = {a}*m1 + {b}")
+print(f"c1 = {c1}")
+print(f"c2 = {c2}")
+
+# Attack using polynomial GCD (manual implementation for e=3)
+# f1(x) = x^3 - c1
+# f2(x) = (a*x + b)^3 - c2
+# GCD gives (x - m1)
+
+# For e=3, we can solve directly:
+# c1 = m1^3 mod n
+# c2 = (m1 + b)^3 mod n  (when a=1)
+# c2 - c1 = 3*m1^2*b + 3*m1*b^2 + b^3 mod n
+# This gives us a quadratic in m1 which we can solve
+
+# Polynomial GCD approach (simplified for a=1, e=3):
+def franklin_reiter_e3(c1, c2, b, n):
+    # f1 = x^3 - c1
+    # f2 = (x+b)^3 - c2 = x^3 + 3bx^2 + 3b^2*x + b^3 - c2
+    # f2 - f1 = 3bx^2 + 3b^2*x + (b^3 - c2 + c1)
+    # This is degree 2, call it g(x) = 3b*x^2 + 3b^2*x + (b^3 + c1 - c2)
+
+    # Now compute f1 mod g (polynomial division over Z_n)
+    # Then GCD of g and (f1 mod g) gives linear factor
+
+    A = (3 * b) % n
+    B_coeff = (3 * b * b) % n
+    C = (b * b * b + c1 - c2) % n
+
+    # f1 mod g: divide x^3 - c1 by (A*x^2 + B*x + C)
+    # x^3 / (A*x^2) = x/(3b), remainder after first step...
+
+    # More direct: use resultant or substitution
+    # For the simple case a=1, use the GCD-free shortcut:
+    # m = -(b * (c2 + 2*c1 + b^3)) * inverse(c2 - c1 + 2*b^3) mod n
+    # (derived from polynomial GCD for e=3)
+
+    numerator = (-b * (c2 + 2 * c1 + b**3)) % n
+    denominator = (c2 - c1 + 2 * b**3) % n
+    m1 = (numerator * int(gmpy2.invert(denominator, n))) % n
+    return m1
+
+recovered_m = franklin_reiter_e3(c1, c2, b, n)
+recovered_bytes = recovered_m.to_bytes((recovered_m.bit_length() + 7) // 8, 'big')
+print(f"\nRecovered: {recovered_bytes}")
+print(f"Match: {recovered_m == m1}")
+</code></pre>
+
+      <h2>Lab 13: Chinese Remainder Theorem for RSA (Medium)</h2>
+      <p>Use CRT for faster RSA decryption and understand multi-prime RSA.</p>
+      <pre><code class="language-python">import gmpy2
+import random
+import time
+
+# CRT-based RSA decryption (how real implementations work)
+# Instead of m = c^d mod n, compute:
+#   m1 = c^(d mod p-1) mod p
+#   m2 = c^(d mod q-1) mod q
+#   m = CRT(m1, m2) = m2 + q * ((m1 - m2) * q^(-1) mod p)
+
+# Generate key
+p = int(gmpy2.next_prime(random.getrandbits(1024)))
+q = int(gmpy2.next_prime(random.getrandbits(1024)))
+n = p * q
+phi = (p - 1) * (q - 1)
+e = 65537
+d = int(gmpy2.invert(e, phi))
+
+# CRT components (precomputed)
+dp = d % (p - 1)
+dq = d % (q - 1)
+qinv = int(gmpy2.invert(q, p))
+
+# Encrypt a message
+m = random.randint(2, n - 1)
+c = pow(m, e, n)
+
+# Standard decryption
+start = time.time()
+for _ in range(100):
+    m_standard = pow(c, d, n)
+t_standard = time.time() - start
+
+# CRT decryption
+def crt_decrypt(c, dp, dq, p, q, qinv):
+    m1 = pow(c, dp, p)
+    m2 = pow(c, dq, q)
+    h = (qinv * (m1 - m2)) % p
+    return m2 + q * h
+
+start = time.time()
+for _ in range(100):
+    m_crt = crt_decrypt(c, dp, dq, p, q, qinv)
+t_crt = time.time() - start
+
+print(f"Standard: {t_standard:.4f}s")
+print(f"CRT:      {t_crt:.4f}s")
+print(f"Speedup:  {t_standard/t_crt:.2f}x")
+print(f"Correct:  {m_standard == m_crt == m}")
+
+# Multi-prime RSA (3 primes)
+print(f"\n--- Multi-prime RSA ---")
+p1 = int(gmpy2.next_prime(random.getrandbits(683)))
+p2 = int(gmpy2.next_prime(random.getrandbits(683)))
+p3 = int(gmpy2.next_prime(random.getrandbits(683)))
+n_multi = p1 * p2 * p3
+
+from math import gcd
+from functools import reduce
+def lcm(a, b): return a * b // gcd(a, b)
+
+lam = reduce(lcm, [p1-1, p2-1, p3-1])
+e = 65537
+d_multi = int(gmpy2.invert(e, lam))
+
+m_test = int.from_bytes(b"multi-prime RSA", 'big')
+c_test = pow(m_test, e, n_multi)
+m_dec = pow(c_test, d_multi, n_multi)
+print(f"Multi-prime decrypt correct: {m_dec == m_test}")
+</code></pre>
+
+    </div>
+
+    <!-- ==================== CTF TAB ==================== -->
+    <div class="tab-pane fade" id="ctf" role="tabpanel" aria-labelledby="ctf-tab">
+
+      <h2>Challenge 1: Small e, Small Message (Easy)</h2>
+      <p><strong>Scenario:</strong> RSA with e=3 and the plaintext is short enough that m³ < n.</p>
+      <pre><code class="language-python"># Given:
+n = 0x00b0bee5e3e9e5a7e8d00b493355c618fc8c7d7d03b82e409951c182f398dee3104580e7ba70d383ae5311475656e8a964d380cb157f48c951adfa65db0b122ca40e42fa709571c712b98c2e6b59b789681f78e5a3aea5c23c53e2c70a1312d8cf64a5685f7a453288be8f5e14c242c57b7c41c0f7025a2269cec49b6e69be6798e
+e = 3
+c = 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004c747b8839ea6e5e5a5b3d4d07c0c8ff3ab
+
+# Solution:
+import gmpy2
+
+m, exact = gmpy2.iroot(c, e)
+if exact:
+    flag = int(m).to_bytes((int(m).bit_length() + 7) // 8, 'big')
+    print(f"Flag: {flag}")
+else:
+    # Try adding multiples of n (in case c = m^3 + k*n for small k)
+    for k in range(1000):
+        m, exact = gmpy2.iroot(c + k * n, e)
+        if exact:
+            flag = int(m).to_bytes((int(m).bit_length() + 7) // 8, 'big')
+            print(f"Flag (k={k}): {flag}")
+            break
+</code></pre>
+
+      <h2>Challenge 2: factordb Lookup for Weak n (Easy)</h2>
+      <p><strong>Scenario:</strong> n is small or previously factored.</p>
+      <pre><code class="language-python"># Given:
+n = 742449129124467073921545687640895127535705902454949631591855905879868993
+e = 65537
+c = 278935654315135498513073429482505893455810512322125267751012728895819322
+
+# Solution: Query factordb
+import requests
+import gmpy2
+
+def factordb_query(n):
+    url = f"http://factordb.com/api?query={n}"
+    r = requests.get(url)
+    data = r.json()
+    if data['status'] == 'FF':  # Fully Factored
+        factors = [int(f[0]) for f in data['factors']]
+        return factors
+    return None
+
+factors = factordb_query(n)
+if factors:
+    p, q = factors[0], factors[1]
+    phi = (p - 1) * (q - 1)
+    d = int(gmpy2.invert(e, phi))
+    m = pow(c, d, n)
+    flag = m.to_bytes((m.bit_length() + 7) // 8, 'big')
+    print(f"p = {p}")
+    print(f"q = {q}")
+    print(f"Flag: {flag}")
+</code></pre>
+
+      <h2>Challenge 3: Common Factor Between Multiple Keys (Medium)</h2>
+      <p><strong>Scenario:</strong> Multiple RSA public keys share a common prime factor.</p>
+      <pre><code class="language-python"># Given: multiple public keys (n1, n2, ...) where some share a factor
+import gmpy2
+from math import gcd
+from itertools import combinations
+
+# Example keys (in real CTF, extract from PEM files)
+keys = [
+    {"n": 0xA6B3..., "e": 65537, "c": 0x1234...},  # placeholder
+    {"n": 0xB7C4..., "e": 65537, "c": 0x5678...},
+]
+
+# Solution: Find GCD between all pairs of moduli
+def find_common_factors(moduli):
+    results = {}
+    for i, j in combinations(range(len(moduli)), 2):
+        g = gcd(moduli[i], moduli[j])
+        if g > 1 and g != moduli[i]:
+            results[i] = (g, moduli[i] // g)
+            results[j] = (g, moduli[j] // g)
+    return results
+
+# Generic solver
+def solve_with_factors(n, e, c, p, q):
+    phi = (p - 1) * (q - 1)
+    d = int(gmpy2.invert(e, phi))
+    m = pow(c, d, n)
+    return m.to_bytes((m.bit_length() + 7) // 8, 'big')
+
+# Batch GCD (efficient for many keys)
+def batch_gcd(moduli):
+    """O(n log n) batch GCD - finds shared factors across many keys"""
+    n = len(moduli)
+    # Product tree
+    prods = list(moduli)
+    while len(prods) > 1:
+        new_prods = []
+        for i in range(0, len(prods), 2):
+            if i + 1 < len(prods):
+                new_prods.append(prods[i] * prods[i+1])
+            else:
+                new_prods.append(prods[i])
+        prods = new_prods
+
+    # Remainder tree
+    total_prod = prods[0]
+    remainders = [total_prod % (ni * ni) for ni in moduli]
+    gcds = [gcd(remainders[i] // moduli[i], moduli[i]) for i in range(n)]
+    return gcds
+</code></pre>
+
+      <h2>Challenge 4: Wiener's Attack (Medium)</h2>
+      <p><strong>Scenario:</strong> Unusually large public exponent suggests small private exponent.</p>
+      <pre><code class="language-python"># Given:
+n = 0x79a3aaebab3af3b1c4b8b20c9e0c3f24e29b35d94e41e9e41e8b56f2b78c1b7c0b2c1e8e00b8e0e0a00c0e8b2c4f8e7e6d4c2b0a09080706050403020100ffeeddccbbaa99887766554433221100
+e = 0x62c6e2c0e51a3c6e4b2a0e8c6d4b2a0f8e7d6c5b4a39281706150403f2e1d0c0b0a09080706050403020100ffeeddccbbaa99887766554433221100aabbccdd
+c = 0x1337...  # ciphertext placeholder
+
+# Solution: Wiener's attack (e is suspiciously large)
+import gmpy2
+
+def wiener(e, n):
+    # Continued fraction expansion of e/n
+    cf = []
+    num, den = e, n
+    while den:
+        q = num // den
+        cf.append(q)
+        num, den = den, num - q * den
+
+    # Test convergents
+    h_prev, h_curr = 0, 1
+    k_prev, k_curr = 1, 0
+    for a in cf:
+        h_prev, h_curr = h_curr, a * h_curr + h_prev
+        k_prev, k_curr = k_curr, a * k_curr + k_prev
+        k, d = h_curr, k_curr
+
+        if k == 0:
+            continue
+        if (e * d - 1) % k != 0:
+            continue
+        phi = (e * d - 1) // k
+        # Verify: x^2 - (n - phi + 1)x + n = 0 has integer roots
+        b_val = n - phi + 1
+        disc = b_val * b_val - 4 * n
+        if disc < 0:
+            continue
+        sqrt_disc = gmpy2.isqrt(disc)
+        if sqrt_disc * sqrt_disc == disc:
+            return int(d)
+    return None
+
+d = wiener(e, n)
+if d:
+    m = pow(c, d, n)
+    print(f"d = {d}")
+    print(f"Flag: {m.to_bytes((m.bit_length()+7)//8, 'big')}")
+</code></pre>
+
+      <h2>Challenge 5: Hastad Broadcast e=3 with 3 Ciphertexts (Medium)</h2>
+      <p><strong>Scenario:</strong> Same message sent to 3 recipients with e=3.</p>
+      <pre><code class="language-python"># Given: 3 public keys and ciphertexts (same plaintext, e=3)
+n1 = 0x...
+n2 = 0x...
+n3 = 0x...
+c1 = 0x...
+c2 = 0x...
+c3 = 0x...
+e = 3
+
+# Solution: CRT + cube root
+import gmpy2
+from functools import reduce
+
+def crt(remainders, moduli):
+    N = reduce(lambda a, b: a * b, moduli)
+    result = 0
+    for ri, ni in zip(remainders, moduli):
+        Ni = N // ni
+        yi = int(gmpy2.invert(Ni, ni))
+        result = (result + ri * Ni * yi) % N
+    return result
+
+# Combine using CRT
+m_cubed = crt([c1, c2, c3], [n1, n2, n3])
+
+# Take cube root
+m, exact = gmpy2.iroot(m_cubed, 3)
+assert exact, "Not exact cube root - check inputs"
+
+flag = int(m).to_bytes((int(m).bit_length() + 7) // 8, 'big')
+print(f"Flag: {flag}")
+</code></pre>
+
+      <h2>Challenge 6: RSA with phi(n) Leaked (Easy)</h2>
+      <p><strong>Scenario:</strong> You have n, e, c, and phi(n) was accidentally leaked.</p>
+      <pre><code class="language-python"># Given:
+n = 0x...
+e = 65537
+c = 0x...
+phi_n = 0x...  # leaked!
+
+# Solution: trivial - just compute d
+import gmpy2
+
+d = int(gmpy2.invert(e, phi_n))
+m = pow(c, d, n)
+flag = m.to_bytes((m.bit_length() + 7) // 8, 'big')
+print(f"Flag: {flag}")
+
+# Bonus: recover p and q from n and phi
+# p + q = n - phi + 1
+# p * q = n
+# Quadratic: x^2 - (n - phi + 1)*x + n = 0
+s = n - phi_n + 1
+discriminant = s * s - 4 * n
+sqrt_disc = gmpy2.isqrt(discriminant)
+p = (s + int(sqrt_disc)) // 2
+q = (s - int(sqrt_disc)) // 2
+assert p * q == n
+print(f"p = {p}")
+print(f"q = {q}")
+</code></pre>
+
+      <h2>Challenge 7: Multi-prime RSA (Medium)</h2>
+      <p><strong>Scenario:</strong> n is a product of many small primes instead of two large ones.</p>
+      <pre><code class="language-python"># Given:
+n = 0x...  # product of multiple primes
+e = 65537
+c = 0x...
+
+# Solution: Factor n (easier when it has many small-ish primes)
+import gmpy2
+from math import gcd
+from functools import reduce
+
+# Method 1: Pollard's rho repeatedly
+def factor_all(n):
+    factors = []
+    while n > 1:
+        if gmpy2.is_prime(n):
+            factors.append(int(n))
+            break
+        # Try Pollard's rho
+        d = pollard_rho(int(n))
+        if d is None:
+            # Try p-1
+            d = pollard_p_minus_1(int(n))
+        if d is None:
+            break
+        factors.append(d)
+        n = n // d
+    return factors
+
+def pollard_rho(n):
+    import random
+    if n % 2 == 0: return 2
+    for _ in range(50):
+        x = random.randint(2, n-1)
+        y = x
+        c = random.randint(1, n-1)
+        d = 1
+        while d == 1:
+            x = (x*x + c) % n
+            y = (y*y + c) % n
+            y = (y*y + c) % n
+            d = gcd(abs(x-y), n)
+        if d != n:
+            return d
+    return None
+
+def pollard_p_minus_1(n, B=100000):
+    a = 2
+    for j in range(2, B+1):
+        a = pow(a, j, n)
+    d = gcd(a-1, n)
+    if 1 < d < n:
+        return d
+    return None
+
+# Once factored:
+def decrypt_multiprime(c, e, n, factors):
+    # Use Carmichael's lambda for multi-prime
+    def lcm(a, b): return a * b // gcd(a, b)
+    lam = reduce(lcm, [f - 1 for f in factors])
+    d = int(gmpy2.invert(e, lam))
+    m = pow(c, d, n)
+    return m.to_bytes((m.bit_length() + 7) // 8, 'big')
+
+factors = factor_all(n)
+print(f"Factors: {factors}")
+print(f"Flag: {decrypt_multiprime(c, e, n, factors)}")
+</code></pre>
+
+      <h2>Challenge 8: ECDSA Nonce Reuse to Recover Private Key (Hard)</h2>
+      <p><strong>Scenario:</strong> Two ECDSA signatures share the same r value (same nonce k).</p>
+      <pre><code class="language-python"># Given: Two signatures with same r (nonce reuse)
+# Curve: secp256k1
+import hashlib
+import gmpy2
+
+n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141  # curve order
+
+# Signature 1: (r, s1) on message m1
+# Signature 2: (r, s2) on message m2  (same r = same k!)
+r  = 0x...
+s1 = 0x...
+s2 = 0x...
+m1 = b"transaction: send 1 BTC to alice"
+m2 = b"transaction: send 2 BTC to bob"
+
+# Hash messages
+h1 = int(hashlib.sha256(m1).hexdigest(), 16) % n
+h2 = int(hashlib.sha256(m2).hexdigest(), 16) % n
+
+# Recover nonce k
+# s1 - s2 = k^(-1) * (h1 - h2) mod n
+# k = (h1 - h2) * (s1 - s2)^(-1) mod n
+k = ((h1 - h2) * int(gmpy2.invert((s1 - s2) % n, n))) % n
+
+# Recover private key d
+# s1 = k^(-1) * (h1 + r*d) mod n
+# d = (s1*k - h1) * r^(-1) mod n
+d = ((s1 * k - h1) * int(gmpy2.invert(r, n))) % n
+
+print(f"Recovered private key: {hex(d)}")
+
+# Verify: decrypt flag encrypted with derived key
+from Crypto.Cipher import AES
+from Crypto.Hash import SHA256
+
+# Derive AES key from ECDSA private key
+aes_key = SHA256.new(d.to_bytes(32, 'big')).digest()
+# ... decrypt flag with AES
+</code></pre>
+
+      <h2>Challenge 9: RSA LSB Oracle (Hard)</h2>
+      <p><strong>Scenario:</strong> Oracle reveals the least significant bit of decrypted ciphertext.</p>
+      <pre><code class="language-python"># RSA LSB Oracle Attack
+# Oracle tells us if m is even or odd after decryption
+# We multiply ciphertext by 2^e to double the plaintext mod n
+
+import gmpy2
+from decimal import Decimal, getcontext
+
+def lsb_oracle(c, d, n):
+    """Simulated oracle: returns LSB of decrypted message"""
+    m = pow(c, d, n)
+    return m & 1
+
+def lsb_oracle_attack(n, e, c, oracle_func, d_for_sim):
+    """Recover plaintext using LSB oracle"""
+    getcontext().prec = n.bit_length() + 100
+
+    # Bounds for m: [lower, upper] = [0, n]
+    lower = Decimal(0)
+    upper = Decimal(n)
+    multiplier = pow(2, e, n)  # Encryption of 2
+
+    c_prime = c
+    num_bits = n.bit_length()
+
+    for i in range(num_bits):
+        c_prime = (c_prime * multiplier) % n
+        # Oracle on c' = c * 2^(e*(i+1)) mod n
+        # This corresponds to plaintext 2^(i+1) * m mod n
+        bit = oracle_func(c_prime, d_for_sim, n)
+
+        if bit == 1:
+            # 2^(i+1) * m mod n is odd → m is in upper half of current range
+            lower = (lower + upper) / 2
+        else:
+            # 2^(i+1) * m mod n is even → m is in lower half
+            upper = (lower + upper) / 2
+
+        if i % 100 == 0:
+            print(f"  Bit {i}/{num_bits}...")
+
+    # m should be close to upper (or lower)
+    return int(upper)
+
+# Demo with small key
+p = int(gmpy2.next_prime(2**128))
+q = int(gmpy2.next_prime(2**129))
+n = p * q
+e = 65537
+phi = (p-1)*(q-1)
+d = int(gmpy2.invert(e, phi))
+
+message = b"CTF{lsb_oracle_binary_search}"
+m = int.from_bytes(message, 'big')
+c = pow(m, e, n)
+
+recovered = lsb_oracle_attack(n, e, c, lsb_oracle, d)
+# May need to check recovered ± 1 due to rounding
+for candidate in [recovered - 1, recovered, recovered + 1]:
+    try:
+        text = candidate.to_bytes((candidate.bit_length() + 7) // 8, 'big')
+        if b"CTF" in text:
+            print(f"Flag: {text}")
+            break
+    except:
+        pass
+</code></pre>
+
+      <h2>Challenge 10: Coppersmith Short Pad Attack (Hard)</h2>
+      <p><strong>Scenario:</strong> Same message with different short random padding, encrypted with e=3.</p>
+      <pre><code class="language-python"># Coppersmith's Short Pad Attack
+# m1 = M || r1 (M with random padding r1)
+# m2 = M || r2 (M with random padding r2)
+# Both encrypted with same (n, e=3)
+# If padding is short enough, we can use Franklin-Reiter after finding the difference
+
+# This requires Sage for Coppersmith's method. Python-only approximation:
+
+import gmpy2
+
+# Given:
+n = 0x...
+e = 3
+c1 = 0x...  # encrypt(M || pad1)
+c2 = 0x...  # encrypt(M || pad2)
+pad_bits = 16  # known padding length
+
+# Step 1: Find the padding difference using resultant/GCD
+# In Sage:
+# PRx.<x> = PolynomialRing(Zmod(n))
+# PRxy.<y> = PolynomialRing(PRx)
+# f1 = (x + y)^e - c1  # treat pad1 as y
+# f2 = x^e - c2         # ... simplified model
+# Use resultant to eliminate one variable
+
+# Step 2: Once difference d = r1 - r2 is found, apply Franklin-Reiter
+def franklin_reiter_short_pad(c1, c2, diff, e, n):
+    """
+    After finding diff = pad1 - pad2, use Franklin-Reiter:
+    m2 = m1 + diff (mod n)
+    """
+    # For e=3: polynomial GCD approach
+    # f1(x) = x^3 - c1
+    # f2(x) = (x + diff)^3 - c2
+    b = diff
+    numerator = (-b * (c2 + 2*c1 + b**3)) % n
+    denominator = (c2 - c1 + 2 * b**3) % n
+    m1 = (numerator * int(gmpy2.invert(denominator, n))) % n
+    return m1
+
+# Sage script for full Coppersmith attack:
+sage_script = """
+# Sage implementation
+n = ...
+e = 3
+c1 = ...
+c2 = ...
+pad_bits = 16
+
+P.<x,y> = PolynomialRing(ZZ)
+R.<z> = PolynomialRing(Zmod(n))
+
+# f(x) = (2^pad_bits * M + x)^e - c  in Z_n[x]
+f1 = (z + 2^pad_bits)^e - c1  # placeholder for actual construction
+f2 = z^e - c2
+
+# Coppersmith to find small root (the padding)
+# Then Franklin-Reiter to recover M
+"""
+print(sage_script)
+</code></pre>
+
+      <h2>Challenge 11: Textbook RSA Signature Bypass (Medium)</h2>
+      <p><strong>Scenario:</strong> Server verifies RSA signature but uses textbook RSA (no proper padding check).</p>
+      <pre><code class="language-python"># Textbook RSA signature: sig = m^d mod n, verify: m == sig^e mod n
+# Vulnerability: multiplicative homomorphism
+# If we have sig(m1) and sig(m2), then sig(m1) * sig(m2) = sig(m1*m2) mod n
+
+import gmpy2
+
+# Given: server that signs arbitrary messages except "admin=true"
+# We want a valid signature on "admin=true"
+
+n = 0x...  # server's public key n
+e = 65537
+
+# Target message
+target = b"admin=true"
+m_target = int.from_bytes(target, 'big')
+
+# Attack 1: Blinding attack
+# Choose random r, get server to sign (m_target * r^e mod n)
+# Then divide by r to get signature on m_target
+
+import random
+r = random.randint(2, n - 1)
+r_e = pow(r, e, n)
+blinded_msg = (m_target * r_e) % n
+
+# Request signature on blinded_msg (server doesn't recognize it)
+# sig_blinded = blinded_msg^d mod n = (m * r^e)^d mod n = m^d * r mod n
+sig_blinded = 0x...  # from server
+
+# Unblind: sig = sig_blinded * r^(-1) mod n
+r_inv = int(gmpy2.invert(r, n))
+sig_target = (sig_blinded * r_inv) % n
+
+# Verify
+assert pow(sig_target, e, n) == m_target % n
+print(f"Forged signature on 'admin=true': {hex(sig_target)}")
+
+# Attack 2: Multiplicative property
+# Factor m_target into m1 * m2 (if possible)
+# Get signatures on m1 and m2 separately
+# sig(m_target) = sig(m1) * sig(m2) mod n
+
+# Example: if m_target = m1 * m2 mod n
+m1 = 2
+m2 = (m_target * int(gmpy2.invert(m1, n))) % n
+# Get server to sign m1 and m2
+sig_m1 = 0x...  # pow(m1, d, n)
+sig_m2 = 0x...  # pow(m2, d, n)
+forged = (sig_m1 * sig_m2) % n
+assert pow(forged, e, n) == m_target
+</code></pre>
+
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

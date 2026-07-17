@@ -1,0 +1,1878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Windows Forensics</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Windows Forensics &amp; Incident Response</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- NOTES TAB                                                    -->
+      <!-- ============================================================ -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== MEMORY FORENSICS ==================== -->
+        <h2>Memory Forensics</h2>
+
+        <h3>Memory Acquisition Tools</h3>
+        <table>
+          <tr><th>Tool</th><th>Type</th><th>Notes</th></tr>
+          <tr><td>WinPmem</td><td>CLI / Open Source</td><td>Rekall project. Dumps raw memory via <code>winpmem_mini_x64.exe output.raw</code>. Supports multiple output formats (raw, AFF4). Runs from USB.</td></tr>
+          <tr><td>DumpIt</td><td>CLI / Portable</td><td>Single-click memory dump. Double-click = instant raw dump to current directory. No install needed. Good for IR first responders.</td></tr>
+          <tr><td>Belkasoft RAM Capturer</td><td>GUI / Free</td><td>Minimal footprint, kernel-mode driver. Bypasses active anti-dumping by some malware. Free from Belkasoft.</td></tr>
+          <tr><td>FTK Imager</td><td>GUI / Free</td><td>AccessData (now Exterro). File &gt; Capture Memory. Also captures pagefile. Industry standard.</td></tr>
+          <tr><td>Magnet RAM Capture</td><td>GUI / Free</td><td>Exports raw (.raw), .dmp, or .bin. Runs as non-admin if user has debug privileges. Free from Magnet Forensics.</td></tr>
+          <tr><td>Comae DumpIt</td><td>CLI</td><td>Modern version by Comae Technologies. Supports Microsoft Crash Dump format for WinDbg analysis. <code>DumpIt.exe /OUTPUT dump.dmp /QUIET</code></td></tr>
+        </table>
+
+        <p><strong>Acquisition best practices:</strong></p>
+        <ul>
+          <li>Always write to an <em>external</em> drive — never write the dump to the suspect disk (overwrites evidence in unallocated space)</li>
+          <li>Record SHA256 hash of the dump immediately after acquisition</li>
+          <li>Capture memory <em>before</em> disk imaging — memory is volatile and changes every second</li>
+          <li>Document exact time of capture (UTC), tool version, and operator</li>
+          <li>If possible, capture the pagefile (<code>C:\pagefile.sys</code>) and hibernation file (<code>C:\hiberfil.sys</code>) — they contain paged-out memory</li>
+        </ul>
+
+<pre><code class="language-powershell"># WinPmem acquisition
+.\winpmem_mini_x64.exe E:\evidence\memory.raw
+
+# DumpIt (writes to current directory by default)
+.\DumpIt.exe /OUTPUT E:\evidence\memory.dmp /QUIET
+
+# Hash the dump immediately
+Get-FileHash E:\evidence\memory.raw -Algorithm SHA256 | Format-List
+
+# Also grab the pagefile and hiberfil (requires raw disk access or FTK Imager)
+# These are locked by Windows — use FTK Imager "Obtain Protected Files"</code></pre>
+
+        <h3>Volatility 3 for Windows</h3>
+        <p>Volatility 3 is the standard open-source memory forensics framework. Unlike Volatility 2, it auto-detects profiles using PDB symbol tables (ISF files). Install: <code>pip install volatility3</code>.</p>
+
+        <h4>Process Analysis</h4>
+<pre><code class="language-bash"># List processes (flat list — like Task Manager)
+vol -f memory.raw windows.pslist
+
+# Process tree (parent-child hierarchy — spot reparented/orphan processes)
+vol -f memory.raw windows.pstree
+
+# KEY: Look for suspicious parent-child relationships:
+#   - cmd.exe / powershell.exe spawned by explorer.exe = user-initiated (normal)
+#   - cmd.exe / powershell.exe spawned by winword.exe / excel.exe = MACRO EXECUTION
+#   - svchost.exe NOT under services.exe = SUSPICIOUS
+#   - csrss.exe / lsass.exe / smss.exe with PPID != expected = SUSPICIOUS
+#   - Multiple instances: only ONE lsass.exe, one services.exe should exist
+
+# Process command lines (see what arguments were passed)
+vol -f memory.raw windows.cmdline
+
+# Environment variables per process (find PATH manipulation, proxy settings, injected vars)
+vol -f memory.raw windows.envars --pid 1234
+
+# DLL list per process (spot injected DLLs that don't belong)
+vol -f memory.raw windows.dlllist --pid 1234
+
+# Handles held by a process (files, registry keys, mutexes, events)
+vol -f memory.raw windows.handles --pid 1234
+
+# Filter handles by type
+vol -f memory.raw windows.handles --pid 1234 --object-type File
+vol -f memory.raw windows.handles --pid 1234 --object-type Key
+vol -f memory.raw windows.handles --pid 1234 --object-type Mutant</code></pre>
+
+        <h4>Network Connections</h4>
+<pre><code class="language-bash"># Active TCP/UDP connections and listening ports (netstat equivalent)
+vol -f memory.raw windows.netscan
+
+# OUTPUT COLUMNS: Offset, Proto, LocalAddr, LocalPort, ForeignAddr, ForeignPort, State, PID, Owner, Created
+# LOOK FOR:
+#   - Connections to known-bad IPs (check against threat intel)
+#   - Unusual ports (4444, 8443, 1337, etc.)
+#   - ESTABLISHED connections from svchost.exe / system processes to external IPs
+#   - Processes that shouldn't make network connections (notepad.exe, calc.exe)
+#   - Multiple connections to the same C2 IP from different processes (lateral spread)</code></pre>
+
+        <h4>Memory Scanning &amp; Injection Detection</h4>
+<pre><code class="language-bash"># Malfind — find injected code and suspicious memory regions
+# Scans for VADs (Virtual Address Descriptors) with PAGE_EXECUTE_READWRITE
+# and no backing file (anonymous memory with executable + writable = code injection)
+vol -f memory.raw windows.malfind
+
+# OUTPUT: PID, Process, Start VPN, End VPN, Tag, Protection, CommitCharge, PrivateMemory, Hexdump
+# KEY INDICATORS:
+#   - MZ header (4D 5A) in executable anonymous memory = PE injection
+#   - Shellcode patterns (FC E8, 90 90 90, NOP sleds)
+#   - PAGE_EXECUTE_READWRITE protection on non-image VADs
+#   - Hollow processes: legitimate process name but injected code
+
+# Dump suspicious memory regions for further analysis
+vol -f memory.raw windows.malfind --dump --pid 1234
+
+# Scan for files mapped in memory (find opened/deleted files)
+vol -f memory.raw windows.filescan
+
+# Dump a specific file from memory
+vol -f memory.raw windows.dumpfiles --virtaddr 0xXXXXXXXX</code></pre>
+
+        <h4>Services &amp; Registry</h4>
+<pre><code class="language-bash"># Enumerate Windows services from memory
+vol -f memory.raw windows.svcscan
+# Look for: services with unusual binary paths, services running as SYSTEM with non-standard exe
+
+# Registry analysis — list hives loaded in memory
+vol -f memory.raw windows.registry.hivelist
+
+# Print a specific registry key
+vol -f memory.raw windows.registry.printkey --key "Software\Microsoft\Windows\CurrentVersion\Run"
+vol -f memory.raw windows.registry.printkey --key "ControlSet001\Services"
+
+# Dump password hashes (SAM + SYSTEM hives must be in memory)
+vol -f memory.raw windows.hashdump
+# Outputs: Username:RID:LMHash:NTHash
+
+# Cached domain credentials
+vol -f memory.raw windows.cachedump</code></pre>
+
+        <h4>Strings Analysis</h4>
+<pre><code class="language-bash"># Extract strings from memory dump, then map to owning process
+strings -el memory.raw > strings_unicode.txt    # Unicode (Little-Endian)
+strings -a memory.raw > strings_ascii.txt        # ASCII
+
+# Use Volatility to map string offsets to process address spaces
+vol -f memory.raw windows.strings --strings-file strings_unicode.txt
+
+# Grep for interesting patterns in extracted strings
+grep -iE "(http://|https://|ftp://)" strings_unicode.txt > urls.txt
+grep -iE "password|passwd|credential|secret" strings_unicode.txt > creds.txt
+grep -iE "\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z]{2,}\b" strings_unicode.txt > emails.txt
+grep -iP "\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}" strings_unicode.txt > ips.txt</code></pre>
+
+        <h3>LSASS Memory Analysis</h3>
+        <p>LSASS (<code>lsass.exe</code>) stores credentials in memory: NTLM hashes, Kerberos tickets, plaintext passwords (if WDigest enabled), DPAPI keys. Attackers dump LSASS for credential theft; defenders analyze LSASS dumps to identify compromised accounts.</p>
+
+<pre><code class="language-bash"># Volatility — dump LSASS process memory
+vol -f memory.raw windows.pslist | grep lsass
+# Note the PID, then dump
+vol -f memory.raw windows.memmap --pid &lt;lsass_pid&gt; --dump
+
+# Use pypykatz to parse LSASS dump offline (Python mimikatz)
+pip install pypykatz
+pypykatz lsa minidump lsass.dmp
+
+# Or parse from a full memory dump
+pypykatz rekall memory.raw
+
+# Output includes:
+#   - NTLM hashes for local accounts
+#   - Kerberos TGTs and service tickets
+#   - WDigest plaintext passwords (if enabled via registry)
+#   - DPAPI master keys
+#   - SSP credentials
+#   - LiveSSP credentials</code></pre>
+
+<pre><code class="language-powershell"># Check if WDigest plaintext credential storage is enabled
+reg query HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest /v UseLogonCredential
+# Value 1 = enabled (plaintext passwords stored in LSASS) — default on Win7/2008R2
+# Value 0 or missing = disabled (default on Win8.1+/2012R2+)
+
+# Attackers may enable it for future credential capture:
+reg add HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest /v UseLogonCredential /t REG_DWORD /d 1</code></pre>
+
+        <h3>Process Injection Detection</h3>
+        <p>Injection techniques leave specific forensic artifacts in memory:</p>
+        <table>
+          <tr><th>Technique</th><th>Memory Indicators</th><th>Detection</th></tr>
+          <tr><td>Classic DLL Injection</td><td>Foreign DLL in process DLL list, <code>LoadLibrary</code> call via remote thread</td><td><code>dlllist</code> — DLL from unusual path; <code>handles</code> — thread from another process</td></tr>
+          <tr><td>PE Injection</td><td>MZ/PE header in anonymous (non-file-backed) RWX memory</td><td><code>malfind</code> — MZ header at VAD start, no FileObject</td></tr>
+          <tr><td>Reflective DLL Injection</td><td>DLL in memory but NOT on disk, NOT in PEB LDR list</td><td><code>malfind</code> finds it; <code>dlllist</code> does NOT show it</td></tr>
+          <tr><td>Process Hollowing</td><td>Process image on disk differs from in-memory image; main module has RWX permissions</td><td><code>procdump</code> dumped exe differs from on-disk exe; <code>malfind</code> on main image</td></tr>
+          <tr><td>APC Injection</td><td>Queued APC to remote thread, payload in target's memory</td><td><code>malfind</code> + check thread start addresses with <code>threads</code> plugin</td></tr>
+          <tr><td>Thread Execution Hijacking</td><td>Thread context modified (EIP/RIP points to injected code)</td><td>Thread start address outside known module ranges</td></tr>
+        </table>
+
+<pre><code class="language-bash"># VAD (Virtual Address Descriptor) analysis — deep dive into memory regions
+vol -f memory.raw windows.vadinfo --pid 1234
+
+# KEY: Compare protection flags vs content:
+#   - PAGE_EXECUTE_READWRITE + no FileObject = injected code
+#   - PAGE_EXECUTE_WRITECOPY on non-image VAD = suspicious
+#   - VadS (short VAD) with executable flag = likely shellcode
+
+# Dump specific VAD region for manual analysis
+vol -f memory.raw windows.vadinfo --pid 1234 --dump</code></pre>
+
+        <h3>Rootkit Detection in Memory</h3>
+        <table>
+          <tr><th>Technique</th><th>What It Does</th><th>Detection Method</th></tr>
+          <tr><td>DKOM</td><td>Unlinks EPROCESS from <code>ActiveProcessLinks</code> doubly-linked list to hide process from <code>pslist</code></td><td><code>psscan</code> finds processes by pool tag scanning (ignores linked list). Compare <code>pslist</code> vs <code>psscan</code> — differences = hidden processes</td></tr>
+          <tr><td>SSDT Hooking</td><td>Replaces System Service Descriptor Table entries to intercept syscalls</td><td><code>ssdt</code> plugin — entries pointing outside <code>ntoskrnl</code> or <code>win32k</code> = hooks</td></tr>
+          <tr><td>IDT Hooking</td><td>Modifies Interrupt Descriptor Table entries to intercept interrupts</td><td>IDT entries pointing to unexpected code locations</td></tr>
+          <tr><td>IRP Hooking</td><td>Replaces driver IRP handler function pointers in driver objects</td><td><code>driverirp</code> plugin — IRP handlers pointing outside the driver's own code range</td></tr>
+          <tr><td>Inline/Detour Hooking</td><td>Patches the first bytes of API functions with a JMP to malicious code</td><td><code>apihooks</code> plugin — finds JMP/CALL instructions at function prologues</td></tr>
+          <tr><td>Callback Manipulation</td><td>Registers or removes kernel notification callbacks</td><td><code>callbacks</code> plugin — check <code>PsSetCreateProcessNotifyRoutine</code>, <code>CmRegisterCallback</code>, etc.</td></tr>
+        </table>
+
+<pre><code class="language-bash"># Compare pslist vs psscan to find hidden processes
+vol -f memory.raw windows.pslist > pslist.txt
+vol -f memory.raw windows.psscan > psscan.txt
+# Diff the PIDs — any PID in psscan but NOT in pslist = potentially hidden by DKOM
+
+# SSDT hook detection (Volatility 2 — plugin not fully ported to Vol3 yet)
+vol -f memory.raw --profile=Win10x64 ssdt
+
+# Check loaded kernel modules
+vol -f memory.raw windows.modules
+vol -f memory.raw windows.modscan
+# Compare — module in modscan but not modules = hidden driver
+
+# Driver IRP hook detection (Volatility 2)
+vol -f memory.raw --profile=Win10x64 driverirp
+
+# Kernel callback analysis (Volatility 2)
+vol -f memory.raw --profile=Win10x64 callbacks</code></pre>
+
+
+        <!-- ==================== DISK FORENSICS ==================== -->
+        <h2>Disk Forensics (Windows-Specific)</h2>
+
+        <h3>NTFS Deep Dive</h3>
+        <p>NTFS stores everything as files — even metadata. Key system metafiles:</p>
+        <table>
+          <tr><th>Metafile</th><th>MFT Record #</th><th>Purpose</th><th>Forensic Value</th></tr>
+          <tr><td><code>$MFT</code></td><td>0</td><td>Master File Table — entry for every file/directory on the volume</td><td>Full file listing including deleted files (until MFT record is reused). Contains $SI and $FN timestamps, file sizes, parent directory reference.</td></tr>
+          <tr><td><code>$LogFile</code></td><td>2</td><td>NTFS transaction journal — records metadata changes for crash recovery</td><td>Shows recent file operations (create, delete, rename) even if $MFT record was overwritten. Usually covers last few hours of activity.</td></tr>
+          <tr><td><code>$UsnJrnl</code></td><td>Varies (inside <code>$Extend</code>)</td><td>Update Sequence Number Journal — change log for file/directory changes</td><td>Records every change with reason code (DATA_OVERWRITE, FILE_CREATE, FILE_DELETE, RENAME). Can contain weeks/months of history. Stored in <code>$Extend\$UsnJrnl:$J</code> (data stream).</td></tr>
+          <tr><td><code>$Secure</code></td><td>9</td><td>Security descriptor storage — ACLs for all files/dirs</td><td>Identifies permission changes and unusual ACL configurations.</td></tr>
+          <tr><td><code>$Boot</code></td><td>7</td><td>Volume boot record</td><td>Contains volume serial number, cluster size, MFT location.</td></tr>
+        </table>
+
+        <h4>Alternate Data Streams (ADS)</h4>
+        <p>NTFS allows multiple data streams per file. The default (unnamed) stream is the file content. Named streams are hidden from <code>dir</code> and Explorer. Malware and attackers use ADS to hide payloads.</p>
+<pre><code class="language-powershell"># List all ADS on a file
+Get-Item -Path C:\file.txt -Stream *
+
+# Read a specific ADS
+Get-Content -Path C:\file.txt -Stream "hidden_stream"
+
+# Create an ADS (attacker technique)
+Set-Content -Path C:\file.txt -Stream "payload" -Value "malicious content"
+# Or from cmd: echo malicious > C:\file.txt:payload
+
+# Find all files with ADS recursively
+Get-ChildItem -Recurse | ForEach-Object {
+    $streams = Get-Item $_.FullName -Stream * -ErrorAction SilentlyContinue
+    if ($streams.Count -gt 1) {
+        $streams | Where-Object { $_.Stream -ne ':$DATA' }
+    }
+}
+
+# Zone.Identifier ADS — Mark of the Web (MOTW)
+# Windows adds this to files downloaded from the internet
+Get-Content -Path C:\Downloads\file.exe -Stream Zone.Identifier
+# Output: [ZoneTransfer] ZoneId=3 (Internet)
+# Removing MOTW: Remove-Item -Path C:\Downloads\file.exe -Stream Zone.Identifier</code></pre>
+
+        <h4>MFT Parsing with MFTECmd</h4>
+<pre><code class="language-powershell"># Extract $MFT (requires raw disk access — use FTK Imager or KAPE)
+# Parse with Eric Zimmerman's MFTECmd
+MFTECmd.exe -f "C:\evidence\$MFT" --csv C:\evidence\output --csvf mft_parsed.csv
+
+# Parse $UsnJrnl
+MFTECmd.exe -f "C:\evidence\$J" --csv C:\evidence\output --csvf usnjrnl_parsed.csv
+
+# Parse $LogFile
+# Use LogFileParser by Joakim Schicht
+LogFileParser.exe /LogFileFile:"C:\evidence\$LogFile" /OutputPath:C:\evidence\output
+
+# Open CSV results in Timeline Explorer for analysis
+# Sort by timestamps, filter by extension, search for specific filenames</code></pre>
+
+        <h3>Prefetch Files</h3>
+        <p>Location: <code>C:\Windows\Prefetch\</code>. Created when an application executes (requires Prefetch enabled — default on workstations, disabled on servers unless SSD). Each <code>.pf</code> file records:</p>
+        <ul>
+          <li><strong>Executable name</strong> and path</li>
+          <li><strong>Run count</strong> — total number of times the application was executed</li>
+          <li><strong>Last 8 run timestamps</strong> (Win8+) or last 1 (WinXP/7)</li>
+          <li><strong>Files and directories</strong> accessed during the first 10 seconds of execution</li>
+          <li><strong>Volume information</strong> — volume serial number, creation date</li>
+        </ul>
+        <p>Filename format: <code>EXECUTABLE-XXXXXXXX.pf</code> where XXXXXXXX is a hash of the executable path. Same exe from different paths = different <code>.pf</code> files.</p>
+<pre><code class="language-powershell"># Parse with PECmd (Eric Zimmerman)
+PECmd.exe -f "C:\Windows\Prefetch\CMD.EXE-4A81B364.pf"
+PECmd.exe -d "C:\Windows\Prefetch" --csv C:\evidence\output --csvf prefetch_parsed.csv
+
+# Key fields in output:
+#   ExecutableName, RunCount, LastRun (up to 8 timestamps),
+#   FilesLoaded (DLLs, configs loaded during first 10s of execution)
+
+# Quick check — was a tool ever executed?
+Get-ChildItem C:\Windows\Prefetch -Filter "*.pf" |
+    Where-Object { $_.Name -match "PSEXEC|MIMIKATZ|COBALT|POWERSHELL|WMIC|CERTUTIL" }</code></pre>
+
+        <h3>Amcache.hve</h3>
+        <p>Location: <code>C:\Windows\AppCompat\Programs\Amcache.hve</code>. A registry hive that tracks:</p>
+        <ul>
+          <li><strong>SHA1 hash</strong> of executed programs (critical for IOC matching)</li>
+          <li><strong>Full file path</strong> and size</li>
+          <li><strong>First execution timestamp</strong> (key last write time)</li>
+          <li><strong>PE metadata</strong>: publisher, version, description, compile time</li>
+          <li><strong>Installed programs</strong> (from MSI, uninstaller registry)</li>
+          <li><strong>Connected devices</strong> and drivers</li>
+        </ul>
+<pre><code class="language-powershell"># Parse with AmcacheParser (Eric Zimmerman)
+AmcacheParser.exe -f "C:\evidence\Amcache.hve" --csv C:\evidence\output --csvf amcache_parsed.csv
+
+# Include entries marked as deleted in the registry (recoverable)
+AmcacheParser.exe -f "C:\evidence\Amcache.hve" -i --csv C:\evidence\output
+
+# Cross-reference SHA1 hashes with VirusTotal or threat intel
+# Output CSV fields: SHA1, FullPath, FileSize, Publisher, BinaryType, LastModified</code></pre>
+
+        <h3>ShimCache / AppCompatCache</h3>
+        <p>Location: <code>HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache</code> (registry value <code>AppCompatCache</code>). Records <strong>file path, size, and last modified timestamp</strong> for executables that were <em>at least inspected</em> by the OS (doesn't guarantee execution on Win8+, but does on Win7/XP).</p>
+        <ul>
+          <li>Written to registry only at <strong>shutdown</strong> (live system cache is in memory only until reboot)</li>
+          <li>Up to 1024 entries (Win7/8/10), FIFO eviction</li>
+          <li>On Win8+, includes an "Executed" flag (but not always reliable)</li>
+        </ul>
+<pre><code class="language-powershell"># Parse with AppCompatCacheParser (Eric Zimmerman)
+AppCompatCacheParser.exe -f "C:\evidence\SYSTEM" --csv C:\evidence\output --csvf shimcache_parsed.csv
+
+# From a live system (requires ControlSet number)
+AppCompatCacheParser.exe --csv C:\evidence\output
+
+# KEY: ShimCache preserves entries even after deletion of the executable
+# Attackers who delete their tools still leave traces here</code></pre>
+
+        <h3>BAM / DAM (Background Activity Moderator)</h3>
+        <p>Windows 10 1709+ and Server 2016+. Tracks <strong>which executables were run by each user</strong> with a <strong>last execution timestamp</strong>.</p>
+        <ul>
+          <li>Location: <code>HKLM\SYSTEM\CurrentControlSet\Services\bam\State\UserSettings\{SID}</code></li>
+          <li>DAM (Desktop Activity Moderator) at the same path under <code>dam</code></li>
+          <li>Entries: full executable path → binary timestamp (FILETIME, UTC)</li>
+        </ul>
+<pre><code class="language-powershell"># Parse BAM entries from live system
+Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\bam\State\UserSettings\*" |
+    ForEach-Object {
+        $sid = $_.PSChildName
+        $_.PSObject.Properties | Where-Object { $_.Name -notmatch "^PS" -and $_.Name -ne "Version" -and $_.Name -ne "SequenceNumber" } |
+        ForEach-Object { [PSCustomObject]@{ SID=$sid; Executable=$_.Name; Timestamp=$_.Value } }
+    }
+
+# From offline hive
+# Use Registry Explorer (Eric Zimmerman) or RegRipper
+rip.exe -r C:\evidence\SYSTEM -p bam</code></pre>
+
+        <h3>SRUM (System Resource Usage Monitor)</h3>
+        <p>Location: <code>C:\Windows\System32\sru\SRUDB.dat</code> (ESE database). Records <strong>per-application resource usage</strong> over 30–60 days:</p>
+        <ul>
+          <li><strong>Network usage</strong> — bytes sent/received per application, per interface, per hour</li>
+          <li><strong>Application execution</strong> — foreground/background time, CPU cycles</li>
+          <li><strong>Energy usage</strong> — battery drain per application</li>
+          <li><strong>Push notifications</strong> — which apps received push data</li>
+        </ul>
+        <p>SRUM is a goldmine for proving data exfiltration — correlate network bytes sent with suspicious process execution times.</p>
+<pre><code class="language-powershell"># Parse with SrumECmd (Eric Zimmerman)
+SrumECmd.exe -f "C:\evidence\SRUDB.dat" -r "C:\evidence\SOFTWARE" --csv C:\evidence\output
+
+# Requires the SOFTWARE hive for SID-to-username and app ID resolution
+# Output CSVs: NetworkUsage, AppResourceUse, EnergyUsage, PushNotifications
+
+# Python alternative — srum-dump
+python srum_dump.py -i C:\evidence\SRUDB.dat -t SRUM_TEMPLATE.xlsx -o srum_output.xlsx</code></pre>
+
+        <h3>Jump Lists and LNK Files</h3>
+        <p><strong>Jump Lists</strong> — per-application recent/pinned file lists. Location:</p>
+        <ul>
+          <li>Automatic: <code>%APPDATA%\Microsoft\Windows\Recent\AutomaticDestinations\</code></li>
+          <li>Custom: <code>%APPDATA%\Microsoft\Windows\Recent\CustomDestinations\</code></li>
+        </ul>
+        <p>Each Jump List file is named <code>{AppID}.automaticDestinations-ms</code> (compound OLE file containing embedded LNK structures).</p>
+        <p><strong>LNK files</strong> — shortcut files that record target path, timestamps (creation/modification/access of the <em>target</em>), volume serial number, MAC address of the machine (if network path), and target file size.</p>
+<pre><code class="language-powershell"># Parse LNK files with LECmd (Eric Zimmerman)
+LECmd.exe -d "C:\Users\suspect\AppData\Roaming\Microsoft\Windows\Recent" --csv C:\evidence\output --csvf lnk_parsed.csv
+
+# Parse Jump Lists with JLECmd
+JLECmd.exe -d "C:\Users\suspect\AppData\Roaming\Microsoft\Windows\Recent\AutomaticDestinations" --csv C:\evidence\output
+
+# KEY: LNK files persist even after the target file is deleted
+# A deleted malware binary may still have an LNK reference with full path + timestamps</code></pre>
+
+        <h3>$Recycle.Bin Analysis</h3>
+        <p>Location: <code>C:\$Recycle.Bin\{UserSID}\</code>. Each deleted file creates two entries:</p>
+        <ul>
+          <li><code>$I{id}</code> — metadata file: original path, file size, deletion timestamp</li>
+          <li><code>$R{id}</code> — the actual file content (renamed but intact)</li>
+        </ul>
+<pre><code class="language-powershell"># Parse $Recycle.Bin with RBCmd (Eric Zimmerman)
+RBCmd.exe -d "C:\$Recycle.Bin" --csv C:\evidence\output --csvf recyclebin_parsed.csv
+
+# Manual parsing of $I files (PowerShell)
+# $I file format: 8-byte header version, 8-byte file size, 8-byte deletion timestamp (FILETIME), then Unicode original path
+$bytes = [System.IO.File]::ReadAllBytes("C:\`$Recycle.Bin\S-1-5-21-...\`$IXXXXXX.ext")
+$fileSize = [BitConverter]::ToInt64($bytes, 8)
+$deleteTime = [DateTime]::FromFileTimeUtc([BitConverter]::ToInt64($bytes, 16))
+$originalPath = [System.Text.Encoding]::Unicode.GetString($bytes, 28, $bytes.Length - 28).TrimEnd([char]0)
+Write-Output "Deleted: $deleteTime | Size: $fileSize | Path: $originalPath"</code></pre>
+
+        <h3>Shadow Copies</h3>
+        <p>Volume Shadow Copy Service (VSS) creates point-in-time snapshots. Older versions of files, deleted files, and previous registry hives may be recoverable.</p>
+<pre><code class="language-powershell"># List existing shadow copies
+vssadmin list shadows
+
+# Access a shadow copy (creates a symbolic link)
+mklink /d C:\shadow_mount \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\
+
+# Or use vshadow to expose a shadow copy as a drive letter
+vshadow.exe -el={ShadowCopyGUID},E:
+
+# Browse the shadow copy for previous file versions
+dir C:\shadow_mount\Windows\System32\config\
+# Recover older registry hives from shadow copies for historical analysis
+
+# Attackers often delete shadow copies to prevent recovery:
+vssadmin delete shadows /all /quiet
+wmic shadowcopy delete
+# Detection: Event ID 524 (System log) — shadow copy deleted</code></pre>
+
+        <h3>Windows.edb (Windows Search Database)</h3>
+        <p>Location: <code>C:\ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.edb</code>. ESE database containing indexed content from files, emails, and other data sources. Can contain <strong>partial or full content of files that no longer exist</strong>.</p>
+<pre><code class="language-bash"># Parse with esedbexport (libesedb)
+esedbexport -t output_dir Windows.edb
+
+# Search exported tables for interesting content
+grep -ri "password\|secret\|confidential" output_dir/</code></pre>
+
+        <h3>Persistence Mechanisms — Scheduled Tasks &amp; Services</h3>
+<pre><code class="language-powershell"># Enumerate scheduled tasks (look for unusual ones)
+Get-ScheduledTask | Where-Object { $_.State -eq "Ready" -or $_.State -eq "Running" } |
+    Select-Object TaskName, TaskPath, State, @{N='Actions';E={$_.Actions.Execute}} |
+    Format-Table -AutoSize
+
+# XML task definitions (contain full command lines, triggers, run-as)
+Get-ChildItem C:\Windows\System32\Tasks -Recurse -File |
+    Select-Object FullName, LastWriteTime | Sort-Object LastWriteTime -Descending
+
+# Enumerate services and their binary paths
+Get-WmiObject Win32_Service | Select-Object Name, StartName, State, PathName |
+    Where-Object { $_.PathName -notmatch "svchost|System32" } | Format-Table -AutoSize
+
+# Check for services with non-standard paths
+wmic service get name,pathname,startmode | findstr /i /v "C:\Windows"</code></pre>
+
+        <h3>WMI Persistence</h3>
+        <p>WMI event subscriptions are a stealthy persistence mechanism. Three components: <strong>Event Filter</strong> (trigger condition), <strong>Event Consumer</strong> (action to perform), <strong>Filter-to-Consumer Binding</strong> (connects them).</p>
+<pre><code class="language-powershell"># Enumerate WMI event subscriptions
+Get-WMIObject -Namespace root\subscription -Class __EventFilter
+Get-WMIObject -Namespace root\subscription -Class __EventConsumer
+Get-WMIObject -Namespace root\subscription -Class __FilterToConsumerBinding
+
+# Stored in: C:\Windows\System32\wbem\Repository\
+# Files: OBJECTS.DATA, INDEX.BTR, MAPPING[1-3].MAP
+# Parse offline with PyWMIPersistenceFinder or WMI-Forensics
+
+# Example malicious WMI persistence:
+#   Filter: __IntervalTimerInstruction — fires every 60 seconds
+#   Consumer: CommandLineEventConsumer — runs "powershell.exe -enc [base64_payload]"
+#   Binding: links the timer filter to the command consumer
+
+# MOF files (Managed Object Format) — compiled into WMI repository
+# Check C:\Windows\System32\wbem\mof\ for suspicious .mof files</code></pre>
+
+
+        <!-- ==================== EVENT LOG ANALYSIS ==================== -->
+        <h2>Windows Event Log Analysis</h2>
+
+        <h3>Event Log Locations</h3>
+        <p>Stored as <code>.evtx</code> files in: <code>%SystemRoot%\System32\winevt\Logs\</code></p>
+        <table>
+          <tr><th>Log</th><th>File</th><th>What It Records</th></tr>
+          <tr><td>Security</td><td>Security.evtx</td><td>Authentication, authorization, audit policy changes, process creation (with audit enabled)</td></tr>
+          <tr><td>System</td><td>System.evtx</td><td>Service installs/starts/stops, driver loads, system time changes, shutdown/startup</td></tr>
+          <tr><td>Application</td><td>Application.evtx</td><td>Application crashes, errors, and custom application events</td></tr>
+          <tr><td>PowerShell Operational</td><td>Microsoft-Windows-PowerShell%4Operational.evtx</td><td>PowerShell script block logging (4104), module logging (4103)</td></tr>
+          <tr><td>Sysmon</td><td>Microsoft-Windows-Sysmon%4Operational.evtx</td><td>Process creation (1), network connections (3), file creates (11), registry (12-14), DNS (22)</td></tr>
+          <tr><td>Task Scheduler</td><td>Microsoft-Windows-TaskScheduler%4Operational.evtx</td><td>Task registration, execution, completion</td></tr>
+          <tr><td>WMI Activity</td><td>Microsoft-Windows-WMI-Activity%4Operational.evtx</td><td>WMI query execution and errors</td></tr>
+          <tr><td>Windows Defender</td><td>Microsoft-Windows-Windows Defender%4Operational.evtx</td><td>Detections, exclusions added, real-time protection changes</td></tr>
+          <tr><td>TerminalServices-LocalSessionManager</td><td>TS-LocalSessionManager%4Operational.evtx</td><td>RDP logon/logoff sessions (Event IDs 21, 22, 23, 24, 25)</td></tr>
+          <tr><td>TerminalServices-RemoteConnectionManager</td><td>TS-RemoteConnectionManager%4Operational.evtx</td><td>RDP connection attempts (Event ID 1149)</td></tr>
+        </table>
+
+        <h3>Critical Event IDs Reference</h3>
+
+        <h4>Authentication Events (Security.evtx)</h4>
+        <table>
+          <tr><th>Event ID</th><th>Description</th><th>Key Fields</th></tr>
+          <tr><td><strong>4624</strong></td><td>Successful logon</td><td>TargetUserName, LogonType, IpAddress, LogonProcessName, AuthenticationPackageName</td></tr>
+          <tr><td><strong>4625</strong></td><td>Failed logon</td><td>TargetUserName, LogonType, IpAddress, FailureReason, Status/SubStatus codes</td></tr>
+          <tr><td><strong>4634</strong></td><td>Logoff</td><td>TargetUserName, LogonType</td></tr>
+          <tr><td><strong>4648</strong></td><td>Explicit credential logon (RunAs, PsExec, etc.)</td><td>SubjectUserName, TargetUserName, TargetServerName — "User A logged on as User B"</td></tr>
+          <tr><td><strong>4672</strong></td><td>Special privileges assigned (admin logon)</td><td>SubjectUserName, PrivilegeList — logged when an admin account logs on</td></tr>
+        </table>
+
+        <h4>Logon Types</h4>
+        <table>
+          <tr><th>Type</th><th>Name</th><th>Description</th><th>Caches Credentials?</th></tr>
+          <tr><td>2</td><td>Interactive</td><td>Console logon (keyboard)</td><td>Yes</td></tr>
+          <tr><td>3</td><td>Network</td><td>SMB share access, network drive mapping</td><td>No</td></tr>
+          <tr><td>4</td><td>Batch</td><td>Scheduled tasks</td><td>Yes</td></tr>
+          <tr><td>5</td><td>Service</td><td>Service start</td><td>Yes</td></tr>
+          <tr><td>7</td><td>Unlock</td><td>Workstation unlock</td><td>Yes</td></tr>
+          <tr><td>8</td><td>NetworkCleartext</td><td>IIS Basic Auth — cleartext password over network</td><td>Yes</td></tr>
+          <tr><td>9</td><td>NewCredentials</td><td>RunAs /netonly — cloned token with new network creds</td><td>Yes</td></tr>
+          <tr><td>10</td><td>RemoteInteractive</td><td>RDP / Terminal Services</td><td>Yes</td></tr>
+          <tr><td>11</td><td>CachedInteractive</td><td>Logon with cached domain credentials (DC unreachable)</td><td>Already cached</td></tr>
+        </table>
+
+        <h4>Account Management Events (Security.evtx)</h4>
+        <table>
+          <tr><th>Event ID</th><th>Description</th></tr>
+          <tr><td><strong>4720</strong></td><td>User account created</td></tr>
+          <tr><td><strong>4722</strong></td><td>User account enabled</td></tr>
+          <tr><td><strong>4724</strong></td><td>Password reset attempted</td></tr>
+          <tr><td><strong>4732</strong></td><td>Member added to security-enabled local group (watch for Administrators group additions)</td></tr>
+          <tr><td><strong>4738</strong></td><td>User account changed</td></tr>
+          <tr><td><strong>4726</strong></td><td>User account deleted</td></tr>
+        </table>
+
+        <h4>Kerberos Events (Security.evtx)</h4>
+        <table>
+          <tr><th>Event ID</th><th>Description</th><th>Attack Relevance</th></tr>
+          <tr><td><strong>4768</strong></td><td>TGT requested (AS-REQ)</td><td>AS-REP Roasting: look for pre-auth disabled accounts (Result: 0x0 without pre-auth)</td></tr>
+          <tr><td><strong>4769</strong></td><td>Service ticket requested (TGS-REQ)</td><td>Kerberoasting: many 4769 events with RC4 encryption (0x17) for service accounts</td></tr>
+          <tr><td><strong>4771</strong></td><td>Kerberos pre-authentication failed</td><td>Password spray: many 4771 events across accounts from same source in short timeframe</td></tr>
+        </table>
+
+        <h4>Process &amp; Service Events</h4>
+        <table>
+          <tr><th>Event ID</th><th>Log</th><th>Description</th></tr>
+          <tr><td><strong>4688</strong></td><td>Security</td><td>Process creation (with command line if audit policy enables it). Gold standard for execution tracking.</td></tr>
+          <tr><td><strong>4689</strong></td><td>Security</td><td>Process termination</td></tr>
+          <tr><td><strong>7045</strong></td><td>System</td><td>New service installed — watch for services with suspicious binary paths or cmd.exe/powershell.exe in ServiceFileName</td></tr>
+          <tr><td><strong>7036</strong></td><td>System</td><td>Service state change (started/stopped)</td></tr>
+          <tr><td><strong>4698</strong></td><td>Security</td><td>Scheduled task created</td></tr>
+          <tr><td><strong>4699</strong></td><td>Security</td><td>Scheduled task deleted</td></tr>
+          <tr><td><strong>4702</strong></td><td>Security</td><td>Scheduled task updated</td></tr>
+        </table>
+
+        <h4>File Share &amp; Firewall Events</h4>
+        <table>
+          <tr><th>Event ID</th><th>Log</th><th>Description</th></tr>
+          <tr><td><strong>5140</strong></td><td>Security</td><td>Network share accessed (\\server\share)</td></tr>
+          <tr><td><strong>5142</strong></td><td>Security</td><td>Network share added</td></tr>
+          <tr><td><strong>5145</strong></td><td>Security</td><td>Detailed file share access with specific file paths and access masks</td></tr>
+          <tr><td><strong>2003</strong></td><td>Firewall</td><td>Windows Firewall rule added</td></tr>
+          <tr><td><strong>2004</strong></td><td>Firewall</td><td>Windows Firewall rule modified</td></tr>
+        </table>
+
+        <h4>PowerShell Events</h4>
+        <table>
+          <tr><th>Event ID</th><th>Log</th><th>Description</th></tr>
+          <tr><td><strong>4103</strong></td><td>PowerShell Operational</td><td>Module logging — records full pipeline execution details</td></tr>
+          <tr><td><strong>4104</strong></td><td>PowerShell Operational</td><td><strong>Script block logging</strong> — records deobfuscated script content (even if encoded/obfuscated at execution). MOST VALUABLE PowerShell log.</td></tr>
+          <tr><td><strong>4105</strong></td><td>PowerShell Operational</td><td>Script block execution started</td></tr>
+          <tr><td><strong>4106</strong></td><td>PowerShell Operational</td><td>Script block execution completed</td></tr>
+          <tr><td><strong>400</strong></td><td>Windows PowerShell</td><td>Engine lifecycle — PowerShell session started (includes HostApplication = command line used to launch PS)</td></tr>
+          <tr><td><strong>800</strong></td><td>Windows PowerShell</td><td>Pipeline execution details</td></tr>
+        </table>
+
+        <h3>Event Log Queries</h3>
+<pre><code class="language-powershell"># Failed logons in the last 24 hours
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4625; StartTime=(Get-Date).AddDays(-1)} |
+    Select-Object TimeCreated, @{N='User';E={$_.Properties[5].Value}},
+    @{N='Source';E={$_.Properties[19].Value}}, @{N='LogonType';E={$_.Properties[10].Value}}
+
+# Successful RDP logons (Type 10)
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4624} |
+    Where-Object { $_.Properties[8].Value -eq 10 } |
+    Select-Object TimeCreated, @{N='User';E={$_.Properties[5].Value}},
+    @{N='SourceIP';E={$_.Properties[18].Value}}
+
+# New service installations (persistence indicator)
+Get-WinEvent -FilterHashtable @{LogName='System'; Id=7045} |
+    Select-Object TimeCreated, @{N='ServiceName';E={$_.Properties[0].Value}},
+    @{N='ImagePath';E={$_.Properties[1].Value}}, @{N='RunAs';E={$_.Properties[4].Value}}
+
+# PowerShell script block logging (find encoded/suspicious commands)
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'; Id=4104} |
+    Where-Object { $_.Message -match "Invoke-|IEX|Download|EncodedCommand|-enc|-e " } |
+    Select-Object TimeCreated, Message | Format-List
+
+# Process creation with command line (requires Audit Process Creation enabled)
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4688} |
+    Select-Object TimeCreated, @{N='Process';E={$_.Properties[5].Value}},
+    @{N='CommandLine';E={$_.Properties[8].Value}}, @{N='ParentProcess';E={$_.Properties[13].Value}}
+
+# Detect event log clearing (anti-forensics)
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=1102}
+Get-WinEvent -FilterHashtable @{LogName='System'; Id=104}
+
+# Accounts added to Administrators group
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4732} |
+    Where-Object { $_.Properties[2].Value -match "Administrators" }</code></pre>
+
+        <h3>Event Log Manipulation Detection</h3>
+        <ul>
+          <li><strong>Event ID 1102</strong> (Security) — "The audit log was cleared." Records <em>who</em> cleared it.</li>
+          <li><strong>Event ID 104</strong> (System) — "The [LogName] log file was cleared."</li>
+          <li><strong>Record number gaps</strong> — Event records are sequentially numbered. Gaps in <code>EventRecordID</code> indicate selective deletion (tools like <code>EvtxHussar</code>, <code>Danderspritz</code>).</li>
+          <li><strong>Timestamp gaps</strong> — Periods with zero events on a normally active system are suspicious.</li>
+          <li><strong>Channel size anomalies</strong> — Log file size suddenly drops or is much smaller than expected.</li>
+        </ul>
+<pre><code class="language-powershell"># Check for record number gaps (selective event deletion detection)
+$events = Get-WinEvent -LogName Security -MaxEvents 10000
+$ids = $events | ForEach-Object { $_.RecordId } | Sort-Object
+for ($i = 1; $i -lt $ids.Count; $i++) {
+    $gap = $ids[$i] - $ids[$i-1]
+    if ($gap -gt 1) {
+        Write-Output "GAP detected: Records $($ids[$i-1]) to $($ids[$i]) — $($gap - 1) events missing"
+    }
+}</code></pre>
+
+        <h3>Event Log Analysis Tools</h3>
+        <table>
+          <tr><th>Tool</th><th>Type</th><th>Usage</th></tr>
+          <tr><td><strong>EvtxECmd</strong></td><td>CLI (EZ Tools)</td><td><code>EvtxECmd.exe -f Security.evtx --csv output/ --csvf security.csv</code> — parse EVTX to CSV with field extraction</td></tr>
+          <tr><td><strong>Chainsaw</strong></td><td>CLI (Rust)</td><td><code>chainsaw hunt evtx_dir/ -s sigma/ --mapping mappings/sigma-event-logs-all.yml</code> — hunt through logs with Sigma rules</td></tr>
+          <tr><td><strong>Hayabusa</strong></td><td>CLI (Rust)</td><td><code>hayabusa csv-timeline -d evtx_dir/ -o timeline.csv</code> — fast timeline + threat hunting with built-in detection rules</td></tr>
+          <tr><td><strong>DeepBlueCLI</strong></td><td>PowerShell</td><td><code>.\DeepBlue.ps1 .\Security.evtx</code> — detects common attack patterns (password spray, mimikatz, etc.)</td></tr>
+          <tr><td><strong>LogParser</strong></td><td>CLI (MS)</td><td>SQL-like queries against EVTX: <code>LogParser "SELECT * FROM Security.evtx WHERE EventID=4624" -i:EVT</code></td></tr>
+          <tr><td><strong>Get-WinEvent</strong></td><td>PowerShell</td><td>Built-in. <code>Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4624}</code></td></tr>
+          <tr><td><strong>APT-Hunter</strong></td><td>Python</td><td>Automated threat detection from EVTX. <code>python APT-Hunter.py -p evtx_dir/ -o output.xlsx</code></td></tr>
+        </table>
+<pre><code class="language-bash"># Chainsaw — hunt with Sigma rules
+chainsaw hunt C:\evidence\evtx/ -s sigma/rules/ --mapping mappings/sigma-event-logs-all.yml -o results.json --json
+
+# Hayabusa — generate timeline
+hayabusa csv-timeline -d C:\evidence\evtx/ -o timeline.csv -p verbose
+
+# Hayabusa — logon summary
+hayabusa logon-summary -d C:\evidence\evtx/ -o logon_summary.csv</code></pre>
+
+
+        <!-- ==================== TIMELINE ANALYSIS ==================== -->
+        <h2>Timeline Analysis</h2>
+
+        <h3>MACB Timestamps</h3>
+        <p>Every NTFS file has two sets of timestamps stored in the MFT entry:</p>
+        <table>
+          <tr><th>Attribute</th><th>M (Modified)</th><th>A (Accessed)</th><th>C (Changed/MFT modified)</th><th>B (Born/Created)</th></tr>
+          <tr><td><code>$STANDARD_INFORMATION</code> ($SI)</td><td>Content modified</td><td>Content accessed</td><td>MFT entry metadata changed</td><td>File creation time</td></tr>
+          <tr><td><code>$FILE_NAME</code> ($FN)</td><td>Content modified</td><td>Content accessed</td><td>MFT entry metadata changed</td><td>File creation time</td></tr>
+        </table>
+
+        <h4>Timestomping Detection</h4>
+        <p><strong>$STANDARD_INFORMATION</strong> timestamps are easily modified by user-mode tools (SetFileTime API, timestomp, PowerShell <code>Set-ItemProperty</code>). <strong>$FILE_NAME</strong> timestamps can only be modified by the kernel and are much harder to forge (requires kernel-mode access or raw disk writes).</p>
+        <p><strong>Detection rules:</strong></p>
+        <ul>
+          <li><code>$SI Created</code> &lt; <code>$FN Created</code> — impossible normally; file claims to exist before it was actually created</li>
+          <li><code>$SI Modified</code> &lt; <code>$FN Created</code> — file claims modification before it existed</li>
+          <li><code>$SI timestamps</code> are rounded to the second while <code>$FN</code> has nanosecond precision — indicates bulk timestomping</li>
+          <li><code>$SI Created</code> is in the far past but Prefetch/Amcache show recent execution</li>
+          <li>Timestamps don't match compilation date in PE header</li>
+        </ul>
+
+<pre><code class="language-powershell"># MFTECmd — parse MFT and compare $SI vs $FN timestamps
+MFTECmd.exe -f "C:\evidence\$MFT" --csv C:\evidence\output --csvf mft_timestamps.csv
+
+# In the CSV output, compare columns:
+#   SI_Created vs FN_Created
+#   SI_Modified vs FN_Modified
+# Flag any rows where SI timestamp precedes FN timestamp
+
+# Timeline Explorer — open the CSV and sort/filter
+# Filter: SI_Created &lt; FN_Created → timestomped files</code></pre>
+
+        <h3>Supertimeline Construction</h3>
+        <p>A supertimeline combines timestamps from ALL artifact sources into a single chronological view: MFT, event logs, prefetch, registry, browser history, USB connections, etc.</p>
+<pre><code class="language-bash"># Plaso / log2timeline — create a supertimeline
+# Step 1: Parse the disk image into a Plaso storage file
+log2timeline.py --storage-file timeline.plaso disk_image.E01
+
+# Or parse specific artifact directories
+log2timeline.py --parsers "winevtx,prefetch,mft,usnjrnl,amcache,shimcache,lnk,recyclebin" \
+    --storage-file timeline.plaso C:\evidence\
+
+# Step 2: Filter and export to CSV
+psort.py -o l2tcsv timeline.plaso "date > '2025-01-01' AND date < '2025-02-01'" -w filtered_timeline.csv
+
+# Step 3: Open in Timeline Explorer or import into SIEM/Elastic
+
+# KAPE — automated collection + timeline
+# Collect targets (artifacts) then run modules (parsers)
+kape.exe --tsource C: --tdest E:\evidence\collection --target !SANS_Triage
+kape.exe --msource E:\evidence\collection --mdest E:\evidence\parsed --module !EZParser</code></pre>
+
+        <h3>MFTECmd &amp; Timeline Explorer</h3>
+<pre><code class="language-powershell"># Parse MFT, $J (UsnJrnl), $LogFile, and $Boot
+MFTECmd.exe -f "C:\evidence\$MFT" --csv C:\evidence\output --csvf mft.csv
+MFTECmd.exe -f "C:\evidence\$J" --csv C:\evidence\output --csvf usnjrnl.csv
+
+# Timeline Explorer tips:
+#   - Load CSV → sort by timestamp
+#   - Use column filters to isolate specific file extensions (.exe, .dll, .ps1, .bat)
+#   - Filter by parent path to focus on specific directories
+#   - Color-code rows by source type for visual correlation
+#   - Right-click column headers to add/remove columns</code></pre>
+
+
+        <!-- ==================== REGISTRY FORENSICS ==================== -->
+        <h2>Registry Forensics</h2>
+
+        <h3>Registry Hive Files</h3>
+        <table>
+          <tr><th>Hive</th><th>File Location</th><th>Key Contents</th></tr>
+          <tr><td><strong>SAM</strong></td><td><code>C:\Windows\System32\config\SAM</code></td><td>Local user accounts, password hashes (LM/NT), account policies, last logon times</td></tr>
+          <tr><td><strong>SECURITY</strong></td><td><code>C:\Windows\System32\config\SECURITY</code></td><td>Security policies, cached domain credentials, LSA secrets (service account passwords)</td></tr>
+          <tr><td><strong>SYSTEM</strong></td><td><code>C:\Windows\System32\config\SYSTEM</code></td><td>Hardware config, services, drivers, mounted devices, computer name, timezone, last known good ControlSet</td></tr>
+          <tr><td><strong>SOFTWARE</strong></td><td><code>C:\Windows\System32\config\SOFTWARE</code></td><td>Installed software, OS version, network profiles, autorun entries, app settings</td></tr>
+          <tr><td><strong>NTUSER.DAT</strong></td><td><code>C:\Users\{user}\NTUSER.DAT</code></td><td>Per-user: Run keys, recent files, typed paths, UserAssist, software settings</td></tr>
+          <tr><td><strong>UsrClass.dat</strong></td><td><code>C:\Users\{user}\AppData\Local\Microsoft\Windows\UsrClass.dat</code></td><td>Per-user: Shellbags (folder access history), COM object registrations</td></tr>
+        </table>
+
+        <h3>Persistence Locations</h3>
+<pre><code class="language-powershell"># Run / RunOnce keys — executed at user logon
+HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
+HKLM\Software\Microsoft\Windows\CurrentVersion\Run
+HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce
+
+# Additional Run keys (less commonly checked)
+HKLM\Software\Microsoft\Windows\CurrentVersion\RunServices
+HKLM\Software\Microsoft\Windows\CurrentVersion\RunServicesOnce
+HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run
+HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run
+
+# Startup folder (alternative to Run keys)
+# shell:startup → C:\Users\{user}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup
+# shell:common startup → C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup
+
+# Services
+HKLM\SYSTEM\CurrentControlSet\Services\{ServiceName}
+# ImagePath = binary path; Start = 2 (auto), 3 (manual), 4 (disabled)
+# Type = 0x10 (own process), 0x20 (shared process)
+
+# Winlogon
+HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell          # (default: explorer.exe)
+HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Userinit       # (default: userinit.exe,)
+HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Notify          # DLL notification packages
+
+# AppInit_DLLs — DLLs loaded into every process that loads user32.dll
+HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows\AppInit_DLLs
+HKLM\Software\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows\AppInit_DLLs
+
+# Image File Execution Options (IFEO) — debugger replacement
+HKLM\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{exe}\Debugger
+
+# COM Object Hijacking
+HKCU\Software\Classes\CLSID\{GUID}\InprocServer32
+# Malware writes its DLL here; any process loading that COM object loads the malware DLL</code></pre>
+
+        <h3>User Activity Artifacts</h3>
+<pre><code class="language-powershell"># RecentDocs — last opened files per extension
+HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs
+# Sub-keys per extension: .docx, .pdf, .txt, etc.
+# MRU (Most Recently Used) order preserved
+# Values are binary — contain target file path
+
+# TypedPaths — paths manually typed in Explorer address bar
+HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths
+# url1, url2, etc. — shows what the user was looking for
+
+# WordWheelQuery — Explorer search terms (Win7+)
+HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\WordWheelQuery
+# MRU list of search terms — shows what user searched for on the filesystem
+
+# UserAssist — programs launched from Explorer (encrypted with ROT13)
+HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist\{GUID}\Count
+# GUID {CEBFF5CD-...} = Executable launches
+# GUID {F4E57C4B-...} = Shortcut launches
+# Values: program path (ROT13 encoded), run count, last run time, focus time</code></pre>
+
+        <h3>USB History</h3>
+<pre><code class="language-powershell"># USBSTOR — all USB storage devices ever connected
+HKLM\SYSTEM\CurrentControlSet\Enum\USBSTOR
+# Sub-keys: Disk&amp;Ven_{vendor}&amp;Prod_{product}&amp;Rev_{revision}\{SerialNumber}
+# Contains: FriendlyName, first/last connect times (from key timestamps)
+
+# MountedDevices — drive letter assignments
+HKLM\SYSTEM\MountedDevices
+# Values like \DosDevices\E: → binary data containing device identifier
+
+# USB device connect/disconnect — setupapi.dev.log
+# Location: C:\Windows\inf\setupapi.dev.log
+# Search for: "Device Install" entries with timestamps
+
+# MountPoints2 — which USER mounted which device
+HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\MountPoints2
+# Sub-keys are volume GUIDs — key last write time = last time user accessed the device
+
+# Correlate USB timeline:
+# 1. USBSTOR → device connected (first key write time = first connect)
+# 2. MountedDevices → drive letter assigned
+# 3. MountPoints2 → user accessed the device
+# 4. setupapi.dev.log → timestamp of driver installation
+# 5. Security.evtx Event ID 6416 → new external device recognized</code></pre>
+
+        <h3>Network Artifacts</h3>
+<pre><code class="language-powershell"># NetworkList — WiFi/Ethernet profiles with connection dates
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles\{GUID}
+# ProfileName, DateCreated, DateLastConnected, Description
+
+# Network Interfaces — IP configuration
+HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{GUID}
+# IPAddress, SubnetMask, DefaultGateway, DhcpServer, LeaseObtainedTime
+
+# Execution evidence
+HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatFlags\AppCompatCache  # ShimCache
+HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage                  # Feature usage tracking
+HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache         # MUICache — exe name to description mapping</code></pre>
+
+        <h3>Registry Analysis Tools</h3>
+<pre><code class="language-bash"># RegRipper — automated plugin-based registry parsing
+rip.exe -r C:\evidence\NTUSER.DAT -a > ntuser_all_plugins.txt
+rip.exe -r C:\evidence\SYSTEM -p services > services.txt
+rip.exe -r C:\evidence\SAM -a > sam_output.txt
+rip.exe -r C:\evidence\SOFTWARE -p networklist > network_profiles.txt
+
+# Specific useful RegRipper plugins:
+rip.exe -r NTUSER.DAT -p userassist     # Programs launched from Explorer
+rip.exe -r NTUSER.DAT -p recentdocs     # Recently opened files
+rip.exe -r NTUSER.DAT -p typedpaths     # Typed Explorer paths
+rip.exe -r NTUSER.DAT -p typedurls      # Typed browser URLs
+rip.exe -r NTUSER.DAT -p run            # Run key persistence
+rip.exe -r SYSTEM -p shimcache          # Application compatibility cache
+rip.exe -r SYSTEM -p bam                # BAM execution history
+rip.exe -r SYSTEM -p usbstor            # USB device history
+rip.exe -r SOFTWARE -p amcache          # Amcache execution evidence</code></pre>
+
+        <h3>Shellbags Analysis</h3>
+        <p>Shellbags record <strong>every folder a user has ever browsed</strong> in Explorer, including folders on removable media and network shares — even after the folder/drive is gone. Stored in <code>UsrClass.dat</code> and <code>NTUSER.DAT</code>.</p>
+<pre><code class="language-powershell"># Parse with SBECmd (Eric Zimmerman)
+SBECmd.exe -d "C:\Users\suspect" --csv C:\evidence\output --csvf shellbags.csv
+
+# Output: folder path, first interaction date, last interaction date, folder type
+# Proves user navigated to specific directories — even on USB drives that are now gone</code></pre>
+
+
+        <!-- ==================== INCIDENT RESPONSE ==================== -->
+        <h2>Incident Response Methodology</h2>
+
+        <h3>PICERL Framework</h3>
+        <table>
+          <tr><th>Phase</th><th>Key Activities</th></tr>
+          <tr><td><strong>Preparation</strong></td><td>IR plan, communication tree, jump bag (tools on USB), SIEM tuning, baseline documentation, legal counsel on retainers, forensic workstation setup</td></tr>
+          <tr><td><strong>Identification</strong></td><td>Alert triage, IOC matching, scoping (which systems affected?), evidence preservation order of volatility, initial containment assessment</td></tr>
+          <tr><td><strong>Containment</strong></td><td><strong>Short-term:</strong> network isolation, disable accounts, block C2 IPs. <strong>Long-term:</strong> patch systems, rebuild compromised hosts, segment network. <em>Never tip off the attacker before you're ready</em></td></tr>
+          <tr><td><strong>Eradication</strong></td><td>Remove persistence, delete malware, close access vectors, reset all compromised credentials, revoke certificates if needed</td></tr>
+          <tr><td><strong>Recovery</strong></td><td>Restore from clean backups, rebuild systems, monitor intensely for re-compromise, phased reconnection to network</td></tr>
+          <tr><td><strong>Lessons Learned</strong></td><td>Post-incident report within 2 weeks, update IR plan, improve detections, executive briefing, timeline documentation</td></tr>
+        </table>
+
+        <h3>Triage Collection Tools</h3>
+        <table>
+          <tr><th>Tool</th><th>What It Does</th><th>Usage</th></tr>
+          <tr><td><strong>KAPE</strong></td><td>Kroll Artifact Parser &amp; Extractor. Collects specific artifact files (targets) then parses them (modules). Extremely fast — binary copies only the files you need.</td><td><code>kape.exe --tsource C: --tdest E:\triage --target !SANS_Triage --mdest E:\parsed --module !EZParser</code></td></tr>
+          <tr><td><strong>Velociraptor</strong></td><td>Endpoint visibility tool. Agent-based or agentless. Can collect artifacts from thousands of endpoints simultaneously. Has VQL (Velociraptor Query Language) for custom queries.</td><td>Deploy agent → Create hunt → Select artifact (e.g., <code>Windows.KapeFiles.Targets</code>) → Collect</td></tr>
+          <tr><td><strong>CyLR</strong></td><td>Live response collection tool. Collects forensic artifacts based on YAML config. Lightweight, portable.</td><td><code>CyLR.exe -o E:\evidence -zp Password123</code></td></tr>
+        </table>
+<pre><code class="language-powershell"># KAPE — collect critical artifacts for triage
+kape.exe --tsource C: --tdest E:\evidence\collected --target !SANS_Triage --vhdx SANS_Triage
+
+# KAPE — parse collected artifacts with Eric Zimmerman tools
+kape.exe --msource E:\evidence\collected --mdest E:\evidence\parsed --module !EZParser
+
+# Velociraptor — offline collector (no server needed)
+# Build standalone collector from Velociraptor GUI → Server Artifacts → Build Collector
+# Run on target: velociraptor.exe -- collector
+# Outputs a ZIP with all specified artifacts</code></pre>
+
+        <h3>IOC Scanning</h3>
+<pre><code class="language-bash"># YARA — pattern matching for malware indicators
+yara -r rules/malware_rules.yar /path/to/scan/
+yara -r rules/ -s suspicious_file.exe  # -s shows matching strings
+
+# Write a YARA rule:
+# rule SuspiciousBeacon {
+#     meta:
+#         description = "Cobalt Strike beacon indicators"
+#     strings:
+#         $a = "beacon.dll" ascii
+#         $b = { FC E8 ?? ?? ?? ?? }
+#         $c = "ReflectiveLoader" ascii
+#     condition:
+#         any of them
+# }
+
+# Sigma rules — generic detection format for SIEM/log analysis
+# Convert Sigma to specific tool format:
+sigmac -t splunk -r rules/windows/process_creation/ > splunk_queries.txt
+sigmac -t elastic-qs -r rules/windows/ > elastic_queries.txt
+
+# Chainsaw — apply Sigma rules directly to EVTX files
+chainsaw hunt C:\evidence\evtx/ -s sigma/rules/windows/ --mapping mappings/sigma-event-logs-all.yml</code></pre>
+
+        <h3>Lateral Movement Detection</h3>
+        <table>
+          <tr><th>Technique</th><th>Artifacts</th></tr>
+          <tr><td><strong>PsExec</strong></td><td>7045 (PSEXESVC service install), 4624 type 3/2, named pipe <code>\PIPE\psexesvc</code>, prefetch <code>PSEXEC*.pf</code></td></tr>
+          <tr><td><strong>WMI</strong></td><td>4624 type 3, 4688 (wmiprvse.exe spawning child), WMI-Activity log events, <code>WMIC.EXE*.pf</code></td></tr>
+          <tr><td><strong>WinRM/PowerShell Remoting</strong></td><td>4624 type 3, 4103/4104 (PS logging), 91/168 in WinRM operational log, <code>WSMPROVHOST.EXE*.pf</code></td></tr>
+          <tr><td><strong>RDP</strong></td><td>4624 type 10, 1149 (TS-RemoteConnectionManager), 21/22 (TS-LocalSessionManager), Bitmap cache in <code>%LOCALAPPDATA%\Microsoft\Terminal Server Client\Cache</code></td></tr>
+          <tr><td><strong>Pass-the-Hash</strong></td><td>4624 type 3 with NTLM authentication, unusual LogonProcess (seclogo), 4776 (credential validation)</td></tr>
+          <tr><td><strong>Scheduled Tasks</strong></td><td>4698 (task created), 4624 type 4, task XML in <code>C:\Windows\System32\Tasks</code></td></tr>
+          <tr><td><strong>Service Creation</strong></td><td>7045 (service installed), 4697, 4624 type 5, new entry in SYSTEM hive Services key</td></tr>
+          <tr><td><strong>DCOM</strong></td><td>4624 type 3, DCOM-related COM object instantiation, <code>mmc.exe</code> or <code>excel.exe</code> spawning child processes</td></tr>
+        </table>
+
+        <h3>Persistence Mechanism Hunting</h3>
+<pre><code class="language-powershell"># Comprehensive persistence check script
+# Run keys
+Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -ErrorAction SilentlyContinue
+Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -ErrorAction SilentlyContinue
+Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce" -ErrorAction SilentlyContinue
+
+# Startup folders
+Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup" -ErrorAction SilentlyContinue
+Get-ChildItem "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup" -ErrorAction SilentlyContinue
+
+# Scheduled tasks with unusual actions
+Get-ScheduledTask | ForEach-Object {
+    $action = $_.Actions | Where-Object { $_.Execute -match "cmd|powershell|wscript|cscript|mshta|rundll32|regsvr32" }
+    if ($action) { [PSCustomObject]@{ Name=$_.TaskName; Path=$_.TaskPath; Action=$action.Execute; Args=$action.Arguments } }
+}
+
+# Services with non-standard paths
+Get-WmiObject Win32_Service | Where-Object {
+    $_.PathName -and $_.PathName -notmatch "^(`"?C:\\Windows|C:\\Program Files)" -and $_.PathName -notmatch "svchost"
+} | Select-Object Name, StartMode, State, PathName
+
+# WMI subscriptions
+Get-WMIObject -Namespace root\subscription -Class __EventFilter -ErrorAction SilentlyContinue
+Get-WMIObject -Namespace root\subscription -Class CommandLineEventConsumer -ErrorAction SilentlyContinue
+
+# BITS jobs (can be used for persistence)
+Get-BitsTransfer -AllUsers | Where-Object { $_.NotifyCmdLine }
+
+# DLL search order hijacking targets
+# Check for writable directories in PATH that come before System32
+
+# Autoruns (Sysinternals) — comprehensive persistence scan
+autorunsc.exe -a * -h -s -vt -c > autoruns_output.csv
+# -a * = all categories, -h = show file hashes, -s = verify signatures, -vt = VirusTotal, -c = CSV</code></pre>
+
+        <h3>Data Exfiltration Detection</h3>
+<pre><code class="language-powershell"># SRUM analysis — high network usage by unusual processes
+# After parsing with SrumECmd, look for:
+#   - Large BytesSent from unexpected processes (notepad, calc, non-browser apps)
+#   - Network usage during off-hours
+#   - Connections to cloud storage APIs (OneDrive, Dropbox, Mega, Google Drive)
+
+# DNS exfiltration indicators in Sysmon DNS log (Event ID 22)
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Sysmon/Operational'; Id=22} |
+    Where-Object { $_.Properties[4].Value.Length -gt 100 } |  # Unusually long DNS queries
+    Select-Object TimeCreated, @{N='Query';E={$_.Properties[4].Value}}, @{N='Process';E={$_.Properties[2].Value}}
+
+# Large file staging and archival
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4688} |
+    Where-Object { $_.Properties[8].Value -match "rar|7z|zip|tar|compress|makecab" } |
+    Select-Object TimeCreated, @{N='CommandLine';E={$_.Properties[8].Value}}
+
+# Network connections to unusual destinations (proxy logs, firewall logs, Sysmon Event 3)
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Sysmon/Operational'; Id=3} |
+    Where-Object { $_.Properties[14].Value -notin @('80','443','53') } |
+    Select-Object TimeCreated, @{N='DestIP';E={$_.Properties[14].Value}}, @{N='DestPort';E={$_.Properties[16].Value}}</code></pre>
+
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- LAB TAB                                                      -->
+      <!-- ============================================================ -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Memory Acquisition &amp; Initial Triage</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Acquire a memory dump from a running Windows system and perform initial process triage with Volatility 3.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Acquire memory from a lab VM using DumpIt
+.\DumpIt.exe /OUTPUT E:\evidence\lab1_memory.raw /QUIET
+
+# Step 2: Hash the dump
+Get-FileHash E:\evidence\lab1_memory.raw -Algorithm SHA256
+
+# Step 3: Verify Volatility can identify the image
+vol -f E:\evidence\lab1_memory.raw windows.info</code></pre>
+<pre><code class="language-bash"># Step 4: Process analysis
+vol -f lab1_memory.raw windows.pslist
+vol -f lab1_memory.raw windows.pstree
+
+# Step 5: Find suspicious processes
+# Look for: svchost.exe not under services.exe
+#           cmd/powershell under Office apps
+#           Processes with misspelled names (scvhost, csrs, etc.)
+vol -f lab1_memory.raw windows.cmdline
+vol -f lab1_memory.raw windows.dlllist --pid &lt;suspicious_pid&gt;</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Acquire a memory image and calculate its SHA256 hash</li>
+              <li>Run <code>windows.pslist</code> and <code>windows.pstree</code> — identify the process hierarchy</li>
+              <li>Find at least one process with a suspicious parent-child relationship</li>
+              <li>Extract the command line for all running processes</li>
+              <li>Identify any process running from <code>%TEMP%</code> or user-writable directories</li>
+              <li>Document your findings in an analyst report format (PID, PPID, name, path, suspicion level)</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Detecting Process Injection with Malfind</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use Volatility's malfind plugin to identify injected code in a compromised memory dump. Extract and analyze the injected payload.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Scan for injected memory regions across all processes
+vol -f compromised.raw windows.malfind
+
+# Focus on specific suspicious process
+vol -f compromised.raw windows.malfind --pid 3456
+
+# Dump the injected memory regions for analysis
+vol -f compromised.raw windows.malfind --dump --pid 3456
+# Output: process.3456.0x1a0000.dmp (contains the injected code)
+
+# Analyze with strings
+strings -el process.3456.0x1a0000.dmp | grep -iE "http|socket|cmd|exec"
+
+# Check the dumped region for PE headers
+xxd process.3456.0x1a0000.dmp | head -5
+# If you see 4d 5a (MZ) → this is a full PE injection
+
+# Cross-reference with DLL list — injected DLL won't appear here
+vol -f compromised.raw windows.dlllist --pid 3456</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>malfind</code> across all processes — note PIDs with <code>PAGE_EXECUTE_READWRITE</code> regions</li>
+              <li>Identify whether the injection is shellcode, a PE, or a reflective DLL</li>
+              <li>Dump the injected region and extract strings — look for C2 URLs, API calls, file paths</li>
+              <li>Compare the <code>dlllist</code> output to the <code>malfind</code> output — is the malicious DLL visible in both?</li>
+              <li>Write YARA rule based on unique strings from the injected code</li>
+              <li>Hash the dumped region and check against VirusTotal</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: LSASS Credential Extraction Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Analyze a memory dump for evidence of LSASS credential dumping. Recover credentials and identify the dumping technique used.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Identify LSASS process
+vol -f memory.raw windows.pslist | grep -i lsass
+# Note PID — there should be exactly ONE lsass.exe
+
+# Check for processes that accessed LSASS (suspicious handles)
+vol -f memory.raw windows.handles --pid &lt;lsass_pid&gt; --object-type Process
+
+# Look for known dump tools in process list
+vol -f memory.raw windows.pslist | grep -iE "mimikatz|procdump|comsvcs|dump"
+vol -f memory.raw windows.cmdline | grep -iE "sekurlsa|lsass|minidump|comsvcs"
+
+# Parse LSASS with pypykatz
+vol -f memory.raw windows.memmap --pid &lt;lsass_pid&gt; --dump
+pypykatz lsa minidump pid.&lt;lsass_pid&gt;.dmp</code></pre>
+<pre><code class="language-python"># pypykatz can also parse directly from a full memory dump
+# pip install pypykatz
+import pypykatz
+# Parse from minidump
+results = pypykatz.parse_minidump_file('lsass.dmp')
+for luid, session in results.logon_sessions.items():
+    print(f"User: {session.username} Domain: {session.domainname}")
+    for cred in session.msv_creds:
+        print(f"  NT Hash: {cred.NThash}")</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Confirm only one <code>lsass.exe</code> exists and verify its parent is <code>wininit.exe</code></li>
+              <li>Search for evidence of credential dumping tools (mimikatz, procdump, comsvcs.dll)</li>
+              <li>Check for <code>comsvcs.dll</code> in command lines: <code>rundll32 C:\Windows\System32\comsvcs.dll, MiniDump &lt;lsass_pid&gt;</code></li>
+              <li>Extract credentials from the LSASS dump using pypykatz</li>
+              <li>Determine if WDigest was enabled (plaintext passwords available?)</li>
+              <li>Create a timeline of credential access events</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: NTFS Artifact Analysis ($MFT, $UsnJrnl, $LogFile)</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Parse NTFS metadata files to reconstruct file system activity, identify deleted files, and detect timestomping.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Collect artifacts using KAPE (or FTK Imager)
+kape.exe --tsource C: --tdest E:\evidence --target $MFT,$UsnJrnl,$LogFile
+
+# Parse $MFT
+MFTECmd.exe -f "E:\evidence\$MFT" --csv E:\evidence\output --csvf mft.csv
+
+# Parse $UsnJrnl ($J data stream)
+MFTECmd.exe -f "E:\evidence\$J" --csv E:\evidence\output --csvf usnjrnl.csv
+
+# Open in Timeline Explorer and investigate:
+# 1. Filter for .exe, .dll, .ps1, .bat files created recently
+# 2. Sort by Created timestamp descending
+# 3. Look for files in unusual paths (%TEMP%, %APPDATA%, C:\PerfLogs\)
+# 4. Compare $SI timestamps vs $FN timestamps for timestomping</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Extract <code>$MFT</code>, <code>$UsnJrnl:$J</code>, and <code>$LogFile</code> from the evidence disk</li>
+              <li>Parse all three with MFTECmd and load into Timeline Explorer</li>
+              <li>Find at least three deleted executables and their original paths</li>
+              <li>Identify any files with timestomped <code>$STANDARD_INFORMATION</code> attributes</li>
+              <li>Correlate <code>$UsnJrnl</code> entries with <code>$MFT</code> data to establish a timeline of file operations</li>
+              <li>Write a mini-report describing the file system activity timeline</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Windows Event Log Threat Hunting</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Analyze Windows Security and System event logs to identify a simulated attack chain: initial access → credential harvesting → lateral movement → persistence.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Parse event logs with EvtxECmd
+EvtxECmd.exe -d "C:\evidence\evtx\" --csv C:\evidence\output --csvf evtx_parsed.csv
+
+# Look for the attack chain:
+# 1. Initial access — 4624 (logon) with unusual source IP
+Get-WinEvent -Path "C:\evidence\evtx\Security.evtx" -FilterXPath `
+    "*[System[EventID=4624] and EventData[Data[@Name='LogonType']='10']]" |
+    Select-Object TimeCreated, @{N='User';E={$_.Properties[5].Value}}, @{N='IP';E={$_.Properties[18].Value}}
+
+# 2. Credential harvesting — look for mimikatz indicators
+Get-WinEvent -Path "C:\evidence\evtx\Security.evtx" -FilterXPath `
+    "*[System[EventID=4688]]" |
+    Where-Object { $_.Properties[8].Value -match "sekurlsa|mimikatz|procdump.*lsass" }
+
+# 3. Lateral movement — 4624 type 3 from compromised host
+# 4. Persistence — 7045 (service installed), 4698 (scheduled task created)</code></pre>
+<pre><code class="language-bash"># Hayabusa — rapid threat detection
+hayabusa csv-timeline -d C:\evidence\evtx/ -o timeline.csv -p verbose
+
+# Chainsaw — hunt with Sigma rules
+chainsaw hunt C:\evidence\evtx/ -s sigma/rules/windows/ \
+    --mapping mappings/sigma-event-logs-all.yml -o results.json</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Parse all EVTX files and create a combined timeline</li>
+              <li>Identify the initial compromise: first 4624 from attacker IP, logon type, account used</li>
+              <li>Find evidence of credential harvesting (process creation events with known tool signatures)</li>
+              <li>Trace lateral movement by correlating 4624 events across multiple systems</li>
+              <li>Identify all persistence mechanisms installed (services, scheduled tasks, Run keys)</li>
+              <li>Run Hayabusa or Chainsaw and review high/critical detections</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Registry Forensics — Persistence &amp; User Activity</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Analyze offline registry hives to identify persistence mechanisms, user activity, and USB device history.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Parse all hives with RegRipper
+rip.exe -r C:\evidence\SAM -a > sam_output.txt
+rip.exe -r C:\evidence\SYSTEM -a > system_output.txt
+rip.exe -r C:\evidence\SOFTWARE -a > software_output.txt
+rip.exe -r C:\evidence\NTUSER.DAT -a > ntuser_output.txt
+
+# Specific persistence checks
+rip.exe -r C:\evidence\NTUSER.DAT -p run        # Run keys
+rip.exe -r C:\evidence\SOFTWARE -p run           # HKLM Run keys
+rip.exe -r C:\evidence\SYSTEM -p services        # All services
+
+# User activity
+rip.exe -r C:\evidence\NTUSER.DAT -p userassist  # Programs launched
+rip.exe -r C:\evidence\NTUSER.DAT -p recentdocs  # Recent files
+rip.exe -r C:\evidence\NTUSER.DAT -p typedpaths  # Typed paths
+
+# USB history
+rip.exe -r C:\evidence\SYSTEM -p usbstor         # USB devices</code></pre>
+<pre><code class="language-powershell"># Or use Registry Explorer (GUI) for interactive analysis
+# Open each hive → browse to persistence keys
+# Check key last write timestamps for temporal correlation</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Extract and parse SAM, SYSTEM, SOFTWARE, NTUSER.DAT, and UsrClass.dat</li>
+              <li>Identify all persistence entries in Run/RunOnce keys</li>
+              <li>Check for suspicious services (non-standard paths, user-writable locations)</li>
+              <li>Review UserAssist data — what programs were recently launched? How many times?</li>
+              <li>Enumerate all USB devices that were ever connected (serial number, vendor, last connect)</li>
+              <li>Cross-reference key write timestamps with the event log timeline</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Prefetch &amp; Amcache — Execution Evidence</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Parse Prefetch and Amcache artifacts to build a comprehensive execution timeline showing what programs ran, when, and how many times.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Parse Prefetch files
+PECmd.exe -d "C:\Windows\Prefetch" --csv C:\evidence\output --csvf prefetch.csv
+
+# Parse Amcache
+AmcacheParser.exe -f "C:\evidence\Amcache.hve" --csv C:\evidence\output --csvf amcache.csv -i
+
+# Quick Prefetch lookup for specific tools
+Get-ChildItem C:\Windows\Prefetch -Filter "*.pf" |
+    Where-Object { $_.Name -match "PSEXEC|MIMIKATZ|COBALT|CERTUTIL|BITSADMIN|MSHTA|WMIC|REGSVR32|RUNDLL32" } |
+    Select-Object Name, CreationTime, LastWriteTime
+
+# Cross-reference Amcache SHA1 hashes with VirusTotal
+# Export SHA1 column from amcache.csv, then use VT API or vt-cli</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Parse all Prefetch files and identify recently executed programs</li>
+              <li>Find any execution of known offensive tools (psexec, mimikatz, cobalt strike)</li>
+              <li>Check Prefetch run counts — was the tool used once (recon) or repeatedly (active operation)?</li>
+              <li>Parse Amcache and extract SHA1 hashes for all executed programs</li>
+              <li>Cross-reference at least 5 hashes against VirusTotal — any known malware?</li>
+              <li>Combine Prefetch and Amcache data to create an execution timeline</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Supertimeline Construction</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Build a supertimeline from a forensic disk image using Plaso/log2timeline. Correlate events across multiple artifact sources to reconstruct an attack narrative.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Create a full supertimeline from a disk image
+log2timeline.py --storage-file timeline.plaso evidence.E01
+
+# Or selective parsing (faster)
+log2timeline.py --parsers "winevtx,prefetch,mft,usnjrnl,amcache,shimcache,recyclebin,lnk,pe" \
+    --storage-file timeline.plaso C:\evidence\collected\
+
+# Filter to a specific time range
+psort.py -o l2tcsv timeline.plaso \
+    "date > '2025-06-01 00:00:00' AND date < '2025-06-15 23:59:59'" \
+    -w filtered_timeline.csv
+
+# Alternative: use KAPE + EZParser for supertimeline
+kape.exe --tsource C: --tdest E:\triage --target !SANS_Triage
+kape.exe --msource E:\triage --mdest E:\parsed --module !EZParser
+
+# Open results in Timeline Explorer
+# Sort by timestamp → read the story chronologically</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Collect all relevant artifacts (MFT, event logs, prefetch, amcache, registry, browser history)</li>
+              <li>Build a supertimeline using either Plaso or KAPE+EZParser pipeline</li>
+              <li>Filter the timeline to the suspected compromise window</li>
+              <li>Identify the initial access vector (first malicious event)</li>
+              <li>Trace the attacker's full activity — execution, persistence, lateral movement, data staging</li>
+              <li>Write a narrative incident timeline with timestamp, source artifact, and activity description</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Rootkit Detection in Memory</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Analyze a memory dump containing a kernel rootkit. Detect hidden processes, hooked functions, and hidden drivers.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Compare pslist vs psscan to find hidden processes
+vol -f rootkit_memory.raw windows.pslist > pslist.txt
+vol -f rootkit_memory.raw windows.psscan > psscan.txt
+diff pslist.txt psscan.txt
+# Processes in psscan but NOT in pslist = DKOM hidden
+
+# Check for hidden kernel modules
+vol -f rootkit_memory.raw windows.modules > modules.txt
+vol -f rootkit_memory.raw windows.modscan > modscan.txt
+diff modules.txt modscan.txt
+# Modules in modscan but not modules = hidden driver
+
+# SSDT hook detection (Vol2 — profile required)
+vol -f rootkit_memory.raw --profile=Win10x64_19041 ssdt | grep -v "ntoskrnl\|win32k"
+
+# Callback analysis
+vol -f rootkit_memory.raw --profile=Win10x64_19041 callbacks
+
+# Driver IRP analysis
+vol -f rootkit_memory.raw --profile=Win10x64_19041 driverirp -r tcpip
+# IRP handlers outside the driver = hooked</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compare <code>pslist</code> and <code>psscan</code> output — identify DKOM-hidden processes</li>
+              <li>Compare <code>modules</code> and <code>modscan</code> — find hidden kernel drivers</li>
+              <li>Check SSDT entries for hooks pointing outside ntoskrnl/win32k</li>
+              <li>Analyze driver IRP handlers for unexpected code locations</li>
+              <li>Dump the rootkit driver and analyze with strings/YARA</li>
+              <li>Document all rootkit persistence and evasion techniques found</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: WMI Persistence Forensics</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Detect and analyze WMI-based persistence on a compromised system. Recover the malicious event filter, consumer, and binding.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Live system — enumerate WMI subscriptions
+Get-WMIObject -Namespace root\subscription -Class __EventFilter | Format-List *
+Get-WMIObject -Namespace root\subscription -Class __EventConsumer | Format-List *
+Get-WMIObject -Namespace root\subscription -Class __FilterToConsumerBinding | Format-List *
+
+# Offline analysis — WMI repository files
+# Location: C:\Windows\System32\wbem\Repository\
+#   OBJECTS.DATA — WMI object instances
+#   INDEX.BTR — index for object lookup
+#   MAPPING[1-3].MAP — physical-to-logical mapping</code></pre>
+<pre><code class="language-python"># PyWMIPersistenceFinder — parse WMI repository offline
+# python PyWMIPersistenceFinder.py C:\evidence\Repository\OBJECTS.DATA
+# Outputs: EventFilter names, EventConsumer commands, Bindings
+
+# Or use WMI-Forensics
+# python wmipersist.py C:\evidence\Repository\OBJECTS.DATA</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>On a live lab VM, create a malicious WMI subscription (Event Filter + CommandLineEventConsumer + Binding)</li>
+              <li>Enumerate the subscriptions with PowerShell and verify they are active</li>
+              <li>Copy the WMI repository files for offline analysis</li>
+              <li>Use PyWMIPersistenceFinder to parse OBJECTS.DATA and extract the malicious subscription</li>
+              <li>Determine: What triggers the persistence? What command does it execute? How often?</li>
+              <li>Remove the malicious WMI subscription and verify it is gone</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: SRUM Analysis for Data Exfiltration Detection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Analyze SRUM data to identify anomalous network usage patterns consistent with data exfiltration.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Collect SRUM database and SOFTWARE hive
+Copy-Item "C:\Windows\System32\sru\SRUDB.dat" E:\evidence\ -Force
+Copy-Item "C:\Windows\System32\config\SOFTWARE" E:\evidence\ -Force
+
+# Parse with SrumECmd
+SrumECmd.exe -f "E:\evidence\SRUDB.dat" -r "E:\evidence\SOFTWARE" --csv E:\evidence\output
+
+# Output CSVs:
+#   SrumECmd_NetworkUsages_Output.csv — bytes sent/received per app per hour
+#   SrumECmd_AppResourceUseInfo_Output.csv — CPU time, foreground/background time</code></pre>
+<pre><code class="language-python"># Alternative: srum-dump (Python)
+# python srum_dump.py -i SRUDB.dat -t SRUM_TEMPLATE.xlsx -o output.xlsx
+
+# Analysis script — find high-upload apps
+import pandas as pd
+df = pd.read_csv('SrumECmd_NetworkUsages_Output.csv')
+# Sort by bytes sent (descending) — look for unusual uploaders
+top_uploaders = df.groupby('ExeInfo')['BytesSent'].sum().sort_values(ascending=False)
+print(top_uploaders.head(20))</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Collect SRUDB.dat and SOFTWARE hive</li>
+              <li>Parse with SrumECmd and open the Network Usage CSV</li>
+              <li>Identify the top 10 applications by bytes sent</li>
+              <li>Flag any non-browser applications with unusually high upload volume</li>
+              <li>Correlate timestamps of high network usage with event log entries</li>
+              <li>Determine: Was data exfiltrated? Which application? How much? When?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: KAPE Triage Collection &amp; Full Analysis Pipeline</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Perform a complete IR triage using KAPE to collect and parse artifacts, then analyze the results to reconstruct a full attack narrative.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Collect artifacts with KAPE (SANS Triage target)
+kape.exe --tsource C: --tdest E:\evidence\collected --target !SANS_Triage --vhdx SANS_Triage --vss
+
+# Target includes: MFT, UsnJrnl, Prefetch, Event Logs, Registry Hives,
+# Amcache, Shimcache, SRUM, Jump Lists, LNK files, Recycle Bin, etc.
+
+# Step 2: Parse all collected artifacts
+kape.exe --msource E:\evidence\collected --mdest E:\evidence\parsed --module !EZParser
+
+# Step 3: Import into Timeline Explorer for analysis
+# Open each CSV in E:\evidence\parsed\ and correlate events</code></pre>
+<pre><code class="language-bash"># Alternative: Build supertimeline from KAPE output
+log2timeline.py --storage-file timeline.plaso E:\evidence\collected\
+psort.py -o l2tcsv timeline.plaso -w supertimeline.csv</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run KAPE with the SANS Triage target against a lab system</li>
+              <li>Verify all expected artifacts were collected (MFT, event logs, registry, prefetch, etc.)</li>
+              <li>Run the EZParser module to parse all collected artifacts into CSVs</li>
+              <li>Correlate findings: execution evidence (Prefetch/Amcache) → event logs → persistence (registry) → network (SRUM)</li>
+              <li>Build a supertimeline and filter to the compromise window</li>
+              <li>Write a comprehensive IR report: executive summary, findings, IOCs, recommendations</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 13: Lateral Movement Artifact Correlation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Analyze artifacts from multiple hosts to trace lateral movement paths. Identify the technique used and the credentials leveraged at each hop.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Collect from source host — look for outbound indicators
+# Event IDs: 4648 (explicit logon), 4688 (process creation)
+Get-WinEvent -Path "C:\evidence\host1\Security.evtx" -FilterXPath `
+    "*[System[EventID=4648]]" |
+    Select-Object TimeCreated, @{N='SubjectUser';E={$_.Properties[1].Value}},
+    @{N='TargetUser';E={$_.Properties[5].Value}}, @{N='TargetServer';E={$_.Properties[9].Value}}
+
+# Collect from destination host — look for inbound indicators
+# Event IDs: 4624 (logon success), 7045 (service install)
+Get-WinEvent -Path "C:\evidence\host2\Security.evtx" -FilterXPath `
+    "*[System[EventID=4624]]" |
+    Where-Object { $_.Properties[8].Value -in @(3,10) } |
+    Select-Object TimeCreated, @{N='User';E={$_.Properties[5].Value}},
+    @{N='LogonType';E={$_.Properties[8].Value}}, @{N='SourceIP';E={$_.Properties[18].Value}}
+
+# Check for lateral movement tools in Prefetch
+Get-ChildItem "C:\evidence\host1\Prefetch" -Filter "*.pf" |
+    Where-Object { $_.Name -match "PSEXEC|WMIC|WINRS|MSTSC" }</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Collect event logs from at least two hosts in the lateral movement chain</li>
+              <li>Identify the lateral movement technique (PsExec, WMI, WinRM, RDP, DCOM)</li>
+              <li>Determine the credentials used at each hop (same account? different?)</li>
+              <li>Map the movement timeline: source IP → destination IP → timestamp → technique</li>
+              <li>Check for persistence installation on each compromised host</li>
+              <li>Draw a network diagram showing the lateral movement path with timestamps</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 14: Shadow Copy Recovery &amp; Deleted File Analysis</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Recover deleted files and previous file versions using Volume Shadow Copies and $Recycle.Bin analysis.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># List available shadow copies
+vssadmin list shadows
+
+# Mount a shadow copy for analysis
+$shadowPath = "\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\"
+cmd /c mklink /d C:\shadow_mount "$shadowPath"
+
+# Compare files between shadow copy and current state
+# Files present in shadow but not on live disk = deleted by attacker
+Get-ChildItem C:\shadow_mount\Users\suspect\Documents -Recurse |
+    Where-Object { -not (Test-Path ($_.FullName -replace "shadow_mount","Users\suspect\Documents")) }
+
+# Parse Recycle Bin
+RBCmd.exe -d "C:\`$Recycle.Bin" --csv C:\evidence\output --csvf recyclebin.csv
+
+# Recover $R files (actual content of deleted files)
+Get-ChildItem "C:\`$Recycle.Bin" -Recurse -Filter "`$R*" |
+    Copy-Item -Destination C:\evidence\recovered\</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Enumerate all available shadow copies on the evidence system</li>
+              <li>Mount a shadow copy and compare against the current file system</li>
+              <li>Identify files that exist in the shadow copy but were deleted from the live system</li>
+              <li>Parse the $Recycle.Bin to find recently deleted files with original paths</li>
+              <li>Recover at least three deleted files (both metadata from $I and content from $R)</li>
+              <li>Check if shadow copies were deleted by the attacker (Event ID 524)</li>
+            </ol>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- CTF TAB                                                      -->
+      <!-- ============================================================ -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: The Hidden Process</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A memory dump from a compromised workstation is provided. A malicious process is hiding among legitimate Windows processes. Find the PID and name of the suspicious process that has a fake parent relationship.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Start with process tree analysis
+vol -f challenge1.raw windows.pstree
+
+# Look for svchost.exe instances — who is their parent?
+vol -f challenge1.raw windows.pslist | grep svchost
+
+# Check command lines — legitimate svchost always has -k flag
+vol -f challenge1.raw windows.cmdline | grep svchost
+
+# Verify legitimate process parents:
+#   smss.exe → parent: System (PID 4)
+#   csrss.exe → parent: smss.exe
+#   wininit.exe → parent: smss.exe
+#   services.exe → parent: wininit.exe
+#   svchost.exe → parent: services.exe
+#   lsass.exe → parent: wininit.exe</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Run <code>windows.pstree</code> and examine the parent-child hierarchy. Legitimate <code>svchost.exe</code> is always a child of <code>services.exe</code>. Look for an <code>svchost.exe</code> whose parent is <code>explorer.exe</code>, <code>cmd.exe</code>, or another user-mode process — that's the impostor. Check its command line with <code>windows.cmdline</code>: real svchost runs with <code>-k &lt;group_name&gt;</code>. The malicious one will have no <code>-k</code> flag or a different command line entirely. Flag format: <code>PID_ProcessName</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Timestomp Detective</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">An attacker deployed malware on the system and timestomped it to blend in with legitimate system files. Given an $MFT extract, find the three timestomped files and determine their actual creation dates. The flag is the SHA256 of the concatenated actual creation timestamps (UTC, ISO 8601 format).</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Parse the MFT
+MFTECmd.exe -f "challenge2_mft" --csv output/ --csvf mft.csv
+
+# Load in Timeline Explorer or analyze with PowerShell
+$mft = Import-Csv "output\mft.csv"
+
+# Find timestomped entries: $SI Created &lt; $FN Created
+$stomped = $mft | Where-Object {
+    $_.'Created0x10' -and $_.'Created0x30' -and
+    [DateTime]$_.'Created0x10' -lt [DateTime]$_.'Created0x30'
+}
+$stomped | Select-Object FileName, ParentPath, 'Created0x10', 'Created0x30' | Format-Table</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><code>Created0x10</code> is the <code>$STANDARD_INFORMATION</code> timestamp (user-modifiable). <code>Created0x30</code> is the <code>$FILE_NAME</code> timestamp (kernel-set, hard to forge). If <code>$SI Created &lt; $FN Created</code>, the file is claiming to exist before it actually was created — classic timestomping. The <code>$FN Created</code> timestamp is the real creation date. Look for files in <code>C:\Windows\System32</code> with <code>$SI</code> dates from 2019 but <code>$FN</code> dates from the attack window. Concatenate the three real creation timestamps as <code>2025-06-10T14:32:01Z2025-06-10T14:32:15Z2025-06-10T14:33:42Z</code> and hash with SHA256.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Event Log Whodunit</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The Security event log from a domain controller is provided. An attacker compromised one account, used it to create a backdoor admin account, then added it to the Domain Admins group. Find: (1) the compromised account name, (2) the backdoor account name, (3) the exact time the backdoor was added to Domain Admins.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Find account creation events
+Get-WinEvent -Path "challenge3_security.evtx" -FilterXPath `
+    "*[System[EventID=4720]]" |
+    Select-Object TimeCreated, @{N='Creator';E={$_.Properties[4].Value}},
+    @{N='NewAccount';E={$_.Properties[0].Value}}
+
+# Step 2: Find group membership changes (added to Domain Admins)
+Get-WinEvent -Path "challenge3_security.evtx" -FilterXPath `
+    "*[System[EventID=4728 or EventID=4732 or EventID=4756]]" |
+    Select-Object TimeCreated, @{N='Who';E={$_.Properties[6].Value}},
+    @{N='Added';E={$_.Properties[0].Value}}, @{N='Group';E={$_.Properties[2].Value}}
+
+# Step 3: Trace back — how was the first account compromised?
+# Look for initial logon (4624) of the compromised account
+Get-WinEvent -Path "challenge3_security.evtx" -FilterXPath `
+    "*[System[EventID=4624] and EventData[Data[@Name='TargetUserName']='compromised_user']]"</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Start with Event ID 4720 (account creation). The <code>SubjectUserName</code> field shows who created the account — this is the compromised account. The <code>TargetUserName</code> is the new backdoor account. Then search for Event ID 4728 (member added to global group) or 4756 (member added to universal group) with the group name "Domain Admins" and the backdoor account as the member. The <code>TimeCreated</code> of that event is your answer. Flag: <code>compromised_account:backdoor_account:ISO8601_timestamp</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: C2 Beacon Hunter</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A memory dump contains a Cobalt Strike beacon. Find the C2 server IP address, beacon sleep interval, and the process it's injected into. Dump the beacon configuration.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Scan for injected code
+vol -f challenge4.raw windows.malfind > malfind_output.txt
+
+# Network connections — find the C2 callback
+vol -f challenge4.raw windows.netscan | grep ESTABLISHED
+
+# Dump the beacon from the injected process
+vol -f challenge4.raw windows.malfind --dump --pid &lt;beacon_pid&gt;
+
+# Parse Cobalt Strike beacon config
+# Use: https://github.com/Sentinel-One/CobaltStrikeParser
+python parse_beacon_config.py process.&lt;pid&gt;.0x&lt;addr&gt;.dmp
+
+# Or use 1768.py (NCSIG Cobalt Strike beacon parser)
+python 1768.py -f process.dump.dmp</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Run <code>malfind</code> and look for processes with injected executable memory that contain the pattern <code>FC E8</code> (common shellcode prologue) or strings like <code>beacon.dll</code>, <code>ReflectiveLoader</code>. Cross-reference the injected PID with <code>netscan</code> — the ESTABLISHED connection from that process goes to the C2 server. Dump the injected region, then use CobaltStrikeParser or 1768.py to extract the beacon configuration (C2 URL, sleep time, jitter, watermark, user-agent). The flag is <code>C2_IP:PORT_SLEEP_MS</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: The Phantom Service</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">System event logs show a suspicious service was installed at 3:42 AM. The service binary has been deleted, but the attacker forgot to clean up other artifacts. Recover the service binary's SHA1 hash and its command line arguments.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Find the service installation event
+Get-WinEvent -Path "challenge5_system.evtx" -FilterXPath `
+    "*[System[EventID=7045]]" |
+    Where-Object { $_.TimeCreated.Hour -eq 3 -and $_.TimeCreated.Minute -eq 42 } |
+    Select-Object TimeCreated, @{N='ServiceName';E={$_.Properties[0].Value}},
+    @{N='ImagePath';E={$_.Properties[1].Value}}, @{N='ServiceType';E={$_.Properties[2].Value}},
+    @{N='StartType';E={$_.Properties[3].Value}}, @{N='AccountName';E={$_.Properties[4].Value}}
+
+# The binary is deleted — but check Amcache for SHA1 hash
+AmcacheParser.exe -f "challenge5_amcache.hve" --csv output/ --csvf amcache.csv
+# Search for the service binary path in amcache.csv
+
+# Also check ShimCache — was the binary executed?
+AppCompatCacheParser.exe -f "challenge5_SYSTEM" --csv output/ --csvf shimcache.csv</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Event ID 7045 gives you the service name and ImagePath (full binary path with arguments). The binary is gone from disk, but Amcache records SHA1 hashes of executables. Parse Amcache and search for the binary path from the 7045 event. The SHA1 is in the output. Also check Prefetch for a <code>.pf</code> file matching the service executable name — it'll tell you run count and files accessed. Flag: <code>SHA1_hash:commandline_arguments</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: PowerShell Deobfuscation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">PowerShell script block logging captured a heavily obfuscated payload. The attacker used string concatenation, Base64, GZip compression, and variable substitution. Deobfuscate the payload to find the flag hidden in the final decoded command.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Extract the obfuscated script block from Event ID 4104
+Get-WinEvent -Path "challenge6_powershell.evtx" -FilterXPath `
+    "*[System[EventID=4104]]" |
+    Where-Object { $_.Properties[2].Value -match "FromBase64String|Decompress|Invoke-Expression" } |
+    ForEach-Object { $_.Properties[2].Value } | Out-File -FilePath deobfuscate_me.ps1
+
+# The beauty of 4104: Windows logs the DEOBFUSCATED version
+# But in this challenge, there are multiple layers
+# Work through each layer:</code></pre>
+<pre><code class="language-python"># Python deobfuscation helper
+import base64, gzip, re
+
+# Layer 1: Base64 decode
+encoded = "SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQA..."
+decoded = base64.b64decode(encoded).decode('utf-16-le')
+print(decoded)
+
+# Layer 2: GZip decompress (if present)
+import io
+compressed = base64.b64decode(inner_b64)
+with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as f:
+    decompressed = f.read().decode('utf-8')
+print(decompressed)
+
+# Layer 3: String replacement / concatenation
+# Replace variable substitutions manually</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Event ID 4104 does auto-deobfuscation for simple cases, but multi-layer encoding defeats it. Start with the outermost layer: decode the Base64 string (watch for UTF-16LE encoding — PowerShell's <code>-EncodedCommand</code> uses UTF-16LE). The decoded output is likely another <code>IEX</code> call wrapping a GZip decompression (<code>[IO.Compression.GZipStream]</code>). Decompress that layer. The next layer uses string concatenation and variable substitution — replace all variables with their assigned values. The final cleartext command contains the flag as a comment or in a string variable.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: USB Exfiltration Timeline</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">An insider threat case: an employee is suspected of copying sensitive files to a USB drive. Using registry hives and event logs, determine: (1) the USB device serial number, (2) the drive letter assigned, (3) the first and last times the device was connected, (4) which user mounted it.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Parse USB history from SYSTEM hive
+rip.exe -r challenge7_SYSTEM -p usbstor
+
+# Get mounted device mappings
+rip.exe -r challenge7_SYSTEM -p mountdev
+
+# User-specific mount points (which user accessed the device)
+rip.exe -r challenge7_NTUSER.DAT -p mountpoints2
+
+# Check setupapi.dev.log for exact connection timestamps
+grep -i "device install" challenge7_setupapi.dev.log | grep -i "usbstor"
+
+# Shellbags — did the user browse to the USB drive in Explorer?
+SBECmd.exe -d challenge7_user_profile/ --csv output/ --csvf shellbags.csv
+# Filter for the USB drive letter</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>USBSTOR registry key gives you the device vendor, product, revision, and serial number. The key's first write time ≈ first connection. MountedDevices maps the device to a drive letter (<code>\DosDevices\E:</code>). MountPoints2 in the user's NTUSER.DAT shows which user accessed the drive (key last write = last access). <code>setupapi.dev.log</code> has the most precise first-connection timestamp. Shellbags prove the user browsed specific folders on the USB. Flag: <code>serial:driveletter:first_connect:last_connect:username</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: The Cleared Logs</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">The attacker cleared the Security event log after their operation. However, you have a disk image. Find evidence of the log clearing, recover what you can, and identify at least three attacker actions from other artifact sources.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Check for log clearing events (if the log wasn't completely wiped)
+Get-WinEvent -Path "challenge8_security.evtx" -FilterXPath "*[System[EventID=1102]]"
+
+# System log may also record clearing
+Get-WinEvent -Path "challenge8_system.evtx" -FilterXPath "*[System[EventID=104]]"
+
+# With logs cleared, pivot to other sources:
+# 1. Prefetch — what executables ran?
+PECmd.exe -d "challenge8_prefetch/" --csv output/ --csvf prefetch.csv
+
+# 2. Amcache — SHA1 hashes of executed programs
+AmcacheParser.exe -f "challenge8_amcache.hve" --csv output/ --csvf amcache.csv
+
+# 3. ShimCache — program execution evidence
+AppCompatCacheParser.exe -f "challenge8_SYSTEM" --csv output/ --csvf shimcache.csv
+
+# 4. $MFT / $UsnJrnl — file creation/deletion timestamps
+MFTECmd.exe -f "challenge8_MFT" --csv output/ --csvf mft.csv
+
+# 5. BAM — per-user execution history
+rip.exe -r challenge8_SYSTEM -p bam</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Event ID 1102 (Security log) records "who" cleared the log — the <code>SubjectUserName</code> field. Even if Security.evtx is nearly empty, the clearing event itself is the LAST event recorded. For the attacker's actions: Prefetch proves execution (look for offensive tools — psexec, mimikatz, certutil). Amcache has SHA1 hashes (check against VT). ShimCache has file paths. BAM has per-user execution times. $UsnJrnl records file operations even without event logs. Piece together the attack from these non-event-log sources.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Memory Forensics — Network Connections</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A memory dump from a compromised server is provided. Find all active network connections, identify the malicious outbound connection, and determine what process is making it. The flag is the C2 IP, port, and process name.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Network connections
+vol -f challenge9.raw windows.netscan > netscan.txt
+
+# Look for outbound ESTABLISHED connections
+cat netscan.txt | grep ESTABLISHED
+
+# Cross-reference suspicious PIDs with process info
+vol -f challenge9.raw windows.pslist --pid &lt;suspicious_pid&gt;
+vol -f challenge9.raw windows.cmdline --pid &lt;suspicious_pid&gt;
+vol -f challenge9.raw windows.dlllist --pid &lt;suspicious_pid&gt;
+
+# Check if the process has injected code
+vol -f challenge9.raw windows.malfind --pid &lt;suspicious_pid&gt;</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Run <code>netscan</code> and filter for ESTABLISHED outbound connections. Legitimate Windows processes connect to Microsoft IPs (Azure/CDN ranges) on ports 80/443. Look for connections to non-standard ports (4444, 8080, 8443, 1337, etc.) or connections from processes that shouldn't be networking (notepad, calc, svchost to non-Microsoft IPs). Cross-reference the PID with <code>pslist</code> to get the process name. Flag: <code>C2_IP:PORT:ProcessName</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Lateral Movement Tracker</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Event logs from four domain-joined hosts are provided. An attacker compromised a user workstation and moved laterally to the domain controller in three hops. Map the complete attack path with timestamps, source/dest hosts, accounts used, and techniques employed at each hop.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># For each host, analyze logon events
+foreach ($host in @("host1","host2","host3","dc01")) {
+    Write-Output "=== $host ==="
+    # Inbound logons
+    Get-WinEvent -Path "challenge10\$host\Security.evtx" -FilterXPath `
+        "*[System[EventID=4624]]" |
+        Where-Object { $_.Properties[8].Value -in @(3,10) } |
+        Select-Object TimeCreated, @{N='User';E={$_.Properties[5].Value}},
+        @{N='Type';E={$_.Properties[8].Value}}, @{N='SourceIP';E={$_.Properties[18].Value}} |
+        Format-Table
+
+    # Service installs
+    Get-WinEvent -Path "challenge10\$host\System.evtx" -FilterXPath `
+        "*[System[EventID=7045]]" -ErrorAction SilentlyContinue |
+        Select-Object TimeCreated, @{N='ServiceName';E={$_.Properties[0].Value}},
+        @{N='ImagePath';E={$_.Properties[1].Value}} | Format-Table
+}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Map the attack by correlating 4624 events across all four hosts. Start from the DC — find the 4624 event for the attacker's final logon, note the source IP. That source IP is the third hop — go to that host's logs and find the 4624 event, note its source IP. Repeat until you reach the initial compromised workstation. At each hop, check the logon type to determine the technique: Type 3 = PsExec/WMI/WinRM, Type 10 = RDP. 7045 events indicate PsExec (PSEXESVC service). The flag is the path: <code>host1→host2[technique]→host3[technique]→dc01[technique]</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 11: Persistence Scavenger Hunt</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">An attacker installed exactly five persistence mechanisms on a compromised host. Registry hives, event logs, and WMI repository files are provided. Find all five. The flag is the concatenation of the persistence types in alphabetical order.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Check Run keys
+rip.exe -r challenge11_NTUSER.DAT -p run
+rip.exe -r challenge11_SOFTWARE -p run
+
+# Check services
+rip.exe -r challenge11_SYSTEM -p services | grep -v "svchost\|System32"
+
+# Check scheduled tasks
+# Parse event log for 4698 (task created)
+
+# Check WMI subscriptions
+python PyWMIPersistenceFinder.py challenge11_OBJECTS.DATA
+
+# Check startup folder entries, IFEO, AppInit_DLLs, Winlogon
+rip.exe -r challenge11_SOFTWARE -p winlogon
+rip.exe -r challenge11_SOFTWARE -p appinit_dlls</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The five persistence types to find: (1) <strong>Run key</strong> — check HKCU and HKLM Run/RunOnce for unusual entries. (2) <strong>Scheduled Task</strong> — Event ID 4698 or check C:\Windows\System32\Tasks. (3) <strong>Service</strong> — 7045 event or SYSTEM hive Services key with non-standard ImagePath. (4) <strong>WMI subscription</strong> — parse OBJECTS.DATA for __EventFilter and CommandLineEventConsumer. (5) Could be: COM hijack (HKCU Classes\CLSID), IFEO debugger key, startup folder shortcut, or Winlogon Shell/Userinit modification. Flag: alphabetically sorted, e.g., <code>COMHijack_RunKey_ScheduledTask_Service_WMI</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 12: SRUM Data Exfiltration Proof</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Using SRUM data, prove that a specific application exfiltrated more than 500MB of data to an external server during off-hours (between 11 PM and 5 AM). Find the application name, total bytes exfiltrated, and the date range.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Parse SRUM
+SrumECmd.exe -f "challenge12_SRUDB.dat" -r "challenge12_SOFTWARE" --csv output/
+
+# Analyze network usage
+$net = Import-Csv "output\SrumECmd_NetworkUsages_Output.csv"
+
+# Find high-upload applications during off-hours
+$suspicious = $net | Where-Object {
+    $hour = [DateTime]::Parse($_.Timestamp).Hour
+    ($hour -ge 23 -or $hour -lt 5) -and [long]$_.BytesSent -gt 10MB
+}
+$suspicious | Group-Object ExeInfo | ForEach-Object {
+    [PSCustomObject]@{
+        App = $_.Name
+        TotalBytesSent = ($_.Group | Measure-Object -Property BytesSent -Sum).Sum
+        Count = $_.Count
+    }
+} | Sort-Object TotalBytesSent -Descending</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>After parsing SRUM, open the NetworkUsages CSV. Filter by timestamp hour (23-5 = off hours) and sort by BytesSent descending. Look for a non-browser application with extremely high upload volume — legitimate apps rarely send hundreds of MBs during off-hours. The application might be disguised as a legitimate process name but with an unusual path. Sum up all BytesSent entries for that application during the off-hours window. Flag: <code>appname:total_bytes:start_date:end_date</code>.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

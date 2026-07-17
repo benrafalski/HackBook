@@ -1,0 +1,1432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Steganography</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Steganography</h1>
+    <hr>
+
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- NOTES TAB -->
+      <div class="tab-content active" id="notes">
+
+        <h2>CTF Stego Checklist</h2>
+        <p>Run through this in order on any stego challenge before diving deeper:</p>
+        <table>
+          <tr><th>#</th><th>Step</th><th>Command / Tool</th></tr>
+          <tr><td>1</td><td>Check file type</td><td><code>file suspicious_file</code></td></tr>
+          <tr><td>2</td><td>Check magic bytes</td><td><code>xxd suspicious_file | head</code></td></tr>
+          <tr><td>3</td><td>Strings search</td><td><code>strings -n 6 suspicious_file | grep -i flag</code></td></tr>
+          <tr><td>4</td><td>Metadata / EXIF</td><td><code>exiftool suspicious_file</code></td></tr>
+          <tr><td>5</td><td>Embedded files</td><td><code>binwalk suspicious_file</code></td></tr>
+          <tr><td>6</td><td>Extract embedded</td><td><code>binwalk -e suspicious_file</code></td></tr>
+          <tr><td>7</td><td>Hex editor</td><td><code>xxd suspicious_file | less</code> or HxD</td></tr>
+          <tr><td>8</td><td>LSB analysis (PNG)</td><td><code>zsteg suspicious.png</code></td></tr>
+          <tr><td>9</td><td>Steghide extract</td><td><code>steghide extract -sf suspicious.jpg</code></td></tr>
+          <tr><td>10</td><td>Visual analysis</td><td>StegSolve — cycle through bit planes</td></tr>
+          <tr><td>11</td><td>Audio spectrogram</td><td>Audacity / Sonic Visualiser</td></tr>
+          <tr><td>12</td><td>Check after EOF</td><td><code>xxd suspicious_file | tail</code></td></tr>
+        </table>
+
+        <h2>Image Steganography</h2>
+
+        <h3>LSB (Least Significant Bit)</h3>
+        <p>The most common image stego technique. Modify the least significant bit of each pixel's color channels to encode data. Imperceptible to the human eye — changing the LSB alters each channel value by at most 1.</p>
+        <table>
+          <tr><th>Concept</th><th>Details</th></tr>
+          <tr><td>How it works</td><td>Each pixel has R, G, B channels (8 bits each). Replace the LSB of each channel with one bit of the secret message. 3 bits per pixel, ~3 bytes per 8 pixels.</td></tr>
+          <tr><td>Capacity</td><td>A 1920×1080 image = 2,073,600 pixels × 3 bits = ~777 KB of hidden data.</td></tr>
+          <tr><td>Detection</td><td>Chi-square analysis, RS steganalysis, visual inspection of LSB plane. Enhanced LSB uses randomized pixel selection with a key.</td></tr>
+          <tr><td>Format note</td><td>Only works with lossless formats (PNG, BMP, TIFF). JPEG compression destroys LSB data.</td></tr>
+        </table>
+<pre><code class="language-python"># LSB extraction — manual approach
+from PIL import Image
+
+img = Image.open("stego.png")
+pixels = img.load()
+width, height = img.size
+
+bits = ""
+for y in range(height):
+    for x in range(width):
+        r, g, b = pixels[x, y][:3]
+        bits += str(r & 1)
+        bits += str(g & 1)
+        bits += str(b & 1)
+
+# Convert bits to bytes
+message = ""
+for i in range(0, len(bits), 8):
+    byte = bits[i:i+8]
+    if len(byte) == 8:
+        char = chr(int(byte, 2))
+        if char == '\x00':
+            break
+        message += char
+
+print(message)</code></pre>
+
+        <h3>Palette-Based Steganography</h3>
+        <p>GIF and indexed PNG use a color palette (up to 256 entries). Data can be hidden by reordering palette entries or using nearly-identical palette colors. Detection: look for duplicate or near-duplicate palette entries.</p>
+
+        <h3>Alpha Channel Steganography</h3>
+        <p>RGBA images have a 4th channel (alpha/transparency). Data can be hidden in the alpha channel's LSB without visible change if alpha values stay near 255 (fully opaque). Detection: extract and inspect the alpha channel separately.</p>
+<pre><code class="language-python"># Extract alpha channel data
+from PIL import Image
+
+img = Image.open("stego_alpha.png").convert("RGBA")
+pixels = list(img.getdata())
+
+bits = ""
+for r, g, b, a in pixels:
+    bits += str(a & 1)
+
+msg = ""
+for i in range(0, len(bits), 8):
+    byte = bits[i:i+8]
+    if len(byte) == 8:
+        c = chr(int(byte, 2))
+        if c == '\x00':
+            break
+        msg += c
+print(msg)</code></pre>
+
+        <h2>Stego Tools</h2>
+
+        <h3>exiftool</h3>
+        <p>Read/write metadata in images, audio, video, PDFs. Flags are often in EXIF comments, artist fields, GPS coordinates, or custom tags.</p>
+<pre><code class="language-bash"># Read all metadata
+exiftool suspicious.jpg
+
+# Key fields to check
+exiftool -Comment -Artist -Description -UserComment suspicious.jpg
+
+# Check for unusual/custom tags
+exiftool -G1 -s suspicious.jpg
+
+# Write hidden data (for setup)
+exiftool -Comment="FLAG{metadata_matters}" suspicious.jpg
+
+# Remove all metadata
+exiftool -all= clean.jpg</code></pre>
+
+        <h3>steghide</h3>
+        <p>Embeds data in JPEG, BMP, WAV, AU files using a passphrase. Very common in CTFs. If no password is given, try empty password first.</p>
+<pre><code class="language-bash"># Extract hidden data (will prompt for passphrase)
+steghide extract -sf image.jpg
+
+# Extract with empty passphrase
+steghide extract -sf image.jpg -p ""
+
+# Check if file has embedded data
+steghide info image.jpg
+
+# Embed data (for setup)
+steghide embed -cf cover.jpg -ef secret.txt -p "password123"
+
+# Supported formats: JPEG, BMP, WAV, AU only
+# Does NOT work with PNG — use zsteg/LSB for PNG</code></pre>
+
+        <h3>stegseek</h3>
+        <p>Lightning-fast steghide passphrase cracker. Wordlist-based brute force against steghide-embedded files. Orders of magnitude faster than <code>stegcracker</code>.</p>
+<pre><code class="language-bash"># Install
+apt install stegseek
+
+# Crack with wordlist
+stegseek image.jpg /usr/share/wordlists/rockyou.txt
+
+# Crack and extract in one step — outputs to &lt;filename&gt;.out
+stegseek image.jpg rockyou.txt -xf output.txt
+
+# Seed-crack mode (tries without wordlist)
+stegseek --seed image.jpg</code></pre>
+
+        <h3>StegSolve</h3>
+        <p>Java GUI tool for visual analysis. Cycles through individual bit planes (R0-R7, G0-G7, B0-B7, Alpha), applies filters, combines/XORs images, and extracts data.</p>
+<pre><code class="language-bash"># Run StegSolve
+java -jar StegSolve.jar
+
+# Key features:
+# - Arrow keys to cycle through bit planes
+# - Analyse → Data Extract → select bit planes and byte order
+# - Analyse → Frame Browser (for animated GIFs)
+# - Image Combiner → XOR two images to find differences
+# - File Format → view raw chunk/header data</code></pre>
+
+        <h3>zsteg</h3>
+        <p>Detects LSB steganography in PNG and BMP files. Checks all bit planes, byte orders, and channel combinations automatically.</p>
+<pre><code class="language-bash"># Install
+gem install zsteg
+
+# Quick scan — checks common LSB configurations
+zsteg image.png
+
+# Deep scan — all bit planes and configurations
+zsteg -a image.png
+
+# Extract specific payload
+zsteg -e "b1,rgb,lsb" image.png
+
+# Common findings format: b1,rgb,lsb = bit 1, RGB channels, LSB order
+# Also checks: r,g,b individually, bgr order, MSB, multi-bit</code></pre>
+
+        <h2>Audio Steganography</h2>
+
+        <h3>Spectrogram Analysis</h3>
+        <p>Hidden messages or images encoded in the audio frequency spectrum. Open in Audacity or Sonic Visualiser and switch to spectrogram view. Common in CTFs — flags literally spelled out visually.</p>
+<pre><code class="language-bash"># Audacity:
+# 1. Open audio file
+# 2. Click track name dropdown → Spectrogram
+# 3. Look for visual patterns / text in the frequency display
+
+# Sonic Visualiser (more control):
+# 1. Layer → Add Spectrogram
+# 2. Adjust frequency range, window size, color scheme
+
+# sox — generate spectrogram from command line
+sox audio.wav -n spectrogram -o spectrogram.png
+
+# View spectrogram with Python
+python3 -c "
+import matplotlib.pyplot as plt
+from scipy.io import wavfile
+import numpy as np
+rate, data = wavfile.read('audio.wav')
+if data.ndim > 1: data = data[:,0]
+plt.specgram(data, Fs=rate, cmap='inferno')
+plt.ylabel('Frequency (Hz)')
+plt.xlabel('Time (s)')
+plt.savefig('spectrogram.png', dpi=200)
+print('Saved spectrogram.png')
+"</code></pre>
+
+        <h3>WAV LSB</h3>
+        <p>Same concept as image LSB but applied to audio samples. Each 16-bit audio sample has its LSB replaced with a bit of the hidden message. Inaudible to humans.</p>
+<pre><code class="language-python"># Extract LSB from WAV
+import wave
+import struct
+
+wav = wave.open("stego.wav", "rb")
+frames = wav.readframes(wav.getnframes())
+wav.close()
+
+# 16-bit samples — extract LSB of each
+samples = struct.unpack(f"&lt;{len(frames)//2}h", frames)
+bits = "".join(str(s & 1) for s in samples)
+
+msg = ""
+for i in range(0, len(bits), 8):
+    byte = bits[i:i+8]
+    if len(byte) == 8:
+        c = chr(int(byte, 2))
+        if c == '\x00':
+            break
+        msg += c
+print(msg)</code></pre>
+
+        <h3>SSTV (Slow-Scan Television)</h3>
+        <p>Encodes images as audio tones. Used by ham radio operators. A WAV/MP3 file playing weird warbling tones is likely SSTV. Decode with QSSTV (Linux) or Robot36 (Android).</p>
+<pre><code class="language-bash"># QSSTV — Linux
+apt install qsstv
+# Open QSSTV → set audio input to file → play the audio
+
+# Command-line: sstv (pip install sstv)
+sstv -d audio.wav -o output.png
+
+# Robot36 (Android) — play audio near phone mic</code></pre>
+
+        <h3>Morse Code</h3>
+        <p>Audio beeps (short/long) encoding Morse code. Look at the waveform in Audacity for distinct dot/dash patterns. Can also appear as visual patterns in images or text (<code>. -</code>, <code>01</code>).</p>
+<pre><code class="language-python"># Morse decoder
+MORSE = {
+    '.-':'A', '-...':'B', '-.-.':'C', '-..':'D', '.':'E',
+    '..-.':'F', '--.':'G', '....':'H', '..':'I', '.---':'J',
+    '-.-':'K', '.-..':'L', '--':'M', '-.':'N', '---':'O',
+    '.--.':'P', '--.-':'Q', '.-.':'R', '...':'S', '-':'T',
+    '..-':'U', '...-':'V', '.--':'W', '-..-':'X', '-.--':'Y',
+    '--..':'Z', '.----':'1', '..---':'2', '...--':'3',
+    '....-':'4', '.....':'5', '-....':'6', '--...':'7',
+    '---..':'8', '----.':'9', '-----':'0'
+}
+
+encoded = "-.-- --- ..- / ..-. --- ..- -. -.. / - .... . / ..-. .-.. .- --."
+words = encoded.strip().split(" / ")
+decoded = " ".join(
+    "".join(MORSE.get(ch, "?") for ch in word.split())
+    for word in words
+)
+print(decoded)</code></pre>
+
+        <h2>File Tricks</h2>
+
+        <h3>Polyglot Files</h3>
+        <p>A single file that is valid in multiple formats simultaneously. E.g., a file that is both a valid JPEG and a valid ZIP. The file satisfies the magic bytes and structure requirements of both formats.</p>
+        <table>
+          <tr><th>Polyglot</th><th>How it works</th></tr>
+          <tr><td>JPEG+ZIP</td><td>JPEG reads forward from SOI (FF D8), ZIP reads backward from EOCD. Append a ZIP after JPEG EOI (FF D9).</td></tr>
+          <tr><td>PDF+ZIP</td><td>PDF ignores data after %%EOF. Append ZIP data after the PDF end marker.</td></tr>
+          <tr><td>PNG+ZIP</td><td>PNG uses chunks with CRC. After IEND chunk, ZIP data is ignored by PNG parsers.</td></tr>
+          <tr><td>GIF+JS</td><td>Craft GIF header to be valid JavaScript assignment. <code>GIF89a=1; /* ... GIF data ... */</code></td></tr>
+        </table>
+<pre><code class="language-bash"># Create a JPEG+ZIP polyglot
+cat image.jpg secret.zip > polyglot.jpg
+
+# The file opens as a JPEG in image viewers
+# But also opens as a ZIP:
+unzip polyglot.jpg
+
+# Detect polyglots
+file polyglot.jpg           # shows JPEG
+binwalk polyglot.jpg        # reveals the ZIP inside
+foremost -i polyglot.jpg    # carves out both components</code></pre>
+
+        <h3>Appended Data / Trailing Data</h3>
+        <p>Data appended after a file's logical end. Most parsers ignore trailing bytes. Check by comparing reported file size vs actual size, or look past the end marker.</p>
+<pre><code class="language-bash"># Check for data after JPEG EOI marker (FF D9)
+python3 -c "
+data = open('image.jpg','rb').read()
+eoi = data.rfind(b'\xff\xd9')
+trailing = data[eoi+2:]
+if trailing:
+    print(f'Found {len(trailing)} bytes after EOI')
+    print(trailing[:200])
+else:
+    print('No trailing data')
+"
+
+# Check for data after PNG IEND
+python3 -c "
+data = open('image.png','rb').read()
+iend = data.find(b'IEND')
+trailing = data[iend+8:]  # +4 chunk name +4 CRC
+if trailing:
+    print(f'Found {len(trailing)} bytes after IEND')
+    print(trailing[:200])
+"</code></pre>
+
+        <h3>Embedded Files</h3>
+        <p>Files hidden inside other files. binwalk is the go-to tool for finding and extracting them.</p>
+<pre><code class="language-bash"># Scan for embedded files
+binwalk image.png
+
+# Extract all found files
+binwalk -e image.png
+
+# Recursive extraction (extracts files within extracted files)
+binwalk -eM image.png
+
+# Manual extraction at offset
+dd if=image.png of=hidden.zip bs=1 skip=&lt;offset&gt;
+
+# Common things binwalk finds:
+# - ZIP archives
+# - gzip compressed data
+# - PNG/JPEG images within other images
+# - ELF binaries
+# - Certificates
+# - Encrypted data (high entropy regions)</code></pre>
+
+        <h2>Metadata &amp; EXIF</h2>
+        <p>EXIF data in images can contain GPS coordinates, camera info, timestamps, comments, thumbnails, and custom fields. Flags are frequently hidden in comment/description fields or GPS coordinates that decode to something meaningful.</p>
+<pre><code class="language-bash"># Full metadata dump
+exiftool -a -u -g1 image.jpg
+
+# GPS coordinates (might encode a flag or location)
+exiftool -GPSLatitude -GPSLongitude image.jpg
+
+# Thumbnail — might differ from main image (thumbnail wasn't updated)
+exiftool -b -ThumbnailImage image.jpg > thumbnail.jpg
+
+# All text-based fields
+exiftool -s -G image.jpg | grep -i "comment\|description\|artist\|author\|title\|subject\|keywords"
+
+# PDF metadata
+exiftool document.pdf
+pdfinfo document.pdf</code></pre>
+
+        <h2>Strings &amp; Hex Analysis</h2>
+<pre><code class="language-bash"># Search for flags in strings
+strings -n 6 file | grep -iE "flag|ctf|key|secret|hack"
+
+# Strings with encoding options
+strings -e l file     # 16-bit little-endian (UTF-16LE)
+strings -e b file     # 16-bit big-endian (UTF-16BE)
+
+# Hex dump — look for anomalies
+xxd file | head -50   # first bytes
+xxd file | tail -50   # trailing data
+
+# Search hex for patterns
+xxd file | grep -i "504b"   # PK (ZIP header)
+xxd file | grep -i "8950"   # PNG header
+xxd file | grep -i "ffd8"   # JPEG header
+
+# Interactive hex editor
+hexedit file</code></pre>
+
+        <h2>Magic Bytes &amp; File Signatures</h2>
+        <table>
+          <tr><th>Format</th><th>Magic Bytes (hex)</th><th>ASCII</th></tr>
+          <tr><td>PNG</td><td><code>89 50 4E 47 0D 0A 1A 0A</code></td><td><code>.PNG....</code></td></tr>
+          <tr><td>JPEG</td><td><code>FF D8 FF E0</code> or <code>FF D8 FF E1</code></td><td>&mdash;</td></tr>
+          <tr><td>GIF</td><td><code>47 49 46 38 39 61</code></td><td><code>GIF89a</code></td></tr>
+          <tr><td>BMP</td><td><code>42 4D</code></td><td><code>BM</code></td></tr>
+          <tr><td>PDF</td><td><code>25 50 44 46</code></td><td><code>%PDF</code></td></tr>
+          <tr><td>ZIP/DOCX/XLSX</td><td><code>50 4B 03 04</code></td><td><code>PK..</code></td></tr>
+          <tr><td>RAR</td><td><code>52 61 72 21 1A 07</code></td><td><code>Rar!..</code></td></tr>
+          <tr><td>7z</td><td><code>37 7A BC AF 27 1C</code></td><td><code>7z....</code></td></tr>
+          <tr><td>ELF</td><td><code>7F 45 4C 46</code></td><td><code>.ELF</code></td></tr>
+          <tr><td>WAV</td><td><code>52 49 46 46 ... 57 41 56 45</code></td><td><code>RIFF...WAVE</code></td></tr>
+          <tr><td>MP3</td><td><code>FF FB</code> or <code>49 44 33</code></td><td><code>ID3</code></td></tr>
+        </table>
+<pre><code class="language-bash"># Identify by magic bytes when extension is wrong/missing
+file unknown_file
+xxd unknown_file | head -1
+
+# Fix corrupted magic bytes
+# Example: PNG with broken header
+printf '\x89\x50\x4e\x47\x0d\x0a\x1a\x0a' | dd of=broken.png bs=1 count=8 conv=notrunc
+
+# Compare against known signatures
+python3 -c "
+data = open('mystery','rb').read(16)
+print(' '.join(f'{b:02x}' for b in data))
+"</code></pre>
+
+        <h2>PNG Chunk Analysis</h2>
+        <p>PNG files are structured as a series of chunks. Each chunk: 4-byte length + 4-byte type + data + 4-byte CRC. Data can be hidden in custom/ancillary chunks or by manipulating chunk data.</p>
+        <table>
+          <tr><th>Chunk</th><th>Purpose</th><th>Stego Relevance</th></tr>
+          <tr><td><code>IHDR</code></td><td>Image header — dimensions, bit depth, color type</td><td>Altered dimensions can hide rows/columns of pixel data</td></tr>
+          <tr><td><code>PLTE</code></td><td>Palette (indexed color)</td><td>Near-duplicate palette entries can encode data</td></tr>
+          <tr><td><code>IDAT</code></td><td>Compressed image data (zlib)</td><td>LSB of pixel values after decompression</td></tr>
+          <tr><td><code>IEND</code></td><td>Image end marker</td><td>Data appended after IEND is invisible to viewers</td></tr>
+          <tr><td><code>tEXt</code></td><td>Text metadata</td><td>Can contain hidden strings, flags in comments</td></tr>
+          <tr><td><code>zTXt</code></td><td>Compressed text</td><td>Same as tEXt but zlib-compressed — easy to miss</td></tr>
+          <tr><td><code>iTXt</code></td><td>International text</td><td>UTF-8 text, can store Unicode-encoded secrets</td></tr>
+        </table>
+<pre><code class="language-bash"># List all PNG chunks
+python3 -c "
+import struct
+data = open('image.png','rb').read()
+pos = 8  # skip PNG signature
+while pos < len(data):
+    length = struct.unpack('>I', data[pos:pos+4])[0]
+    chunk_type = data[pos+4:pos+8].decode('ascii','replace')
+    chunk_data = data[pos+8:pos+8+length]
+    crc = struct.unpack('>I', data[pos+8+length:pos+12+length])[0]
+    print(f'{chunk_type}  length={length}  crc={crc:#010x}')
+    if chunk_type in ('tEXt','zTXt','iTXt'):
+        print(f'  text: {chunk_data[:200]}')
+    pos += 12 + length
+"
+
+# pngcheck — validate chunk structure and CRCs
+pngcheck -v image.png
+
+# Fix incorrect IHDR dimensions (common CTF trick)
+# Image may be taller than header claims — change height:
+printf '\x00\x00\x04\x00' | dd of=image.png bs=1 seek=20 count=4 conv=notrunc</code></pre>
+
+        <h2>JPEG Structure</h2>
+        <p>JPEG uses markers (FF xx). No chunk-based structure like PNG — data between markers. Key areas for stego:</p>
+        <table>
+          <tr><th>Marker</th><th>Code</th><th>Stego Relevance</th></tr>
+          <tr><td>SOI</td><td><code>FF D8</code></td><td>Start of image</td></tr>
+          <tr><td>APP0 (JFIF)</td><td><code>FF E0</code></td><td>JFIF header — thumbnail can differ from main image</td></tr>
+          <tr><td>APP1 (EXIF)</td><td><code>FF E1</code></td><td>EXIF metadata — rich with hideable fields</td></tr>
+          <tr><td>COM</td><td><code>FF FE</code></td><td>Comment marker — arbitrary text, check for flags</td></tr>
+          <tr><td>DQT</td><td><code>FF DB</code></td><td>Quantization tables — steghide modifies DCT coefficients</td></tr>
+          <tr><td>SOS</td><td><code>FF DA</code></td><td>Start of scan — actual compressed image data follows</td></tr>
+          <tr><td>EOI</td><td><code>FF D9</code></td><td>End of image — check for trailing data after this</td></tr>
+        </table>
+<pre><code class="language-bash"># List JPEG markers
+python3 -c "
+data = open('image.jpg','rb').read()
+MARKERS = {0xD8:'SOI',0xE0:'APP0',0xE1:'APP1/EXIF',0xFE:'COM',
+           0xDB:'DQT',0xC0:'SOF0',0xC4:'DHT',0xDA:'SOS',0xD9:'EOI'}
+i = 0
+while i < len(data)-1:
+    if data[i] == 0xFF and data[i+1] != 0x00:
+        name = MARKERS.get(data[i+1], f'0x{data[i+1]:02X}')
+        print(f'Offset {i:#06x}: FF {data[i+1]:02X} ({name})')
+        if data[i+1] == 0xFE:  # COM marker
+            length = int.from_bytes(data[i+2:i+4],'big')
+            print(f'  Comment: {data[i+4:i+2+length]}')
+    i += 1
+"
+
+# Extract JPEG comment
+rdjpgcom image.jpg</code></pre>
+
+        <h2>PDF Analysis</h2>
+        <p>PDFs can hide data in many ways: JavaScript, embedded files, invisible text layers, object streams, metadata. Multi-layered structure makes them great for stego.</p>
+<pre><code class="language-bash"># PDF structure overview
+pdfinfo document.pdf
+pdfid document.pdf          # quick risk assessment
+pdf-parser document.pdf     # parse all objects
+
+# List all streams (data can be in compressed streams)
+pdf-parser -f document.pdf
+
+# Extract JavaScript
+pdf-parser -s javascript document.pdf
+
+# Search for strings inside streams
+pdf-parser document.pdf | grep -i "flag\|secret\|hidden"
+
+# Extract embedded files / attachments
+pdf-parser -s /EmbeddedFile document.pdf
+pdfdetach -list document.pdf
+pdfdetach -saveall document.pdf
+
+# Invisible text — select all text (Ctrl+A) in PDF viewer
+pdftotext document.pdf -     # extract text layer
+
+# White text on white background — change background color or:
+pdftotext -layout document.pdf output.txt
+
+# Object streams — decompress and inspect
+qpdf --qdf --object-streams=disable document.pdf decoded.pdf</code></pre>
+
+        <h2>ZIP Tricks</h2>
+        <p>ZIP files have multiple places to hide data and are frequently used in CTF stego challenges.</p>
+<pre><code class="language-bash"># ZIP structure: Local File Headers → File Data → Central Directory → EOCD
+# Data can be hidden between these sections
+
+# List contents (even for polyglots)
+unzip -l suspicious.zip
+7z l suspicious.zip
+
+# ZIP comment (stored in EOCD)
+unzip -z suspicious.zip
+python3 -c "import zipfile; z=zipfile.ZipFile('suspicious.zip'); print(z.comment)"
+
+# Per-file comments
+python3 -c "
+import zipfile
+z = zipfile.ZipFile('suspicious.zip')
+for info in z.infolist():
+    if info.comment:
+        print(f'{info.filename}: {info.comment}')
+"
+
+# Password-protected ZIP
+fcrackzip -D -p /usr/share/wordlists/rockyou.txt -u suspicious.zip
+john --wordlist=rockyou.txt zip_hash
+zip2john suspicious.zip > zip_hash
+
+# Nested ZIPs — extract recursively
+binwalk -eM suspicious.zip</code></pre>
+
+        <h2>Whitespace Steganography</h2>
+        <p>Data encoded using spaces and tabs in text files. Characters are invisible in most editors. Common tool: <code>stegsnow</code> (uses trailing whitespace), or manual encoding of binary data as space=0, tab=1.</p>
+<pre><code class="language-bash"># stegsnow — whitespace stego tool
+# Extract hidden message
+stegsnow -C stego.txt
+
+# Extract with password
+stegsnow -C -p "password" stego.txt
+
+# Embed message
+stegsnow -C -m "FLAG{whitespace_ninja}" -p "pass" cover.txt stego.txt
+
+# Manual detection — show whitespace characters
+cat -A stego.txt        # tabs shown as ^I, line endings as $
+sed -n 'l' stego.txt    # show all non-printable characters
+
+# Detect trailing whitespace
+grep -P '[ \t]+$' stego.txt</code></pre>
+
+        <h2>Unicode Zero-Width Steganography</h2>
+        <p>Uses invisible Unicode characters to encode binary data within visible text. Completely invisible in browsers and most editors. Characters used:</p>
+        <table>
+          <tr><th>Character</th><th>Unicode</th><th>Binary Encoding</th></tr>
+          <tr><td>Zero-Width Space</td><td><code>U+200B</code></td><td>0</td></tr>
+          <tr><td>Zero-Width Non-Joiner</td><td><code>U+200C</code></td><td>1</td></tr>
+          <tr><td>Zero-Width Joiner</td><td><code>U+200D</code></td><td>separator</td></tr>
+          <tr><td>Zero-Width No-Break Space</td><td><code>U+FEFF</code></td><td>sometimes used as prefix</td></tr>
+        </table>
+<pre><code class="language-python"># Detect zero-width characters
+text = open("message.txt", "r", encoding="utf-8").read()
+
+zwc = {'\u200b': '0', '\u200c': '1', '\u200d': ' '}
+hidden = ""
+for char in text:
+    if char in zwc:
+        hidden += zwc[char]
+
+if hidden:
+    print(f"Found zero-width encoding: {hidden}")
+    # Convert binary to text
+    bits = hidden.replace(" ", "")
+    msg = ""
+    for i in range(0, len(bits), 8):
+        byte = bits[i:i+8]
+        if len(byte) == 8:
+            msg += chr(int(byte, 2))
+    print(f"Decoded: {msg}")
+else:
+    print("No zero-width characters found")</code></pre>
+<pre><code class="language-bash"># Quick detection from command line
+python3 -c "
+t = open('message.txt','rb').read()
+for z in [b'\xe2\x80\x8b',b'\xe2\x80\x8c',b'\xe2\x80\x8d']:
+    c = t.count(z)
+    if c: print(f'Found {c} occurrences of {z.hex()}')
+"
+
+# Online tool: https://330k.github.io/misc_tools/unicode_steganography.html</code></pre>
+
+        <h2>QR Code Steganography</h2>
+        <p>QR codes can be hidden in images (embedded visually or in pixel data), or the QR code itself can be steganographically modified. Also check for QR codes in spectrograms, binary data visualized as images, etc.</p>
+<pre><code class="language-bash"># Decode QR code from image
+zbarimg qr_code.png
+
+# Python QR decode
+python3 -c "
+from PIL import Image
+from pyzbar.pyzbar import decode
+results = decode(Image.open('qr_code.png'))
+for r in results:
+    print(r.data.decode())
+"
+
+# Generate QR (for setup)
+qrencode -o qr.png "FLAG{qr_stego_master}"
+
+# Multiple QR codes in one image — decode all
+zbarimg --raw image.png</code></pre>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: Metadata Extraction with exiftool</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Extract hidden information from image metadata fields using exiftool.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create a test image and embed metadata
+convert -size 200x200 xc:blue test_image.jpg
+
+# Hide flag in various metadata fields
+exiftool -Comment="FLAG{exif_data_is_gold}" test_image.jpg
+exiftool -Artist="Agent Smith" test_image.jpg
+exiftool -Description="Look deeper..." test_image.jpg
+exiftool -GPSLatitude="48.8584" -GPSLongitude="2.2945" test_image.jpg
+exiftool -UserComment="Check the GPS coords — Eiffel Tower" test_image.jpg</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>exiftool test_image.jpg</code> and identify all non-standard fields</li>
+              <li>Extract just the comment: <code>exiftool -Comment test_image.jpg</code></li>
+              <li>Check GPS coordinates and look up the location</li>
+              <li>Try <code>exiftool -a -u -g1 test_image.jpg</code> for grouped verbose output</li>
+              <li>Strip all metadata: <code>exiftool -all= test_image.jpg</code> — verify it's clean</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Steghide Embed and Extract</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use steghide to embed secret data in a JPEG image and extract it. Understand steghide's limitations and supported formats.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create a cover image and secret file
+convert -size 640x480 plasma: cover.jpg
+echo "FLAG{steghide_is_classic}" > secret.txt
+
+# Embed with passphrase
+steghide embed -cf cover.jpg -ef secret.txt -p "hunter2"
+
+# Verify the file looks normal
+file cover.jpg
+identify cover.jpg</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Check info: <code>steghide info cover.jpg</code> — does it report embedded data?</li>
+              <li>Try extracting with wrong password: <code>steghide extract -sf cover.jpg -p "wrong"</code></li>
+              <li>Extract correctly: <code>steghide extract -sf cover.jpg -p "hunter2"</code></li>
+              <li>Read the extracted file and verify the flag</li>
+              <li>Try embedding in a PNG — observe the error (unsupported format)</li>
+              <li>Embed in a WAV file instead and repeat extraction</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: LSB Encoding and Decoding with Python</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Write Python scripts to encode a secret message into a PNG image's LSBs and decode it back. Understand bit manipulation at the pixel level.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-python"># lsb_encode.py — Embed message in LSB of RGB channels
+from PIL import Image
+
+def encode_lsb(image_path, message, output_path):
+    img = Image.open(image_path).convert("RGB")
+    pixels = list(img.getdata())
+    
+    # Add null terminator
+    message += '\x00'
+    bits = ''.join(format(ord(c), '08b') for c in message)
+    
+    if len(bits) > len(pixels) * 3:
+        raise ValueError("Message too large for image")
+    
+    new_pixels = []
+    bit_idx = 0
+    for r, g, b in pixels:
+        if bit_idx < len(bits):
+            r = (r & 0xFE) | int(bits[bit_idx]); bit_idx += 1
+        if bit_idx < len(bits):
+            g = (g & 0xFE) | int(bits[bit_idx]); bit_idx += 1
+        if bit_idx < len(bits):
+            b = (b & 0xFE) | int(bits[bit_idx]); bit_idx += 1
+        new_pixels.append((r, g, b))
+    
+    img.putdata(new_pixels)
+    img.save(output_path)
+    print(f"Encoded {len(message)-1} chars into {output_path}")
+
+encode_lsb("cover.png", "FLAG{lsb_master_class}", "stego.png")</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Create a cover image: <code>convert -size 300x300 gradient:red-blue cover.png</code></li>
+              <li>Run the encoder script to embed the flag</li>
+              <li>Compare original and stego visually — should look identical</li>
+              <li>Write the decoder (from the Notes section) and extract the flag</li>
+              <li>Try <code>zsteg stego.png</code> — does it detect the LSB message?</li>
+              <li>Modify the script to use only the red channel — verify zsteg still finds it</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Visual Analysis with StegSolve</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use StegSolve to visually inspect bit planes and discover hidden messages in images.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-python"># Create an image with a hidden message in the red bit plane 0
+from PIL import Image, ImageDraw, ImageFont
+
+# Create cover image
+cover = Image.new("RGB", (400, 300), (128, 128, 128))
+pixels = cover.load()
+
+# Write "FLAG" in the R channel LSB
+secret = Image.new("1", (400, 300), 0)
+draw = ImageDraw.Draw(secret)
+draw.text((50, 100), "FLAG{bit_planes_reveal}", fill=1)
+secret_pixels = secret.load()
+
+for y in range(300):
+    for x in range(400):
+        r, g, b = pixels[x, y]
+        r = (r & 0xFE) | secret_pixels[x, y]
+        pixels[x, y] = (r, g, b)
+
+cover.save("stegsolve_challenge.png")</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Open <code>stegsolve_challenge.png</code> in StegSolve: <code>java -jar StegSolve.jar</code></li>
+              <li>Use arrow keys to cycle through bit planes — check Red plane 0</li>
+              <li>The hidden text should be visible as a pattern in the LSB plane</li>
+              <li>Try Analyse → Data Extract — select Red 0, row by row, LSB first</li>
+              <li>Open a random internet image and check all bit planes — observe random noise vs intentional patterns</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Embedded File Extraction with binwalk</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use binwalk to find and extract files hidden inside other files.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create an image with an embedded ZIP file
+convert -size 400x300 xc:green cover.png
+
+# Create a secret archive
+echo "FLAG{binwalk_extracts_all}" > flag.txt
+zip secret.zip flag.txt
+
+# Append the ZIP to the PNG
+cat cover.png secret.zip > challenge.png
+
+# Verify it still opens as an image
+file challenge.png
+display challenge.png  # should show green rectangle</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>binwalk challenge.png</code> — identify the PNG and embedded ZIP signatures</li>
+              <li>Extract: <code>binwalk -e challenge.png</code> — check the <code>_challenge.png.extracted/</code> directory</li>
+              <li>Open the extracted ZIP and read the flag</li>
+              <li>Try <code>foremost -i challenge.png -o /tmp/carved/</code> — compare results</li>
+              <li>Use manual extraction: <code>dd if=challenge.png of=manual.zip bs=1 skip=&lt;offset&gt;</code></li>
+              <li>Run <code>binwalk -E challenge.png</code> to see the entropy graph — notice the spike where the ZIP starts</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Audio Spectrogram Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Encode a visual message into an audio file's spectrogram and decode it using spectrogram visualization tools.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-python"># Generate audio with text in spectrogram
+import numpy as np
+from scipy.io.wavfile import write
+from PIL import Image, ImageDraw
+
+# Create text image
+img = Image.new("L", (500, 256), 0)
+draw = ImageDraw.Draw(img)
+draw.text((20, 100), "FLAG{spectrogram_eyes}", fill=255)
+pixels = np.array(img)
+
+# Convert to audio spectrogram
+sample_rate = 44100
+duration = 5
+t = np.linspace(0, duration, sample_rate * duration)
+signal = np.zeros_like(t)
+
+for freq_bin in range(pixels.shape[0]):
+    for time_bin in range(pixels.shape[1]):
+        if pixels[freq_bin, time_bin] > 128:
+            freq = 200 + (pixels.shape[0] - freq_bin) * 40
+            t_start = time_bin / pixels.shape[1] * duration
+            t_end = (time_bin + 1) / pixels.shape[1] * duration
+            mask = (t >= t_start) & (t < t_end)
+            signal[mask] += np.sin(2 * np.pi * freq * t[mask]) * 0.01
+
+signal = np.int16(signal / np.max(np.abs(signal)) * 32767 * 0.8)
+write("spectrogram_challenge.wav", sample_rate, signal)
+print("Generated spectrogram_challenge.wav")</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Open <code>spectrogram_challenge.wav</code> in Audacity</li>
+              <li>Click the track name → Spectrogram — read the hidden message</li>
+              <li>Adjust settings: Spectrogram Settings → increase max frequency, try different window sizes</li>
+              <li>Generate a spectrogram image via CLI: <code>sox spectrogram_challenge.wav -n spectrogram -o spec.png</code></li>
+              <li>Try Sonic Visualiser for better frequency resolution</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: PNG Chunk Manipulation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Analyze PNG chunk structure, find hidden data in text chunks, and fix corrupted image dimensions.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-python"># Create PNG with hidden tEXt chunk and wrong dimensions
+from PIL import Image
+import struct, zlib
+
+# Create image with hidden rows
+img = Image.new("RGB", (200, 300), (0, 0, 0))
+pixels = img.load()
+
+# Draw flag text in the hidden bottom portion (below height=200)
+from PIL import ImageDraw
+draw = ImageDraw.Draw(img)
+draw.text((10, 250), "FLAG{png_chunks_ftw}", fill=(255, 255, 255))
+img.save("chunk_challenge.png")
+
+# Add a custom tEXt chunk with hidden info
+with open("chunk_challenge.png", "rb") as f:
+    data = f.read()
+
+# Insert tEXt chunk before IEND
+text_data = b"Secret\x00The password is: opensesame"
+text_chunk = struct.pack(">I", len(text_data)) + b"tEXt" + text_data
+text_chunk += struct.pack(">I", zlib.crc32(b"tEXt" + text_data) & 0xFFFFFFFF)
+
+iend_pos = data.find(b"IEND") - 4
+modified = data[:iend_pos] + text_chunk + data[iend_pos:]
+
+# Now corrupt the height in IHDR — set to 200 instead of 300
+# IHDR height is at offset 20 (8 sig + 4 len + 4 IHDR + 4 width)
+modified = bytearray(modified)
+struct.pack_into(">I", modified, 20, 200)
+# Fix IHDR CRC
+ihdr_data = modified[12:29]  # IHDR + width + height + bitdepth + colortype + compression + filter + interlace
+new_crc = zlib.crc32(ihdr_data) & 0xFFFFFFFF
+struct.pack_into(">I", modified, 29, new_crc)
+
+with open("chunk_challenge.png", "wb") as f:
+    f.write(modified)
+print("Created chunk_challenge.png with hidden chunk and wrong height")</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>List chunks: <code>pngcheck -v chunk_challenge.png</code></li>
+              <li>Find the tEXt chunk — extract its content</li>
+              <li>Notice the image looks cropped — check IHDR height vs actual IDAT data</li>
+              <li>Fix the height in IHDR (change from 200 to 300) and recalculate the CRC</li>
+              <li>Open the fixed image — read the flag from the previously hidden rows</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Automated LSB Detection with zsteg</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use zsteg to automatically detect and extract LSB-hidden data from PNG and BMP files.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create a stego image using the Lab 3 encoder
+python3 lsb_encode.py   # encodes "FLAG{lsb_master_class}" into stego.png
+
+# Also create a BMP version
+convert stego.png stego.bmp
+
+# Create a second challenge with data in different bit planes
+python3 -c "
+from PIL import Image
+img = Image.open('cover.png').convert('RGB')
+pixels = list(img.getdata())
+msg = 'FLAG{zsteg_finds_everything}'
+bits = ''.join(format(ord(c),'08b') for c in msg + '\x00')
+new = []
+bi = 0
+for r,g,b in pixels:
+    if bi < len(bits):
+        r = (r & 0xFE) | int(bits[bi]); bi += 1
+    new.append((r,g,b))
+img.putdata(new)
+img.save('zsteg_challenge.png')
+"</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Quick scan: <code>zsteg stego.png</code> — observe the detected LSB message</li>
+              <li>Full scan: <code>zsteg -a stego.png</code> — check all bit plane combinations</li>
+              <li>Scan the BMP: <code>zsteg stego.bmp</code></li>
+              <li>Extract specific payload: <code>zsteg -e "b1,rgb,lsb" stego.png</code></li>
+              <li>Try on a clean image — compare output (random noise vs coherent text)</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Whitespace Steganography</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Hide and extract messages using whitespace characters (spaces and tabs) in text files with stegsnow.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Install stegsnow
+apt install stegsnow
+
+# Create a cover text file
+cat > cover.txt &lt;&lt;'EOF'
+The quick brown fox jumps over the lazy dog.
+Pack my box with five dozen liquor jugs.
+How vexingly quick daft zebras jump.
+Sphinx of black quartz, judge my vow.
+The five boxing wizards jump quickly.
+EOF
+
+# Embed a hidden message
+stegsnow -C -m "FLAG{whitespace_is_invisible}" -p "steg" cover.txt stego.txt
+
+# Verify file looks the same
+cat stego.txt
+diff cover.txt stego.txt    # will show differences in trailing whitespace</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compare files: <code>cat -A cover.txt</code> vs <code>cat -A stego.txt</code> — spot trailing whitespace</li>
+              <li>Extract without password: <code>stegsnow -C stego.txt</code> — observe garbled output</li>
+              <li>Extract with password: <code>stegsnow -C -p "steg" stego.txt</code></li>
+              <li>Try embedding your own message and extracting it</li>
+              <li>Use <code>xxd</code> to inspect the exact bytes at end of each line</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Polyglot File Creation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Create polyglot files that are valid in multiple formats simultaneously. Understand how parsers interpret the same bytes differently.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create a JPEG+ZIP polyglot
+convert -size 300x200 xc:orange cover.jpg
+echo "FLAG{polyglot_two_in_one}" > flag.txt
+zip hidden.zip flag.txt
+
+# Simple concatenation — JPEG parsers read from start, ZIP from end
+cat cover.jpg hidden.zip > polyglot.jpg
+
+# Verify both formats work
+file polyglot.jpg         # shows JPEG
+eog polyglot.jpg          # opens as image
+unzip -l polyglot.jpg     # lists ZIP contents
+
+# Create a PDF+ZIP polyglot
+echo "%PDF-1.4 fake but valid header" > fake.pdf
+echo "%%EOF" >> fake.pdf
+cat fake.pdf hidden.zip > polyglot.pdf</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Create the JPEG+ZIP polyglot as described above</li>
+              <li>Verify it opens as an image AND as a ZIP</li>
+              <li>Run <code>binwalk polyglot.jpg</code> — identify both signatures</li>
+              <li>Extract the ZIP contents: <code>unzip polyglot.jpg</code></li>
+              <li>Try creating a PNG+ZIP polyglot using the same technique</li>
+              <li>Discuss: why does this work? (Different parsers read different parts of the file)</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: PDF Stream Analysis</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Analyze PDF internal structure to find hidden data in object streams, invisible text, and embedded files.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-python"># Create a PDF with hidden elements using reportlab
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+
+c = canvas.Canvas("stego_doc.pdf", pagesize=letter)
+
+# Visible content
+c.setFont("Helvetica", 16)
+c.drawString(100, 700, "Company Quarterly Report - Q4 2024")
+c.setFont("Helvetica", 12)
+c.drawString(100, 670, "Revenue increased by 15% over the previous quarter.")
+
+# Hidden white text on white background
+c.setFillColorRGB(1, 1, 1)  # white text
+c.setFont("Helvetica", 1)    # tiny font
+c.drawString(100, 50, "FLAG{pdf_streams_hide_secrets}")
+
+# Add metadata
+c.setAuthor("Agent X")
+c.setSubject("CLASSIFIED - contains hidden data")
+c.setKeywords("stego, hidden, secret")
+
+c.save()
+print("Created stego_doc.pdf")</code></pre>
+<pre><code class="language-bash"># Also embed a file attachment
+# Use pdftk or Python to add an embedded file object</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Open the PDF normally — notice only the visible report text</li>
+              <li>Run <code>pdftotext stego_doc.pdf -</code> — find the invisible text</li>
+              <li>Use <code>pdf-parser stego_doc.pdf</code> — examine all objects and streams</li>
+              <li>Check metadata: <code>exiftool stego_doc.pdf</code> and <code>pdfinfo stego_doc.pdf</code></li>
+              <li>Decompress all streams: <code>qpdf --qdf stego_doc.pdf decoded.pdf</code> — read raw text</li>
+              <li>Search for strings: <code>strings stego_doc.pdf | grep -i flag</code></li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Steghide Cracking with stegseek</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Use stegseek to crack steghide passphrases via wordlist attack. Compare speed with stegcracker.</p>
+          <div class="setup-code">
+            <p><strong>Setup:</strong></p>
+<pre><code class="language-bash"># Create a steghide-protected image with a known weak passphrase
+convert -size 800x600 plasma:blue-purple challenge.jpg
+echo "FLAG{stegseek_cracks_fast}" > hidden_flag.txt
+
+# Use a password from rockyou.txt for crackability
+steghide embed -cf challenge.jpg -ef hidden_flag.txt -p "sunshine"
+
+# Verify embedding
+steghide info challenge.jpg
+file challenge.jpg</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Try extracting without knowing the password: <code>steghide extract -sf challenge.jpg</code></li>
+              <li>Crack with stegseek: <code>stegseek challenge.jpg /usr/share/wordlists/rockyou.txt</code></li>
+              <li>Observe the cracking speed (should find "sunshine" almost instantly)</li>
+              <li>Read the extracted output file</li>
+              <li>Try with a stronger password not in rockyou — observe the failure</li>
+              <li>Try seed-crack mode: <code>stegseek --seed challenge.jpg</code></li>
+            </ol>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: The Photographer's Secret</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A photographer posted this image on social media. There's more to it than meets the eye. Find the flag hidden in the image metadata.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup
+convert -size 640x480 gradient:blue-cyan photographer.jpg
+exiftool -Comment="Nothing here..." photographer.jpg
+exiftool -Artist="FLAG{metadata_hunter}" photographer.jpg
+exiftool -Copyright="2024 Secret Agency" photographer.jpg
+exiftool -GPSLatitude="51.5074" -GPSLongitude="-0.1278" photographer.jpg</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Run <code>exiftool photographer.jpg</code> and check every field. The flag isn't in the Comment field — check Artist, Copyright, Description, and custom tags. The flag is in the Artist field.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Locked Away</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">We intercepted this JPEG from a suspect's email. Intelligence suggests data was hidden using steghide with a weak password. Extract the secret message.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup
+convert -size 800x600 xc:darkgreen suspect_image.jpg
+echo "FLAG{steghide_classic_ctf}" > classified.txt
+steghide embed -cf suspect_image.jpg -ef classified.txt -p "password1"</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>First try <code>steghide extract -sf suspect_image.jpg -p ""</code> (empty password). If that fails, use stegseek or stegcracker with rockyou.txt: <code>stegseek suspect_image.jpg rockyou.txt</code>. The password is "password1" — very common in wordlists.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Pixel Perfect</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">This PNG image looks completely normal, but our analysts detected anomalies in the least significant bits. Decode the hidden message from the pixel data.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Setup
+from PIL import Image
+
+img = Image.new("RGB", (500, 400), (100, 150, 200))
+pixels = list(img.getdata())
+msg = "FLAG{least_significant_victory}\x00"
+bits = ''.join(format(ord(c), '08b') for c in msg)
+
+new_pixels = []
+bi = 0
+for r, g, b in pixels:
+    nr = (r & 0xFE) | (int(bits[bi]) if bi < len(bits) else 0); bi += 1
+    ng = (g & 0xFE) | (int(bits[bi]) if bi < len(bits) else 0); bi += 1
+    nb = (b & 0xFE) | (int(bits[bi]) if bi < len(bits) else 0); bi += 1
+    new_pixels.append((nr, ng, nb))
+
+img.putdata(new_pixels)
+img.save("pixel_perfect.png")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>zsteg pixel_perfect.png</code> for automated LSB detection. Or open in StegSolve and use Data Extract → select R0, G0, B0 bits → LSB first → extract text. You can also write a Python script to read the LSB of each R, G, B channel and convert bits to ASCII.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Strange Sounds</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">We received a mysterious audio file. It sounds like static noise, but our SIGINT team says it contains a visual message. Decode the hidden image from the audio.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Setup — encode text in spectrogram
+import numpy as np
+from scipy.io.wavfile import write
+from PIL import Image, ImageDraw
+
+img = Image.new("L", (400, 200), 0)
+draw = ImageDraw.Draw(img)
+draw.text((30, 80), "FLAG{audio_visual}", fill=255)
+px = np.array(img)
+
+sr = 22050
+dur = 4
+t = np.linspace(0, dur, sr * dur)
+sig = np.zeros_like(t)
+
+for fy in range(px.shape[0]):
+    for tx in range(px.shape[1]):
+        if px[fy, tx] > 128:
+            freq = 500 + (px.shape[0] - fy) * 30
+            ts = tx / px.shape[1] * dur
+            te = (tx + 1) / px.shape[1] * dur
+            m = (t >= ts) & (t < te)
+            sig[m] += np.sin(2 * np.pi * freq * t[m]) * 0.005
+
+sig = np.int16(sig / np.max(np.abs(sig)) * 32767 * 0.8)
+write("strange_sounds.wav", sr, sig)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Open in Audacity → click the track name dropdown → Spectrogram. The flag is written as visible text in the frequency spectrum. Adjust the frequency range and color settings for better visibility. Alternatively: <code>sox strange_sounds.wav -n spectrogram -o spec.png</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Double Identity</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">This image file seems to have a split personality. It's an image, but it also contains something else. Find the hidden archive and extract the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — JPEG + ZIP polyglot
+convert -size 640x480 plasma:red-yellow vacation.jpg
+echo "FLAG{polyglot_identity_crisis}" > secret_note.txt
+zip -q payload.zip secret_note.txt
+cat vacation.jpg payload.zip > double_identity.jpg
+rm payload.zip secret_note.txt</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Run <code>binwalk double_identity.jpg</code> to see both JPEG and ZIP signatures. Extract with <code>binwalk -e double_identity.jpg</code> or simply <code>unzip double_identity.jpg</code>. The appended ZIP is after the JPEG EOI marker (FF D9). You can also check with <code>xxd double_identity.jpg | tail</code> to see the PK header bytes.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Chunk by Chunk</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">This PNG image renders correctly but has a secret embedded in its chunk structure. Analyze the chunks to find the hidden flag. The image also appears cropped — there might be more to see.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Setup — PNG with custom tEXt chunk and truncated height
+from PIL import Image, ImageDraw
+import struct, zlib
+
+img = Image.new("RGB", (300, 400), (30, 30, 30))
+draw = ImageDraw.Draw(img)
+draw.text((20, 50), "Visible area", fill=(255, 255, 255))
+draw.text((20, 350), "FLAG{chunk_detective}", fill=(0, 255, 0))
+img.save("chunked.png")
+
+# Modify: add tEXt chunk, reduce displayed height
+with open("chunked.png", "rb") as f:
+    data = bytearray(f.read())
+
+# Shrink IHDR height to 200 (hides bottom half)
+struct.pack_into(">I", data, 20, 200)
+ihdr_crc = zlib.crc32(bytes(data[12:29])) & 0xFFFFFFFF
+struct.pack_into(">I", data, 29, ihdr_crc)
+
+# Insert tEXt chunk: "Hint: fix the height to 400"
+txt = b"Hint\x00Fix the height to 400 to see the full image"
+chunk = struct.pack(">I", len(txt)) + b"tEXt" + txt
+chunk += struct.pack(">I", zlib.crc32(b"tEXt" + txt) & 0xFFFFFFFF)
+iend = data.find(b"IEND") - 4
+data = data[:iend] + chunk + data[iend:]
+
+with open("chunked.png", "wb") as f:
+    f.write(data)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Use <code>pngcheck -v chunked.png</code> to list all chunks. Find the tEXt chunk — it contains a hint. The IHDR height is set to 200 but the image data is for 400px tall. Edit byte offset 20-23 to set height to <code>00 00 01 90</code> (400), fix the IHDR CRC at offset 29-32, and reopen the image to reveal the flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Invisible Ink</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">This text file contains a seemingly normal message, but there's an invisible message hidden between the visible characters. Find and decode the zero-width character encoding.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Setup — embed zero-width characters in text
+visible = "This is a perfectly normal message. Nothing to see here. Move along."
+flag = "FLAG{zero_width_invisible}"
+
+# Encode flag as zero-width characters
+zwsp = '\u200b'  # 0
+zwnj = '\u200c'  # 1
+
+encoded = ""
+for char in flag:
+    bits = format(ord(char), '08b')
+    for bit in bits:
+        encoded += zwnj if bit == '1' else zwsp
+
+# Insert after the first word
+output = visible[:4] + encoded + visible[4:]
+
+with open("invisible_ink.txt", "w", encoding="utf-8") as f:
+    f.write(output)
+print(f"File size: {len(output.encode('utf-8'))} bytes")
+print(f"Visible length: {len(visible)} chars")
+print(f"Actual length: {len(output)} chars")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Check file size vs visible character count — the file is much larger than expected. Search for zero-width characters: <code>python3 -c "t=open('invisible_ink.txt','rb').read(); print(t.count(b'\xe2\x80\x8b'), t.count(b'\xe2\x80\x8c'))"</code>. Map U+200B→0 and U+200C→1, group into 8-bit bytes, and convert to ASCII.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Matryoshka</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Like Russian nesting dolls, this image has multiple layers of steganography. Each layer reveals a clue to decode the next. Find all three parts of the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — multi-layer stego challenge
+
+# Layer 1: EXIF comment contains a steghide password
+convert -size 800x600 plasma:purple-black matryoshka.jpg
+exiftool -Comment="Password for the next layer: opensesame" matryoshka.jpg
+
+# Layer 2: steghide-embedded file contains base64 with part 2 + instructions
+echo "Part 2: _st3g0_" > layer2.txt
+echo "A PNG is hidden after the JPEG data. Extract it and check LSB." >> layer2.txt
+steghide embed -cf matryoshka.jpg -ef layer2.txt -p "opensesame"
+
+# Layer 3: Append a PNG with LSB-encoded part 3
+python3 -c "
+from PIL import Image
+img = Image.new('RGB',(200,200),(50,50,50))
+pixels = list(img.getdata())
+msg = '_m4st3r}\x00'
+bits = ''.join(format(ord(c),'08b') for c in msg)
+new = []
+bi = 0
+for r,g,b in pixels:
+    nr = (r & 0xFE) | (int(bits[bi]) if bi < len(bits) else 0); bi += 1
+    ng = (g & 0xFE) | (int(bits[bi]) if bi < len(bits) else 0); bi += 1
+    nb = (b & 0xFE) | (int(bits[bi]) if bi < len(bits) else 0); bi += 1
+    new.append((nr,ng,nb))
+img.putdata(new)
+img.save('layer3.png')
+"
+
+cat matryoshka.jpg layer3.png > matryoshka_final.jpg
+# Flag: FLAG{multi_st3g0__m4st3r}
+# (Part 1 from exiftool hint, Part 2 from steghide, Part 3 from LSB)</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Start with <code>exiftool matryoshka_final.jpg</code> — the Comment gives you a steghide password. Use <code>steghide extract -sf matryoshka_final.jpg -p "opensesame"</code> for part 2 and instructions. Run <code>binwalk matryoshka_final.jpg</code> to find the appended PNG, extract it, then <code>zsteg layer3.png</code> for part 3. Combine all three parts for the full flag.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: QR in the Noise</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">This image appears to be random noise, but a QR code is hidden in one of the color channels. Extract and decode it to get the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Setup — hide QR code in red channel LSB of a noisy image
+from PIL import Image
+import subprocess, numpy as np
+
+# Generate QR code
+subprocess.run(["qrencode", "-o", "qr_flag.png", "-s", "5",
+                "FLAG{qr_hidden_in_noise}"])
+
+qr = Image.open("qr_flag.png").convert("L").resize((300, 300))
+qr_pixels = np.array(qr)
+
+# Create noisy cover image
+noise = np.random.randint(100, 200, (300, 300, 3), dtype=np.uint8)
+
+# Embed QR in red channel LSB
+for y in range(300):
+    for x in range(300):
+        bit = 1 if qr_pixels[y, x] > 128 else 0
+        noise[y, x, 0] = (int(noise[y, x, 0]) & 0xFE) | bit
+
+result = Image.fromarray(noise)
+result.save("qr_noise.png")</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Open in StegSolve and check Red plane 0 — the QR code should be visible. Alternatively, extract with Python: read the LSB of the red channel, create a binary image from it, save as PNG, and decode with <code>zbarimg extracted_qr.png</code>. Or use <code>zsteg -a qr_noise.png</code> to detect the pattern.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: The Full Pipeline</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">This is a comprehensive stego challenge. You receive a single file. Use every tool in your arsenal to extract the flag. Multiple techniques are layered together — follow the breadcrumbs.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Setup — comprehensive multi-technique challenge
+
+# 1. Start with a JPEG
+convert -size 1024x768 gradient:navy-teal pipeline.jpg
+
+# 2. Add EXIF clue
+exiftool -Comment="Hint: check strings for a password" pipeline.jpg
+
+# 3. Embed the real hint in strings (visible with strings command)
+printf '\n\nsteghide_password=l3tm31n\n\n' >> pipeline.jpg
+
+# 4. Use steghide with that password to embed instructions
+cat > instructions.txt &lt;&lt;'EOF'
+Well done finding this!
+There's a ZIP file appended after the JPEG data.
+Inside the ZIP, you'll find a PNG with the flag in its LSB.
+EOF
+steghide embed -cf pipeline.jpg -ef instructions.txt -p "l3tm31n"
+
+# 5. Create the final flag PNG with LSB
+python3 -c "
+from PIL import Image
+img = Image.new('RGB',(200,200),(80,80,80))
+pixels = list(img.getdata())
+msg = 'FLAG{full_pipeline_stego_pro}\x00'
+bits = ''.join(format(ord(c),'08b') for c in msg)
+new = []
+bi = 0
+for r,g,b in pixels:
+    nr = (r & 0xFE) | (int(bits[bi]) if bi < len(bits) else 0); bi += 1
+    ng = (g & 0xFE) | (int(bits[bi]) if bi < len(bits) else 0); bi += 1
+    nb = (b & 0xFE) | (int(bits[bi]) if bi < len(bits) else 0); bi += 1
+    new.append((nr,ng,nb))
+img.putdata(new)
+img.save('final_flag.png')
+"
+
+# 6. ZIP the flag PNG and append to JPEG
+zip payload.zip final_flag.png
+cat pipeline.jpg payload.zip > pipeline_final.jpg
+
+# Cleanup
+rm instructions.txt final_flag.png payload.zip pipeline.jpg
+mv pipeline_final.jpg pipeline.jpg</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Follow the chain: (1) <code>exiftool pipeline.jpg</code> → comment says check strings. (2) <code>strings pipeline.jpg | grep password</code> → finds steghide password "l3tm31n". (3) <code>steghide extract -sf pipeline.jpg -p "l3tm31n"</code> → instructions say there's an appended ZIP. (4) <code>binwalk -e pipeline.jpg</code> → extracts the ZIP containing final_flag.png. (5) <code>zsteg final_flag.png</code> → reveals the LSB-encoded flag.</p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

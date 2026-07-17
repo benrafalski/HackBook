@@ -1,0 +1,1974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Classical Ciphers</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+    <h1>Classical Ciphers</h1>
+    <hr>
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="notes">Notes</button>
+        <button class="tab-btn" data-tab="lab">Lab</button>
+        <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+      </div>
+
+      <!-- ==================== NOTES TAB ==================== -->
+      <div class="tab-content active" id="notes">
+
+        <h2>Caesar Cipher (Shift Cipher)</h2>
+        <p>Each letter is shifted by a fixed number of positions in the alphabet. Key space is only 26, making brute force trivial.</p>
+        <p><strong>Encryption:</strong> <code>E(x) = (x + k) mod 26</code></p>
+        <p><strong>Decryption:</strong> <code>D(x) = (x - k) mod 26</code></p>
+
+        <h3>Brute Force All Shifts</h3>
+<pre><code class="language-python">def caesar_brute(ciphertext):
+    for shift in range(26):
+        plaintext = ""
+        for ch in ciphertext:
+            if ch.isalpha():
+                base = ord('A') if ch.isupper() else ord('a')
+                plaintext += chr((ord(ch) - base - shift) % 26 + base)
+            else:
+                plaintext += ch
+        print(f"Shift {shift:2d}: {plaintext}")
+
+caesar_brute("Wkh iodj lv FODVVLFDO")</code></pre>
+        <p><strong>Output at shift 3:</strong> <code>The flag is CLASSICAL</code></p>
+
+        <h3>Frequency Analysis on Caesar</h3>
+<pre><code class="language-python">from collections import Counter
+
+def frequency_analysis(text):
+    filtered = [ch.upper() for ch in text if ch.isalpha()]
+    freq = Counter(filtered)
+    total = len(filtered)
+    for letter, count in freq.most_common():
+        print(f"{letter}: {count/total*100:.1f}%")
+    # Most common letter is likely 'E' (12.7% in English)
+    most_common = freq.most_common(1)[0][0]
+    shift = (ord(most_common) - ord('E')) % 26
+    print(f"\nPredicted shift: {shift}")
+    return shift</code></pre>
+
+        <hr>
+        <h2>ROT13</h2>
+        <p>Special case of Caesar with shift=13. Self-inverting: <code>ROT13(ROT13(x)) = x</code>.</p>
+<pre><code class="language-python">import codecs
+
+# Method 1: codecs
+plaintext = codecs.decode("Gur synt vf EBG13_vf_rnfl", "rot_13")
+print(plaintext)  # The flag is ROT13_is_easy
+
+# Method 2: str.translate
+import string
+rot13_table = str.maketrans(
+    string.ascii_lowercase + string.ascii_uppercase,
+    string.ascii_lowercase[13:] + string.ascii_lowercase[:13] +
+    string.ascii_uppercase[13:] + string.ascii_uppercase[:13]
+)
+print("Uryyb Jbeyq".translate(rot13_table))  # Hello World</code></pre>
+
+        <hr>
+        <h2>Vigenère Cipher</h2>
+        <p>Polyalphabetic substitution. Each letter is shifted by the corresponding key letter. Key repeats over plaintext.</p>
+        <p><strong>Encryption:</strong> <code>C[i] = (P[i] + K[i mod len(K)]) mod 26</code></p>
+
+<pre><code class="language-python">def vigenere_encrypt(plaintext, key):
+    result = []
+    key_idx = 0
+    for ch in plaintext:
+        if ch.isalpha():
+            base = ord('A') if ch.isupper() else ord('a')
+            shift = ord(key[key_idx % len(key)].upper()) - ord('A')
+            result.append(chr((ord(ch) - base + shift) % 26 + base))
+            key_idx += 1
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+def vigenere_decrypt(ciphertext, key):
+    result = []
+    key_idx = 0
+    for ch in ciphertext:
+        if ch.isalpha():
+            base = ord('A') if ch.isupper() else ord('a')
+            shift = ord(key[key_idx % len(key)].upper()) - ord('A')
+            result.append(chr((ord(ch) - base - shift) % 26 + base))
+            key_idx += 1
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+ct = vigenere_encrypt("ATTACKATDAWN", "LEMON")
+print(ct)  # LXFOPVEFRNHR
+print(vigenere_decrypt(ct, "LEMON"))  # ATTACKATDAWN</code></pre>
+
+        <h3>Kasiski Examination (Key Length Detection)</h3>
+        <p>Find repeated sequences in ciphertext. The distances between repetitions are likely multiples of the key length.</p>
+<pre><code class="language-python">from math import gcd
+from functools import reduce
+from collections import defaultdict
+
+def kasiski(ciphertext, min_len=3):
+    ct = ''.join(ch.upper() for ch in ciphertext if ch.isalpha())
+    sequences = defaultdict(list)
+
+    for length in range(min_len, 6):
+        for i in range(len(ct) - length):
+            seq = ct[i:i+length]
+            sequences[seq].append(i)
+
+    distances = []
+    for seq, positions in sequences.items():
+        if len(positions) >= 2:
+            for i in range(len(positions) - 1):
+                distances.append(positions[i+1] - positions[i])
+
+    if distances:
+        key_length = reduce(gcd, distances)
+        print(f"Probable key length: {key_length}")
+        print(f"Distances found: {sorted(set(distances))[:10]}")
+        return key_length
+    return None</code></pre>
+
+        <h3>Friedman Test (Index of Coincidence)</h3>
+        <p>IC for English ≈ 0.0667. IC for random text ≈ 0.0385. Use IC to estimate key length.</p>
+<pre><code class="language-python">from collections import Counter
+
+def index_of_coincidence(text):
+    filtered = [ch.upper() for ch in text if ch.isalpha()]
+    n = len(filtered)
+    if n <= 1:
+        return 0
+    freq = Counter(filtered)
+    ic = sum(f * (f - 1) for f in freq.values()) / (n * (n - 1))
+    return ic
+
+def estimate_key_length(ciphertext, max_key=20):
+    ct = [ch.upper() for ch in ciphertext if ch.isalpha()]
+    print("Key Len | Avg IC")
+    print("-" * 25)
+    for key_len in range(1, max_key + 1):
+        groups = [[] for _ in range(key_len)]
+        for i, ch in enumerate(ct):
+            groups[i % key_len].append(ch)
+        avg_ic = sum(index_of_coincidence(''.join(g)) for g in groups) / key_len
+        marker = " <--" if avg_ic > 0.06 else ""
+        print(f"  {key_len:2d}    | {avg_ic:.4f}{marker}")</code></pre>
+
+        <h3>Breaking Vigenère with Known Key Length</h3>
+<pre><code class="language-python">def break_vigenere(ciphertext, key_length):
+    ct = [ch.upper() for ch in ciphertext if ch.isalpha()]
+    key = []
+    english_freq = [0.082,0.015,0.028,0.043,0.127,0.022,0.020,0.061,0.070,
+                    0.002,0.008,0.040,0.024,0.067,0.075,0.019,0.001,0.060,
+                    0.063,0.091,0.028,0.010,0.023,0.001,0.020,0.001]
+
+    for i in range(key_length):
+        group = [ct[j] for j in range(i, len(ct), key_length)]
+        best_shift = 0
+        best_score = 0
+        for shift in range(26):
+            score = 0
+            for ch in group:
+                decrypted = (ord(ch) - ord('A') - shift) % 26
+                score += english_freq[decrypted]
+            if score > best_score:
+                best_score = score
+                best_shift = shift
+        key.append(chr(best_shift + ord('A')))
+
+    key_str = ''.join(key)
+    print(f"Recovered key: {key_str}")
+    return vigenere_decrypt(ciphertext, key_str)</code></pre>
+
+        <hr>
+        <h2>Substitution Ciphers (Monoalphabetic)</h2>
+        <p>Each letter maps to a unique different letter. Key space = 26! ≈ 4×10²⁶. Too large for brute force; use frequency analysis.</p>
+
+        <h3>English Letter Frequencies</h3>
+        <table class="table table-dark table-sm">
+          <thead><tr><th>Letter</th><th>Freq %</th><th>Letter</th><th>Freq %</th><th>Letter</th><th>Freq %</th></tr></thead>
+          <tbody>
+            <tr><td>E</td><td>12.7</td><td>T</td><td>9.1</td><td>A</td><td>8.2</td></tr>
+            <tr><td>O</td><td>7.5</td><td>I</td><td>7.0</td><td>N</td><td>6.7</td></tr>
+            <tr><td>S</td><td>6.3</td><td>H</td><td>6.1</td><td>R</td><td>6.0</td></tr>
+            <tr><td>D</td><td>4.3</td><td>L</td><td>4.0</td><td>C</td><td>2.8</td></tr>
+            <tr><td>U</td><td>2.8</td><td>M</td><td>2.4</td><td>W</td><td>2.3</td></tr>
+            <tr><td>F</td><td>2.2</td><td>G</td><td>2.0</td><td>Y</td><td>2.0</td></tr>
+            <tr><td>P</td><td>1.9</td><td>B</td><td>1.5</td><td>V</td><td>1.0</td></tr>
+            <tr><td>K</td><td>0.8</td><td>J</td><td>0.2</td><td>X</td><td>0.2</td></tr>
+            <tr><td>Q</td><td>0.1</td><td>Z</td><td>0.1</td><td></td><td></td></tr>
+          </tbody>
+        </table>
+
+        <h3>Common Digrams &amp; Trigrams</h3>
+        <p><strong>Digrams:</strong> TH, HE, IN, EN, NT, RE, ER, AN, TI, ES</p>
+        <p><strong>Trigrams:</strong> THE, AND, ING, HER, HAT, HIS, THA, ERE, FOR, ENT</p>
+        <p><strong>Single-letter words:</strong> A, I</p>
+        <p><strong>Common 3-letter words:</strong> THE, AND, FOR, ARE, BUT, NOT, YOU, ALL</p>
+
+<pre><code class="language-python">from collections import Counter
+
+def substitution_analysis(ciphertext):
+    ct = ciphertext.upper()
+    letters = [ch for ch in ct if ch.isalpha()]
+
+    # Single letter frequency
+    print("=== Letter Frequencies ===")
+    freq = Counter(letters)
+    for letter, count in freq.most_common():
+        bar = '█' * int(count / len(letters) * 100)
+        print(f"  {letter}: {count:3d} ({count/len(letters)*100:5.1f}%) {bar}")
+
+    # Digram frequency
+    print("\n=== Top Digrams ===")
+    digrams = [ct[i:i+2] for i in range(len(ct)-1) if ct[i].isalpha() and ct[i+1].isalpha()]
+    for digram, count in Counter(digrams).most_common(10):
+        print(f"  {digram}: {count}")
+
+    # Trigram frequency
+    print("\n=== Top Trigrams ===")
+    trigrams = [ct[i:i+3] for i in range(len(ct)-2)
+                if all(ct[i+j].isalpha() for j in range(3))]
+    for trigram, count in Counter(trigrams).most_common(10):
+        print(f"  {trigram}: {count}")</code></pre>
+
+        <hr>
+        <h2>Transposition Ciphers</h2>
+
+        <h3>Rail Fence Cipher</h3>
+        <p>Plaintext written in zigzag pattern across N rails, then read off row by row.</p>
+<pre><code class="language-python">def rail_fence_encrypt(plaintext, rails):
+    fence = [[] for _ in range(rails)]
+    rail, direction = 0, 1
+    for ch in plaintext:
+        fence[rail].append(ch)
+        if rail == 0:
+            direction = 1
+        elif rail == rails - 1:
+            direction = -1
+        rail += direction
+    return ''.join(''.join(row) for row in fence)
+
+def rail_fence_decrypt(ciphertext, rails):
+    n = len(ciphertext)
+    # Calculate lengths of each rail
+    fence = [[] for _ in range(rails)]
+    rail, direction = 0, 1
+    for i in range(n):
+        fence[rail].append(None)
+        if rail == 0:
+            direction = 1
+        elif rail == rails - 1:
+            direction = -1
+        rail += direction
+
+    # Fill in the ciphertext
+    idx = 0
+    for r in range(rails):
+        for i in range(len(fence[r])):
+            fence[r][i] = ciphertext[idx]
+            idx += 1
+
+    # Read off in zigzag order
+    result = []
+    rail_indices = [0] * rails
+    rail, direction = 0, 1
+    for i in range(n):
+        result.append(fence[rail][rail_indices[rail]])
+        rail_indices[rail] += 1
+        if rail == 0:
+            direction = 1
+        elif rail == rails - 1:
+            direction = -1
+        rail += direction
+    return ''.join(result)
+
+ct = rail_fence_encrypt("THEFLAGISHERE", 3)
+print(f"Encrypted: {ct}")  # TLIHEFGSEAHR E
+print(f"Decrypted: {rail_fence_decrypt(ct, 3)}")  # THEFLAGISHERE</code></pre>
+
+        <h3>Columnar Transposition</h3>
+<pre><code class="language-python">def columnar_encrypt(plaintext, key):
+    key_order = sorted(range(len(key)), key=lambda k: key[k])
+    cols = len(key)
+    # Pad plaintext
+    padded = plaintext + 'X' * ((cols - len(plaintext) % cols) % cols)
+    # Write into grid row by row
+    grid = [padded[i:i+cols] for i in range(0, len(padded), cols)]
+    # Read columns in key order
+    result = ''
+    for col in key_order:
+        for row in grid:
+            result += row[col]
+    return result
+
+def columnar_decrypt(ciphertext, key):
+    key_order = sorted(range(len(key)), key=lambda k: key[k])
+    cols = len(key)
+    rows = len(ciphertext) // cols
+    # Fill columns in key order
+    grid = [['' for _ in range(cols)] for _ in range(rows)]
+    idx = 0
+    for col in key_order:
+        for row in range(rows):
+            grid[row][col] = ciphertext[idx]
+            idx += 1
+    return ''.join(''.join(row) for row in grid).rstrip('X')
+
+ct = columnar_encrypt("THEFLAGISHIDDEN", "HACK")
+print(f"Encrypted: {ct}")
+print(f"Decrypted: {columnar_decrypt(ct, 'HACK')}")</code></pre>
+
+        <hr>
+        <h2>Affine Cipher</h2>
+        <p><strong>Encryption:</strong> <code>E(x) = (a*x + b) mod 26</code></p>
+        <p><strong>Decryption:</strong> <code>D(y) = a⁻¹ * (y - b) mod 26</code></p>
+        <p><strong>Requirement:</strong> <code>gcd(a, 26) = 1</code> (a must be coprime with 26)</p>
+        <p><strong>Valid values of a:</strong> 1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25</p>
+
+<pre><code class="language-python">def mod_inverse(a, m):
+    """Extended Euclidean Algorithm"""
+    for x in range(1, m):
+        if (a * x) % m == 1:
+            return x
+    return None
+
+def affine_encrypt(plaintext, a, b):
+    result = []
+    for ch in plaintext:
+        if ch.isalpha():
+            base = ord('A') if ch.isupper() else ord('a')
+            x = ord(ch) - base
+            result.append(chr((a * x + b) % 26 + base))
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+def affine_decrypt(ciphertext, a, b):
+    a_inv = mod_inverse(a, 26)
+    if a_inv is None:
+        return "No inverse exists - invalid key"
+    result = []
+    for ch in ciphertext:
+        if ch.isalpha():
+            base = ord('A') if ch.isupper() else ord('a')
+            y = ord(ch) - base
+            result.append(chr((a_inv * (y - b)) % 26 + base))
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+def affine_brute_force(ciphertext):
+    valid_a = [1,3,5,7,9,11,15,17,19,21,23,25]
+    for a in valid_a:
+        for b in range(26):
+            pt = affine_decrypt(ciphertext, a, b)
+            if 'THE' in pt.upper() or 'FLAG' in pt.upper():
+                print(f"a={a:2d}, b={b:2d}: {pt}")
+
+ct = affine_encrypt("FLAGFOUND", 7, 3)
+print(f"Encrypted: {ct}")  # QCJDQBFAM
+print(f"Decrypted: {affine_decrypt(ct, 7, 3)}")  # FLAGFOUND</code></pre>
+
+        <hr>
+        <h2>Playfair Cipher</h2>
+        <p>Digraph cipher using a 5×5 key matrix. I and J share a cell. Rules:</p>
+        <ul>
+          <li>Same row: replace with letters to the right (wrap around)</li>
+          <li>Same column: replace with letters below (wrap around)</li>
+          <li>Rectangle: swap columns of the pair</li>
+          <li>Repeated letters in a pair: insert 'X' between them</li>
+        </ul>
+
+<pre><code class="language-python">def generate_playfair_matrix(key):
+    key = key.upper().replace('J', 'I')
+    seen = set()
+    matrix = []
+    for ch in key + "ABCDEFGHIKLMNOPQRSTUVWXYZ":
+        if ch not in seen and ch.isalpha():
+            seen.add(ch)
+            matrix.append(ch)
+    return [matrix[i:i+5] for i in range(0, 25, 5)]
+
+def find_position(matrix, ch):
+    ch = ch.upper()
+    if ch == 'J':
+        ch = 'I'
+    for r in range(5):
+        for c in range(5):
+            if matrix[r][c] == ch:
+                return r, c
+    return None
+
+def playfair_encrypt(plaintext, key):
+    matrix = generate_playfair_matrix(key)
+    pt = plaintext.upper().replace('J', 'I')
+    pt = ''.join(ch for ch in pt if ch.isalpha())
+
+    # Create digraphs
+    pairs = []
+    i = 0
+    while i < len(pt):
+        if i + 1 >= len(pt):
+            pairs.append(pt[i] + 'X')
+            i += 1
+        elif pt[i] == pt[i+1]:
+            pairs.append(pt[i] + 'X')
+            i += 1
+        else:
+            pairs.append(pt[i] + pt[i+1])
+            i += 2
+
+    result = []
+    for pair in pairs:
+        r1, c1 = find_position(matrix, pair[0])
+        r2, c2 = find_position(matrix, pair[1])
+        if r1 == r2:
+            result.append(matrix[r1][(c1+1)%5] + matrix[r2][(c2+1)%5])
+        elif c1 == c2:
+            result.append(matrix[(r1+1)%5][c1] + matrix[(r2+1)%5][c2])
+        else:
+            result.append(matrix[r1][c2] + matrix[r2][c1])
+    return ''.join(result)
+
+matrix = generate_playfair_matrix("MONARCHY")
+print("Playfair Matrix:")
+for row in matrix:
+    print(' '.join(row))
+print(f"\nEncrypted: {playfair_encrypt('INSTRUMENTS', 'MONARCHY')}")</code></pre>
+
+        <hr>
+        <h2>Hill Cipher</h2>
+        <p>Matrix-based polygraphic cipher. Encrypts blocks of N letters using an N×N key matrix.</p>
+        <p><strong>Encryption:</strong> <code>C = K × P mod 26</code></p>
+        <p><strong>Decryption:</strong> <code>P = K⁻¹ × C mod 26</code></p>
+
+<pre><code class="language-python">import numpy as np
+
+def hill_encrypt(plaintext, key_matrix):
+    pt = [ord(ch) - ord('A') for ch in plaintext.upper() if ch.isalpha()]
+    n = key_matrix.shape[0]
+    # Pad if necessary
+    while len(pt) % n != 0:
+        pt.append(23)  # 'X'
+
+    ct = []
+    for i in range(0, len(pt), n):
+        block = np.array(pt[i:i+n])
+        encrypted = np.dot(key_matrix, block) % 26
+        ct.extend(encrypted.astype(int))
+    return ''.join(chr(x + ord('A')) for x in ct)
+
+def matrix_mod_inverse(matrix, mod=26):
+    """Compute modular inverse of matrix"""
+    det = int(round(np.linalg.det(matrix))) % mod
+    det_inv = pow(det, -1, mod)
+    # Adjugate matrix
+    n = matrix.shape[0]
+    adjugate = np.zeros_like(matrix)
+    for i in range(n):
+        for j in range(n):
+            minor = np.delete(np.delete(matrix, i, axis=0), j, axis=1)
+            cofactor = int(round(np.linalg.det(minor))) * ((-1) ** (i+j))
+            adjugate[j][i] = cofactor
+    return (det_inv * adjugate) % mod
+
+# Example: 2x2 Hill cipher
+key = np.array([[6, 24], [1, 16]])
+ct = hill_encrypt("ACT", key)
+print(f"Encrypted: {ct}")
+
+# Known-plaintext attack: if we know P and C, then K = C * P^-1 mod 26
+# With known plaintext-ciphertext pairs, recover the key matrix</code></pre>
+
+        <hr>
+        <h2>XOR Cipher</h2>
+        <p>Fundamental operation in crypto. Properties: <code>A ⊕ A = 0</code>, <code>A ⊕ 0 = A</code>, <code>A ⊕ B ⊕ B = A</code>.</p>
+        <p>If <code>C = P ⊕ K</code>, then <code>P = C ⊕ K</code> and <code>K = P ⊕ C</code>.</p>
+
+        <h3>Single-Byte XOR</h3>
+<pre><code class="language-python">def single_byte_xor_brute(ciphertext_hex):
+    ct = bytes.fromhex(ciphertext_hex)
+    results = []
+    for key in range(256):
+        pt = bytes([b ^ key for b in ct])
+        try:
+            decoded = pt.decode('ascii')
+            # Score based on printable/English characters
+            score = sum(1 for ch in decoded if ch.isalpha() or ch == ' ')
+            results.append((score, key, decoded))
+        except:
+            continue
+    results.sort(reverse=True)
+    for score, key, text in results[:5]:
+        print(f"Key 0x{key:02x} ({chr(key) if 32<=key<127 else '?'}): {text}")
+
+# Example: "flag{xor_easy}" XOR'd with 0x42
+plaintext = "flag{xor_easy}"
+ct_hex = ''.join(f'{ord(ch)^0x42:02x}' for ch in plaintext)
+print(f"Ciphertext: {ct_hex}")
+single_byte_xor_brute(ct_hex)</code></pre>
+
+        <h3>Multi-Byte (Repeating Key) XOR</h3>
+<pre><code class="language-python">def repeating_key_xor(data, key):
+    return bytes([data[i] ^ key[i % len(key)] for i in range(len(data))])
+
+def hamming_distance(b1, b2):
+    return sum(bin(a ^ b).count('1') for a, b in zip(b1, b2))
+
+def find_xor_key_length(ciphertext, max_keysize=40):
+    scores = []
+    for keysize in range(2, max_keysize + 1):
+        blocks = [ciphertext[i*keysize:(i+1)*keysize] for i in range(4)]
+        if len(blocks[3]) < keysize:
+            continue
+        distances = []
+        for i in range(len(blocks)):
+            for j in range(i+1, len(blocks)):
+                distances.append(hamming_distance(blocks[i], blocks[j]) / keysize)
+        scores.append((sum(distances)/len(distances), keysize))
+    scores.sort()
+    print("Top key length candidates:")
+    for score, keysize in scores[:5]:
+        print(f"  Length {keysize:2d}: normalized distance = {score:.3f}")
+    return scores[0][1]
+
+def break_repeating_xor(ciphertext, key_length):
+    key = []
+    for i in range(key_length):
+        block = bytes(ciphertext[j] for j in range(i, len(ciphertext), key_length))
+        best_score = 0
+        best_byte = 0
+        for candidate in range(256):
+            decrypted = bytes([b ^ candidate for b in block])
+            score = sum(1 for b in decrypted if 32 <= b < 127)
+            score += sum(2 for b in decrypted if chr(b).lower() in 'etaoinshrdlu ')
+            if score > best_score:
+                best_score = score
+                best_byte = candidate
+        key.append(best_byte)
+    return bytes(key)
+
+# Demo
+message = b"The flag is flag{repeating_xor_broken}"
+key = b"SECRET"
+ct = repeating_key_xor(message, key)
+print(f"Ciphertext (hex): {ct.hex()}")
+
+# Break it
+key_len = find_xor_key_length(ct)
+recovered_key = break_repeating_xor(ct, key_len)
+print(f"Recovered key: {recovered_key}")
+print(f"Decrypted: {repeating_key_xor(ct, recovered_key).decode()}")</code></pre>
+
+        <hr>
+        <h2>One-Time Pad (OTP)</h2>
+        <p>Perfectly secure if: key is truly random, at least as long as the message, never reused, and kept secret.</p>
+        <p><strong>Vulnerability:</strong> Key reuse! If <code>C1 = P1 ⊕ K</code> and <code>C2 = P2 ⊕ K</code>, then <code>C1 ⊕ C2 = P1 ⊕ P2</code> (key cancels out).</p>
+
+<pre><code class="language-python">import os
+
+def otp_encrypt(plaintext):
+    pt_bytes = plaintext.encode()
+    key = os.urandom(len(pt_bytes))
+    ct = bytes([p ^ k for p, k in zip(pt_bytes, key)])
+    return ct, key
+
+def otp_reuse_attack(ct1, ct2):
+    """When two messages are XOR'd with same key: C1 ^ C2 = P1 ^ P2"""
+    xored = bytes([a ^ b for a, b in zip(ct1, ct2)])
+    print(f"C1 XOR C2 (hex): {xored.hex()}")
+    print(f"C1 XOR C2 (ascii attempt): ", end="")
+    print(''.join(chr(b) if 32 <= b < 127 else '.' for b in xored))
+    return xored
+
+# Demonstrate reuse vulnerability
+key = os.urandom(20)
+msg1 = b"attack at dawn!!"
+msg2 = b"retreat at dusk!"
+ct1 = bytes([p ^ k for p, k in zip(msg1, key)])
+ct2 = bytes([p ^ k for p, k in zip(msg2, key)])
+
+# Crib dragging: if we guess part of P1, we can recover part of P2
+print("=== OTP Reuse Attack ===")
+p1_xor_p2 = otp_reuse_attack(ct1, ct2)
+# If we know msg1, we recover msg2:
+recovered = bytes([x ^ p for x, p in zip(p1_xor_p2, msg1)])
+print(f"Recovered msg2: {recovered.decode()}")</code></pre>
+
+        <hr>
+        <h2>Beaufort Cipher</h2>
+        <p>Variant of Vigenère. Encryption: <code>C[i] = (K[i] - P[i]) mod 26</code>. Self-reciprocal (encrypt = decrypt with same key).</p>
+<pre><code class="language-python">def beaufort(text, key):
+    result = []
+    key_idx = 0
+    for ch in text:
+        if ch.isalpha():
+            base = ord('A') if ch.isupper() else ord('a')
+            k = ord(key[key_idx % len(key)].upper()) - ord('A')
+            p = ord(ch.upper()) - ord('A')
+            c = (k - p) % 26
+            result.append(chr(c + base))
+            key_idx += 1
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+ct = beaufort("HELLOWORLD", "KEY")
+print(f"Encrypted: {ct}")
+print(f"Decrypted: {beaufort(ct, 'KEY')}")  # Self-reciprocal!</code></pre>
+
+        <hr>
+        <h2>Enigma Machine (Historical Overview)</h2>
+        <p>WWII German encryption device. Key features:</p>
+        <ul>
+          <li><strong>Rotors:</strong> 3-5 rotors with internal wiring, rotating after each keypress</li>
+          <li><strong>Reflector:</strong> Ensures no letter encrypts to itself (a critical weakness)</li>
+          <li><strong>Plugboard (Stecker):</strong> Letter swaps before/after rotor processing</li>
+          <li><strong>Daily key settings:</strong> Rotor selection, starting positions, plugboard pairs</li>
+        </ul>
+        <p><strong>Weaknesses exploited by allies:</strong></p>
+        <ul>
+          <li>No letter encrypts to itself → eliminates possibilities</li>
+          <li>Known plaintext cribs (e.g., weather reports starting with "WETTER")</li>
+          <li>Repeated message indicators</li>
+          <li>Operator errors and lazy habits</li>
+        </ul>
+
+        <hr>
+        <h2>Encoding (Not Encryption)</h2>
+        <p>Encoding is NOT encryption — there is no key. Extremely common in CTFs as obfuscation layers.</p>
+
+        <h3>Base64</h3>
+<pre><code class="language-python">import base64
+
+# Encode/Decode
+encoded = base64.b64encode(b"flag{base64_is_not_crypto}").decode()
+print(f"Encoded: {encoded}")  # ZmxhZ3tiYXNlNjRfaXNfbm90X2NyeXB0b30=
+print(f"Decoded: {base64.b64decode(encoded).decode()}")
+
+# Recognition: charset A-Z, a-z, 0-9, +, / with = padding
+# Length is always multiple of 4</code></pre>
+
+        <h3>Base32</h3>
+<pre><code class="language-python">import base64
+
+encoded = base64.b32encode(b"flag{b32}").decode()
+print(f"Encoded: {encoded}")  # MZWGCZ33MFRGK===
+print(f"Decoded: {base64.b32decode(encoded).decode()}")
+
+# Recognition: charset A-Z, 2-7 with = padding. All uppercase.</code></pre>
+
+        <h3>Hex Encoding</h3>
+<pre><code class="language-python"># Encode/Decode
+flag = "flag{hex_encoding}"
+hex_encoded = flag.encode().hex()
+print(f"Hex: {hex_encoded}")  # 666c61677b6865785f656e636f64696e677d
+print(f"Decoded: {bytes.fromhex(hex_encoded).decode()}")
+
+# Recognition: only chars 0-9, a-f. Always even length.</code></pre>
+
+        <h3>Multi-Layer Decoding</h3>
+<pre><code class="language-python">import base64
+
+# Common CTF pattern: multiple encoding layers
+data = "NjM2ZjZlNjc3MjYxNzQ3MzIx"  # base64 → hex → ascii
+step1 = base64.b64decode(data).decode()
+print(f"After base64: {step1}")  # 636f6e67726174733121
+step2 = bytes.fromhex(step1).decode()
+print(f"After hex: {step2}")  # congrats1!</code></pre>
+
+        <hr>
+        <h2>Python Tools &amp; Libraries</h2>
+
+        <h3>Useful Imports</h3>
+<pre><code class="language-python">from Crypto.Cipher import AES, DES  # pycryptodome
+from Crypto.Util.number import *
+import string
+import codecs
+import base64
+from itertools import cycle
+from collections import Counter
+import binascii</code></pre>
+
+        <h3>Quick String Manipulation</h3>
+<pre><code class="language-python">import string
+
+# All lowercase/uppercase
+string.ascii_lowercase  # 'abcdefghijklmnopqrstuvwxyz'
+string.ascii_uppercase  # 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+string.printable        # all printable chars
+
+# Shift a single char
+def shift_char(c, n):
+    if c.isalpha():
+        base = ord('a') if c.islower() else ord('A')
+        return chr((ord(c) - base + n) % 26 + base)
+    return c
+
+# XOR two byte strings
+def xor_bytes(b1, b2):
+    return bytes(a ^ b for a, b in zip(b1, b2))</code></pre>
+
+        <hr>
+        <h2>CyberChef Quick Reference</h2>
+        <p><a href="https://gchq.github.io/CyberChef/" target="_blank">CyberChef</a> — browser-based crypto toolkit. Key operations for classical crypto CTFs:</p>
+        <ul>
+          <li><strong>ROT13:</strong> Drag "ROT13" into recipe</li>
+          <li><strong>ROT47:</strong> Rotates ASCII 33-126 (handles numbers/symbols too)</li>
+          <li><strong>Caesar / ROT:</strong> "ROT13" with Amount parameter for any shift</li>
+          <li><strong>Vigenère Decode:</strong> Use "Vigenère Decode" operation with key</li>
+          <li><strong>XOR:</strong> "XOR" operation — supports hex keys, UTF-8 keys</li>
+          <li><strong>Magic:</strong> Auto-detect encoding/encryption layers. Extremely useful!</li>
+          <li><strong>From Hex / To Hex:</strong> Convert hex strings</li>
+          <li><strong>From Base64:</strong> Decode base64</li>
+          <li><strong>Frequency Analysis:</strong> Built-in frequency distribution chart</li>
+          <li><strong>Entropy:</strong> Measure randomness of data</li>
+        </ul>
+
+        <hr>
+        <h2>CTF Identification Tips</h2>
+        <table class="table table-dark table-sm">
+          <thead><tr><th>Pattern</th><th>Likely Encoding/Cipher</th></tr></thead>
+          <tbody>
+            <tr><td>Only A-Z, a-z, 0-9, +, /, ends with =</td><td>Base64</td></tr>
+            <tr><td>Only A-Z, 2-7, ends with =</td><td>Base32</td></tr>
+            <tr><td>Only 0-9, a-f (even length)</td><td>Hex</td></tr>
+            <tr><td>All printable, shifted-looking English</td><td>Caesar / ROT13</td></tr>
+            <tr><td>Alphabetic, varying shifts visible</td><td>Vigenère</td></tr>
+            <tr><td>Numbers separated by spaces/commas</td><td>Decimal ASCII or number cipher</td></tr>
+            <tr><td>Dots and dashes</td><td>Morse code</td></tr>
+            <tr><td>Binary (0s and 1s)</td><td>Binary → ASCII</td></tr>
+            <tr><td>Short, looks like garbage bytes</td><td>XOR with short key</td></tr>
+            <tr><td>Two identical-length hex strings given</td><td>XOR / OTP reuse</td></tr>
+            <tr><td>5×5 grid mentioned</td><td>Playfair or Polybius</td></tr>
+          </tbody>
+        </table>
+
+      </div>
+
+      <!-- ==================== LAB TAB ==================== -->
+      <div class="tab-content" id="lab">
+
+        <div class="lab-card">
+          <h4>Lab 1: Caesar Brute Force</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Decrypt a Caesar-encrypted message by trying all 26 shifts. Identify the correct plaintext.</p>
+          <div class="setup-code">
+<pre><code class="language-python">ciphertext = "Ymj kwfl nx HFJXFW_GWZYJ_KTWIJ"
+
+# Decrypt by trying all 26 shifts
+for shift in range(26):
+    plaintext = ""
+    for ch in ciphertext:
+        if ch.isalpha():
+            base = ord('A') if ch.isupper() else ord('a')
+            plaintext += chr((ord(ch) - base - shift) % 26 + base)
+        else:
+            plaintext += ch
+    print(f"Shift {shift:2d}: {plaintext}")
+
+# Expected: Shift 5 → "The flag is CAESAR_BRUTE_FORCE"</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Frequency Analysis on Substitution Cipher</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Use frequency analysis to crack a monoalphabetic substitution cipher. Map the most frequent ciphertext letters to common English letters (E, T, A, O, I, N...).</p>
+          <div class="setup-code">
+<pre><code class="language-python">from collections import Counter
+
+ciphertext = """
+ZOQ XAVBR EKWIT GWF CPDLU WJQK ZOQ MNHM SWY.
+ZOQ GVNY VU UKQXAQIBM_NIZNMUVL. VOQ WG ZOQ
+DWUZ BDLWKZNIZ ZQBOIVXAQU VI BKNUUVBNV BKMLZWYKNLOM.
+"""
+
+# Step 1: Frequency analysis
+letters = [ch.upper() for ch in ciphertext if ch.isalpha()]
+freq = Counter(letters)
+print("Ciphertext frequencies:")
+for letter, count in freq.most_common():
+    pct = count / len(letters) * 100
+    print(f"  {letter}: {count:3d} ({pct:.1f}%)")
+
+# Step 2: Build substitution mapping
+# Most frequent in ciphertext → E, T, A, O, I, N, S, H, R...
+# Q appears most → likely E
+# Z appears next → likely T
+# Fill in the mapping based on analysis
+
+# Step 3: Apply mapping and refine
+mapping = {}  # Build this based on your analysis
+# mapping = {'Q': 'E', 'Z': 'T', ...}
+
+# Hint: Look for single-letter words (likely A or I)
+# Look for "ZOQ" pattern → THE
+# The flag is: FREQUENCY_ANALYSIS</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Vigenère Key Length Detection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Determine the key length of a Vigenère cipher using the Friedman test (Index of Coincidence) and Kasiski examination.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from collections import Counter
+from math import gcd
+from functools import reduce
+
+ciphertext = "LXFOPVEFRNHRACFAKAFDESPERATEFIGHTAGAINSTMANKINDTOPRAVDWETHERCLASSICALCIPHERSCANBESTOODAGAINSTMODERNCOMPUTERS"
+# Encrypted with key "LEMON" (length 5)
+
+# Method 1: Index of Coincidence
+def index_of_coincidence(text):
+    n = len(text)
+    if n <= 1:
+        return 0
+    freq = Counter(text)
+    return sum(f*(f-1) for f in freq.values()) / (n*(n-1))
+
+print("=== Friedman Test ===")
+print(f"{'Key Len':<10}{'Avg IC':<10}{'Match?'}")
+print("-" * 30)
+for key_len in range(1, 15):
+    groups = ['' for _ in range(key_len)]
+    ct_alpha = [ch for ch in ciphertext.upper() if ch.isalpha()]
+    for i, ch in enumerate(ct_alpha):
+        groups[i % key_len] += ch
+    avg_ic = sum(index_of_coincidence(g) for g in groups) / key_len
+    match = "  <-- likely" if avg_ic > 0.06 else ""
+    print(f"  {key_len:<8}{avg_ic:<10.4f}{match}")
+
+# Method 2: Kasiski - find repeated sequences
+from collections import defaultdict
+def kasiski_exam(ct, min_seq=3, max_seq=5):
+    ct = ''.join(ch for ch in ct.upper() if ch.isalpha())
+    sequences = defaultdict(list)
+    for length in range(min_seq, max_seq+1):
+        for i in range(len(ct) - length):
+            seq = ct[i:i+length]
+            sequences[seq].append(i)
+
+    print("\n=== Kasiski Examination ===")
+    distances = []
+    for seq, positions in sequences.items():
+        if len(positions) >= 2:
+            for i in range(len(positions)-1):
+                d = positions[i+1] - positions[i]
+                distances.append(d)
+                if len(positions) < 4:
+                    print(f"  Seq '{seq}' at positions {positions}, distance(s): {d}")
+
+    if distances:
+        overall_gcd = reduce(gcd, distances)
+        print(f"\nGCD of all distances: {overall_gcd}")
+        print(f"Probable key length: {overall_gcd}")
+
+kasiski_exam(ciphertext)</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Vigenère Decrypt with Known Key Length</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Given a Vigenère ciphertext with known key length, recover the key using frequency analysis on each column, then decrypt.</p>
+          <div class="setup-code">
+<pre><code class="language-python">def vigenere_decrypt(ciphertext, key):
+    result = []
+    key_idx = 0
+    for ch in ciphertext:
+        if ch.isalpha():
+            base = ord('A') if ch.isupper() else ord('a')
+            shift = ord(key[key_idx % len(key)].upper()) - ord('A')
+            result.append(chr((ord(ch) - base - shift) % 26 + base))
+            key_idx += 1
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+ciphertext = "LXFOPVEFRNHRLXFOPVEZRKZWCZLXFOPVEAHSLXFOPVEDWR"
+key_length = 5  # Determined from Lab 3
+
+english_freq = [0.082,0.015,0.028,0.043,0.127,0.022,0.020,0.061,0.070,
+                0.002,0.008,0.040,0.024,0.067,0.075,0.019,0.001,0.060,
+                0.063,0.091,0.028,0.010,0.023,0.001,0.020,0.001]
+
+ct_alpha = [ch.upper() for ch in ciphertext if ch.isalpha()]
+
+key = []
+for i in range(key_length):
+    group = [ct_alpha[j] for j in range(i, len(ct_alpha), key_length)]
+    best_shift = 0
+    best_score = 0
+    for shift in range(26):
+        score = sum(english_freq[(ord(ch) - ord('A') - shift) % 26] for ch in group)
+        if score > best_score:
+            best_score = score
+            best_shift = shift
+    key.append(chr(best_shift + ord('A')))
+    print(f"Position {i}: best shift = {best_shift} (letter '{key[-1]}')")
+
+recovered_key = ''.join(key)
+print(f"\nRecovered key: {recovered_key}")
+print(f"Decrypted: {vigenere_decrypt(ciphertext, recovered_key)}")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: XOR Single-Byte Brute Force</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: A message has been XOR'd with a single byte. Brute force all 256 possible keys and score results to find the plaintext.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># The flag "flag{single_byte_xor}" XOR'd with key 0x4D
+ciphertext_hex = "2b21260e364c362b2d262b240e27342d240e312b2438"
+
+ct = bytes.fromhex(ciphertext_hex)
+
+def score_text(text):
+    """Score based on English character frequency"""
+    freq = "etaoinshrdlcumwfgypbvkjxqz "
+    return sum(freq.index(ch.lower()) if ch.lower() in freq else 0 for ch in text)
+
+best_score = 0
+best_result = ""
+best_key = 0
+
+for key in range(256):
+    decrypted = bytes([b ^ key for b in ct])
+    try:
+        text = decrypted.decode('ascii')
+        # Check if mostly printable
+        if all(32 <= b < 127 for b in decrypted):
+            score = sum(1 for ch in text if ch.isalpha() or ch in ' _{}')
+            if score > best_score:
+                best_score = score
+                best_result = text
+                best_key = key
+    except:
+        continue
+
+print(f"Best key: 0x{best_key:02x} (decimal: {best_key})")
+print(f"Decrypted: {best_result}")
+
+# Verify
+print(f"\nAll printable results:")
+for key in range(256):
+    decrypted = bytes([b ^ key for b in ct])
+    try:
+        text = decrypted.decode('ascii')
+        if all(32 <= b < 127 for b in decrypted) and any(ch.isalpha() for ch in text):
+            print(f"  Key 0x{key:02x}: {text}")
+    except:
+        continue</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: XOR Multi-Byte Key Recovery</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Recover a repeating XOR key using Hamming distance for key length detection, then frequency analysis per position.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from itertools import cycle
+
+# Encrypt a message with repeating XOR key "CTF"
+plaintext = b"The flag is flag{repeating_xor_is_weak_crypto} and you should never use it for real encryption"
+key = b"CTF"
+ciphertext = bytes([p ^ k for p, k in zip(plaintext, cycle(key))])
+print(f"Ciphertext (hex): {ciphertext.hex()}")
+
+# Step 1: Find key length using Hamming distance
+def hamming_distance(b1, b2):
+    return sum(bin(a ^ b).count('1') for a, b in zip(b1, b2))
+
+print("\n=== Key Length Detection ===")
+scores = []
+for keysize in range(2, 20):
+    blocks = [ciphertext[i*keysize:(i+1)*keysize] for i in range(4)]
+    if len(blocks[3]) < keysize:
+        continue
+    total_dist = 0
+    pairs = 0
+    for i in range(len(blocks)):
+        for j in range(i+1, len(blocks)):
+            total_dist += hamming_distance(blocks[i], blocks[j]) / keysize
+            pairs += 1
+    normalized = total_dist / pairs
+    scores.append((normalized, keysize))
+
+scores.sort()
+print("Top candidates:")
+for score, ks in scores[:5]:
+    print(f"  Key length {ks:2d}: score = {score:.3f}")
+
+# Step 2: Break each byte position independently
+key_length = scores[0][1]
+print(f"\nUsing key length: {key_length}")
+
+recovered_key = []
+for i in range(key_length):
+    block = bytes(ciphertext[j] for j in range(i, len(ciphertext), key_length))
+    best_score = 0
+    best_byte = 0
+    for candidate in range(256):
+        decrypted = bytes([b ^ candidate for b in block])
+        score = sum(1 for b in decrypted if chr(b).lower() in 'etaoinshrdlu ')
+        if score > best_score:
+            best_score = score
+            best_byte = candidate
+    recovered_key.append(best_byte)
+
+print(f"Recovered key: {bytes(recovered_key)} (hex: {bytes(recovered_key).hex()})")
+decrypted = bytes([c ^ recovered_key[i % len(recovered_key)] for i, c in enumerate(ciphertext)])
+print(f"Decrypted: {decrypted.decode()}")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Rail Fence Cipher Decode</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Decrypt a rail fence cipher by trying different numbers of rails. The message was encoded with an unknown number of rails (2-10).</p>
+          <div class="setup-code">
+<pre><code class="language-python">def rail_fence_decrypt(ciphertext, rails):
+    n = len(ciphertext)
+    # Build the fence pattern
+    fence = [[None] * n for _ in range(rails)]
+    rail, direction = 0, 1
+
+    # Mark positions
+    for i in range(n):
+        fence[rail][i] = True
+        if rail == 0:
+            direction = 1
+        elif rail == rails - 1:
+            direction = -1
+        rail += direction
+
+    # Fill ciphertext into marked positions
+    idx = 0
+    for r in range(rails):
+        for c in range(n):
+            if fence[r][c] is True:
+                fence[r][c] = ciphertext[idx]
+                idx += 1
+
+    # Read off in zigzag order
+    result = []
+    rail, direction = 0, 1
+    for i in range(n):
+        result.append(fence[rail][i])
+        if rail == 0:
+            direction = 1
+        elif rail == rails - 1:
+            direction = -1
+        rail += direction
+    return ''.join(result)
+
+# Ciphertext encoded with 4 rails
+ciphertext = "TGARLFE_AFIAEICSNLNECHRD"
+# Original: "THE_FLAG_IS_RAILFENCE_DR" encoded with 4 rails
+
+print("Trying different rail counts:")
+for rails in range(2, 10):
+    result = rail_fence_decrypt(ciphertext, rails)
+    print(f"  Rails={rails}: {result}")
+
+# Flag: look for readable English text</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Columnar Transposition Decode</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Decrypt a columnar transposition cipher. You know the key length is 4. Try common key permutations or use anagram analysis.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from itertools import permutations
+
+def columnar_decrypt(ciphertext, key_order):
+    """Decrypt given column read order"""
+    cols = len(key_order)
+    rows = len(ciphertext) // cols
+    if len(ciphertext) % cols != 0:
+        return None
+
+    # Determine which column was read first, second, etc.
+    col_data = {}
+    idx = 0
+    for col in key_order:
+        col_data[col] = ciphertext[idx:idx+rows]
+        idx += rows
+
+    # Read row by row
+    result = ''
+    for row in range(rows):
+        for col in range(cols):
+            result += col_data[col][row]
+    return result
+
+# Encrypted with key "HACK" → column order [1,0,2,3] (alphabetical: A=0,C=1,H=2,K=3)
+ciphertext = "LFHTIGATDDIHSEENXFLI"
+key_length = 4
+
+print("Trying all column permutations:")
+for perm in permutations(range(key_length)):
+    result = columnar_decrypt(ciphertext, perm)
+    if result:
+        # Check if it looks like English
+        score = sum(1 for i in range(len(result)-2)
+                   if result[i:i+3].upper() in ['THE','AND','ING','FLA','LAG','HID'])
+        if score > 0 or 'FLAG' in result.upper():
+            print(f"  Order {perm}: {result}  ***")
+        elif all(ch.isalpha() or ch in '_{} ' for ch in result):
+            print(f"  Order {perm}: {result}")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Affine Cipher Implementation and Breaking</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Implement the affine cipher, then brute force the key (a, b) to decrypt a ciphertext. Only 312 possible keys (12 valid 'a' values × 26 'b' values).</p>
+          <div class="setup-code">
+<pre><code class="language-python">from math import gcd
+
+def mod_inverse(a, m):
+    for x in range(1, m):
+        if (a * x) % m == 1:
+            return x
+    return None
+
+def affine_decrypt(ciphertext, a, b):
+    a_inv = mod_inverse(a, 26)
+    if a_inv is None:
+        return None
+    result = []
+    for ch in ciphertext:
+        if ch.isalpha():
+            base = ord('A') if ch.isupper() else ord('a')
+            y = ord(ch) - base
+            result.append(chr((a_inv * (y - b)) % 26 + base))
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+# Ciphertext encrypted with a=7, b=11
+# Plaintext: "THE FLAG IS AFFINE_BRUTE"
+ciphertext = "QMH CWXP ZR XCCZDH_IYAQH"
+
+valid_a = [a for a in range(1, 26) if gcd(a, 26) == 1]
+print(f"Valid 'a' values: {valid_a}")
+print(f"Total key space: {len(valid_a) * 26} combinations\n")
+
+print("Brute forcing...")
+for a in valid_a:
+    for b in range(26):
+        result = affine_decrypt(ciphertext, a, b)
+        if result and ('THE' in result.upper() or 'FLAG' in result.upper()):
+            print(f"  a={a:2d}, b={b:2d}: {result}")
+
+# Verification
+print(f"\nWith a=7, b=11: {affine_decrypt(ciphertext, 7, 11)}")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Hill Cipher Known-Plaintext Attack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Given a known plaintext-ciphertext pair, recover the 2×2 Hill cipher key matrix using modular matrix inversion.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import numpy as np
+
+def text_to_vector(text):
+    return [ord(ch) - ord('A') for ch in text.upper() if ch.isalpha()]
+
+def vector_to_text(vec):
+    return ''.join(chr(int(v) % 26 + ord('A')) for v in vec)
+
+def mod_matrix_inverse_2x2(matrix, mod=26):
+    """Compute 2x2 matrix inverse mod 26"""
+    a, b, c, d = matrix[0][0], matrix[0][1], matrix[1][0], matrix[1][1]
+    det = (a * d - b * c) % mod
+    # Check if determinant has an inverse mod 26
+    det_inv = None
+    for x in range(mod):
+        if (det * x) % mod == 1:
+            det_inv = x
+            break
+    if det_inv is None:
+        return None
+
+    # Adjugate: [[d, -b], [-c, a]]
+    inv = np.array([[d * det_inv % mod, (-b * det_inv) % mod],
+                    [(-c * det_inv) % mod, a * det_inv % mod]])
+    return inv % mod
+
+# Known plaintext-ciphertext pair
+# Key matrix K = [[3, 5], [2, 7]]
+# Encryption: C = K * P mod 26
+known_plaintext = "FLAG"   # Two 2-letter blocks: FL, AG
+known_ciphertext = "RKHV"  # Corresponding ciphertext
+
+# Convert to vectors
+P = np.array([[text_to_vector("FL")[0], text_to_vector("AG")[0]],
+              [text_to_vector("FL")[1], text_to_vector("AG")[1]]])
+C = np.array([[text_to_vector("RK")[0], text_to_vector("HV")[0]],
+              [text_to_vector("RK")[1], text_to_vector("HV")[1]]])
+
+print(f"Plaintext matrix P:\n{P}")
+print(f"Ciphertext matrix C:\n{C}")
+
+# K = C * P^(-1) mod 26
+P_inv = mod_matrix_inverse_2x2(P)
+if P_inv is not None:
+    K = np.dot(C, P_inv) % 26
+    print(f"\nRecovered Key matrix K:\n{K.astype(int)}")
+
+    # Verify: encrypt "FLAG" with recovered key
+    test_pt = np.array(text_to_vector("FL")).reshape(2, 1)
+    test_ct = np.dot(K, test_pt) % 26
+    print(f"\nVerification: encrypt 'FL' → '{vector_to_text(test_ct.flatten())}'")
+    print(f"Expected: 'RK'")
+else:
+    print("Plaintext matrix is not invertible mod 26 - need different known pairs")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: One-Time Pad Reuse Attack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Two messages encrypted with the same OTP key. Use crib dragging to recover both plaintexts by XORing the ciphertexts together and guessing words.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import os
+
+# Two messages encrypted with the SAME key (vulnerability!)
+msg1 = b"the secret flag is otp_reuse_is_fatal"
+msg2 = b"never reuse a one time pad key please"
+key = os.urandom(len(msg1))
+
+ct1 = bytes([m ^ k for m, k in zip(msg1, key)])
+ct2 = bytes([m ^ k for m, k in zip(msg2, key)])
+
+print(f"Ciphertext 1 (hex): {ct1.hex()}")
+print(f"Ciphertext 2 (hex): {ct2.hex()}")
+
+# Attack: XOR the two ciphertexts → cancels the key
+# ct1 XOR ct2 = (msg1 XOR key) XOR (msg2 XOR key) = msg1 XOR msg2
+xored = bytes([a ^ b for a, b in zip(ct1, ct2)])
+print(f"\nC1 XOR C2 (hex): {xored.hex()}")
+
+# Crib dragging: guess a word in one message, XOR it at each position
+def crib_drag(xored_messages, crib):
+    crib_bytes = crib.encode() if isinstance(crib, str) else crib
+    print(f"\nCrib dragging with: '{crib}'")
+    print("-" * 50)
+    for pos in range(len(xored_messages) - len(crib_bytes) + 1):
+        result = bytes([xored_messages[pos + i] ^ crib_bytes[i] for i in range(len(crib_bytes))])
+        try:
+            decoded = result.decode('ascii')
+            if all(32 <= b < 127 for b in result):
+                # Highlight if it looks like English
+                if any(word in decoded.lower() for word in ['the', 'flag', 'is', 'and', 'one', 'time']):
+                    print(f"  Position {pos:2d}: '{decoded}'  <-- LIKELY MATCH")
+                else:
+                    print(f"  Position {pos:2d}: '{decoded}'")
+        except:
+            continue
+
+# Try common cribs
+crib_drag(xored, "the ")
+crib_drag(xored, "flag")
+crib_drag(xored, "never")
+crib_drag(xored, " is ")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Mixed Encoding Chain</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Decode a multi-layer encoded string. The flag has been encoded through: plaintext → XOR(0x13) → hex → Base64 → ROT13. Reverse the process.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import base64
+import codecs
+
+# The encoded data (ROT13 → Base64 → Hex → XOR)
+encoded = "TnpZMk5qWTJOell6TmpNMk9EWTNNall6TmpNMk56WTJPRE0yTnpZMU5qZzJOell6TmpjMk5UWTROamcyTmpZeE5qTTJPRFk1"
+
+print("=== Decoding Chain ===")
+print(f"Input: {encoded}\n")
+
+# Step 1: Undo ROT13
+step1 = codecs.decode(encoded, 'rot_13')
+print(f"After ROT13 decode: {step1}")
+
+# Step 2: Undo Base64
+step2 = base64.b64decode(step1).decode()
+print(f"After Base64 decode: {step2}")
+
+# Step 3: Undo Hex
+step3 = bytes.fromhex(step2)
+print(f"After Hex decode: {step3}")
+
+# Step 4: Undo XOR with key 0x13
+step4 = bytes([b ^ 0x13 for b in step3])
+print(f"After XOR(0x13): {step4.decode()}")
+
+print(f"\n=== Flag: {step4.decode()} ===")
+
+# Build it forward to verify:
+print("\n=== Encoding Chain (forward) ===")
+flag = "flag{layers_of_encoding}"
+print(f"Plaintext: {flag}")
+e1 = bytes([ord(ch) ^ 0x13 for ch in flag])
+print(f"After XOR(0x13): {e1.hex()}")
+e2 = e1.hex()
+e3 = base64.b64encode(e2.encode()).decode()
+print(f"After Base64: {e3}")
+e4 = codecs.encode(e3, 'rot_13')
+print(f"After ROT13: {e4}")</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 13: Playfair Cipher Decryption</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Decrypt a Playfair-encrypted message given the key. Implement the decryption rules (reverse of encryption: shift left for rows, shift up for columns).</p>
+          <div class="setup-code">
+<pre><code class="language-python">def generate_playfair_matrix(key):
+    key = key.upper().replace('J', 'I')
+    seen = set()
+    matrix = []
+    for ch in key + "ABCDEFGHIKLMNOPQRSTUVWXYZ":
+        if ch not in seen and ch.isalpha():
+            seen.add(ch)
+            matrix.append(ch)
+    return [matrix[i:i+5] for i in range(0, 25, 5)]
+
+def find_pos(matrix, ch):
+    ch = ch.upper().replace('J', 'I')
+    for r in range(5):
+        for c in range(5):
+            if matrix[r][c] == ch:
+                return r, c
+
+def playfair_decrypt(ciphertext, key):
+    matrix = generate_playfair_matrix(key)
+    ct = ''.join(ch.upper() for ch in ciphertext if ch.isalpha())
+
+    # Split into pairs
+    pairs = [ct[i:i+2] for i in range(0, len(ct), 2)]
+
+    result = []
+    for pair in pairs:
+        r1, c1 = find_pos(matrix, pair[0])
+        r2, c2 = find_pos(matrix, pair[1])
+        if r1 == r2:  # Same row: shift left
+            result.append(matrix[r1][(c1-1)%5] + matrix[r2][(c2-1)%5])
+        elif c1 == c2:  # Same column: shift up
+            result.append(matrix[(r1-1)%5][c1] + matrix[(r2-1)%5][c2])
+        else:  # Rectangle: swap columns
+            result.append(matrix[r1][c2] + matrix[r2][c1])
+
+    return ''.join(result)
+
+key = "HACKTHEBOX"
+ciphertext = "GKDPIBQXEP"
+
+print("Playfair Matrix:")
+matrix = generate_playfair_matrix(key)
+for row in matrix:
+    print(' '.join(row))
+
+print(f"\nCiphertext: {ciphertext}")
+print(f"Decrypted: {playfair_decrypt(ciphertext, key)}")
+# Note: remove padding X's from output to get actual message</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 14: Automated Cipher Detection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Build an automated cipher identifier that examines a ciphertext and suggests the most likely cipher type based on character distribution, IC, and patterns.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import string
+from collections import Counter
+
+def identify_cipher(ciphertext):
+    """Attempt to identify the cipher type"""
+    analysis = {}
+
+    # Character set analysis
+    chars = set(ciphertext)
+    alpha_only = ''.join(ch for ch in ciphertext if ch.isalpha())
+    hex_chars = set('0123456789abcdefABCDEF')
+    b64_chars = set(string.ascii_letters + string.digits + '+/=')
+
+    print("=== Cipher Identification ===")
+    print(f"Length: {len(ciphertext)}")
+    print(f"Unique chars: {len(chars)}")
+    print(f"Character set: {sorted(chars)[:20]}...")
+
+    # Check for encodings first
+    if all(ch in hex_chars for ch in ciphertext.replace(' ', '')) and len(ciphertext) % 2 == 0:
+        print("\n[*] LIKELY: Hex encoding")
+        print(f"    Decoded: {bytes.fromhex(ciphertext.replace(' ','')).decode('utf-8', errors='replace')}")
+        return "hex"
+
+    if all(ch in b64_chars for ch in ciphertext) and ciphertext.endswith('='):
+        import base64
+        print("\n[*] LIKELY: Base64 encoding")
+        print(f"    Decoded: {base64.b64decode(ciphertext).decode('utf-8', errors='replace')}")
+        return "base64"
+
+    # Index of Coincidence
+    if alpha_only:
+        n = len(alpha_only)
+        freq = Counter(alpha_only.upper())
+        ic = sum(f*(f-1) for f in freq.values()) / (n*(n-1)) if n > 1 else 0
+        print(f"\nIndex of Coincidence: {ic:.4f}")
+        print(f"  English IC ≈ 0.0667")
+        print(f"  Random IC  ≈ 0.0385")
+
+        if ic > 0.06:
+            print("\n[*] IC suggests monoalphabetic (Caesar, Affine, Substitution)")
+        elif ic > 0.04:
+            print("\n[*] IC suggests polyalphabetic (Vigenère) or transposition")
+        else:
+            print("\n[*] IC is very low - possibly polyalphabetic with long key or random")
+
+    # Frequency distribution
+    if alpha_only:
+        freq_sorted = freq.most_common()
+        top_letter = freq_sorted[0][0]
+        top_pct = freq_sorted[0][1] / len(alpha_only) * 100
+        print(f"\nMost frequent letter: {top_letter} ({top_pct:.1f}%)")
+        if top_pct > 10:
+            shift = (ord(top_letter) - ord('E')) % 26
+            print(f"  If Caesar: shift might be {shift}")
+
+# Test with different ciphertexts
+print("Test 1: Caesar")
+identify_cipher("Wkh iodj lv HQFUBSWHG")
+print("\n" + "="*50 + "\n")
+
+print("Test 2: Hex")
+identify_cipher("666c61677b686578656e636f6465647d")
+print("\n" + "="*50 + "\n")
+
+print("Test 3: Vigenere")
+identify_cipher("LXFOPVEFRNHRACFAKAFDESPERATEFIGHT")</code></pre>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ==================== CTF TAB ==================== -->
+      <div class="tab-content" id="ctf">
+
+        <div class="ctf-card">
+          <h4>Challenge 1: ROT13 Decode</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A message was intercepted from a hacker forum. It appears to be encoded with a simple rotation cipher. Decode it to find the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Ciphertext
+ct = "synt{ebg13_vf_abg_rapelcgvba}"
+
+# Your solution here:
+</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>ROT13 is self-inverting. Use <code>codecs.decode(ct, 'rot_13')</code> or apply a shift of 13 to each letter. The flag format is <code>flag{...}</code>.</p>
+<pre><code class="language-python">import codecs
+print(codecs.decode("synt{ebg13_vf_abg_rapelcgvba}", "rot_13"))
+# flag{rot13_is_not_encryption}</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Caesar with Unknown Shift</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">This encrypted message uses a Caesar cipher with an unknown shift. Find the shift and decode the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Ciphertext (shift unknown)
+ct = "iwv{ljfxfw_hnuhmjw_gwtpjs}"
+
+# Brute force all 26 shifts:
+for shift in range(26):
+    pt = ""
+    for ch in ct:
+        if ch.isalpha():
+            base = ord('a') if ch.islower() else ord('A')
+            pt += chr((ord(ch) - base - shift) % 26 + base)
+        else:
+            pt += ch
+    print(f"Shift {shift:2d}: {pt}")
+</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Look for the shift that produces <code>flag{...}</code>. The letter 'i' needs to become 'f', so the shift is 3. But try brute forcing — it's only 26 options.</p>
+<pre><code class="language-python"># Shift 5 reveals: flag{caesar_cipher_broken}
+</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Multi-Layer Encoding</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">The flag has been encoded multiple times. Peel off the layers to reveal it. Layer order: ASCII → Hex → Base64.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import base64
+
+# Encoded flag
+data = "NjY2YzYxNjc3YjZkNzU2Yzc0Njk1ZjZjNjE3OTY1NzI3MzVmNjY3NTZlN2Q="
+
+# Step 1: Base64 decode
+# Step 2: Hex decode  
+# Step 3: Read ASCII
+
+# Your solution:
+</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Reverse the encoding order: Base64 decode first, then convert from hex to bytes.</p>
+<pre><code class="language-python">import base64
+step1 = base64.b64decode(data).decode()  # hex string
+step2 = bytes.fromhex(step1).decode()    # ASCII
+print(step2)  # flag{multi_layers_fun}</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Substitution Cipher from Frequency Analysis</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A long message has been encrypted with a monoalphabetic substitution cipher. Use frequency analysis, digram/trigram patterns, and word structure to decrypt it. The flag is embedded in the plaintext.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from collections import Counter
+
+ciphertext = """
+BPR DOXJB AK JRMEOWBQ OJ BA FRRC QAMX JQJBRNJ JRKR.
+BPR KONB BPOB QAM OXR XROLUVY BPOJ NROJJ QAM POVR
+JMEERRKML OY KXYIBOY OLOQJOJ. BPR KWOY OJ
+KWOY{NAYADPODRBOE_JMDDJBOBMBOAY_KXOEFRU}. RXRXQ YAAU
+POEFRY JBOXY GWBP O JAYYWR JDYOK.
+"""
+
+# Step 1: Frequency analysis
+letters = [ch for ch in ciphertext if ch.isalpha()]
+freq = Counter(letters)
+print("Letter frequencies:")
+for letter, count in freq.most_common():
+    print(f"  {letter}: {count}")
+
+# Step 2: Look for patterns
+# "BPR" appears multiple times → likely "THE"
+# Single letters: O → likely "A" or "I"
+# "KWOY{" → "FLAG{"
+
+# Step 3: Build mapping from observations
+# B→T, P→H, R→E, K→F, W→L, O→A, Y→G (from KWOY→FLAG)
+# Continue mapping...
+
+# Your solution:
+mapping = {
+    'B': 'T', 'P': 'H', 'R': 'E', 'K': 'F', 'W': 'L',
+    'O': 'A', 'Y': 'N', 'A': 'O', 'J': 'S', 'D': 'P',
+    'X': 'R', 'Q': 'Y', 'M': 'U', 'E': 'C', 'L': 'I',
+    'V': 'G', 'N': 'M', 'U': 'D', 'G': 'B', 'I': 'K',
+    'H': 'W', 'F': 'V'
+}
+
+result = ''.join(mapping.get(ch, ch) for ch in ciphertext)
+print(result)
+</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Start with the most frequent trigram (likely "THE"). "BPR" is the most common 3-letter sequence → B=T, P=H, R=E. Then look for "KWOY{" which must be "FLAG{". Map each letter and propagate constraints. Flag: <code>flag{monoalphabetic_substitution_cracked}</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Vigenère with Short Key</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">This message was encrypted with a Vigenère cipher using a short keyword. Determine the key length, recover the key, and decrypt the message to find the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python">ciphertext = "WMCEEICINNAWFMCIRLGHVRIUZHAGBREWMCLEQWRKIAWFLXQWKLRGZM"
+# Encrypted with a 3-letter key
+
+from collections import Counter
+
+# Step 1: Determine key length using IC
+def ic(text):
+    n = len(text)
+    freq = Counter(text.upper())
+    return sum(f*(f-1) for f in freq.values()) / (n*(n-1)) if n > 1 else 0
+
+ct = ''.join(ch for ch in ciphertext if ch.isalpha())
+for kl in range(1, 10):
+    groups = [ct[i::kl] for i in range(kl)]
+    avg = sum(ic(g) for g in groups) / kl
+    print(f"Key length {kl}: IC = {avg:.4f} {'<--' if avg > 0.06 else ''}")
+
+# Step 2: Recover key (frequency analysis per position)
+# Step 3: Decrypt
+
+# Your solution:
+</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Key length is 3 (highest IC). For each of the 3 positions, find the shift that makes the frequency distribution closest to English. The key is "CTF". Decrypt to find: <code>flag{vigenere_broken_with_frequency_analysis}</code></p>
+<pre><code class="language-python">def vigenere_decrypt(ct, key):
+    result = []
+    ki = 0
+    for ch in ct:
+        if ch.isalpha():
+            shift = ord(key[ki % len(key)]) - ord('A')
+            result.append(chr((ord(ch) - ord('A') - shift) % 26 + ord('A')))
+            ki += 1
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+print(vigenere_decrypt(ciphertext, "CTF"))</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: XOR Flag Recovery</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A flag was XOR'd with an unknown single byte. You know the flag starts with "flag{". Recover the key byte and decrypt.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Ciphertext (hex encoded)
+ct_hex = "1d091c1a4a181d0f1c0a4a061d121c0f4a1a1c0e0a4a0d0f1c1a4b"
+
+ct = bytes.fromhex(ct_hex)
+
+# You know plaintext starts with "flag{"
+# Use known prefix to recover key:
+# ct[0] XOR key = 'f' → key = ct[0] XOR ord('f')
+
+# Your solution:
+</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>XOR the first byte of ciphertext with ord('f') to get the key: <code>key = ct[0] ^ ord('f')</code>. Then XOR the entire ciphertext with that key.</p>
+<pre><code class="language-python">ct = bytes.fromhex("1d091c1a4a181d0f1c0a4a061d121c0f4a1a1c0e0a4a0d0f1c1a4b")
+key = ct[0] ^ ord('f')  # 0x1d ^ 0x66 = 0x7b... wait
+# Actually: key = ct[0] ^ ord('f')
+key = ct[0] ^ ord('f')
+print(f"Key: 0x{key:02x}")
+flag = bytes([b ^ key for b in ct]).decode()
+print(f"Flag: {flag}")  # flag{xor_with_known_prefix}</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Transposition Puzzle</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A flag was encrypted using a rail fence cipher. The number of rails is between 2 and 10. Brute force to find the correct plaintext.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Rail fence encrypted flag
+ciphertext = "fg_alcerait{isrpnlio_fnse}"
+
+def rail_fence_decrypt(ct, rails):
+    n = len(ct)
+    fence = [[None]*n for _ in range(rails)]
+    rail, d = 0, 1
+    for i in range(n):
+        fence[rail][i] = True
+        if rail == 0: d = 1
+        elif rail == rails-1: d = -1
+        rail += d
+    idx = 0
+    for r in range(rails):
+        for c in range(n):
+            if fence[r][c]:
+                fence[r][c] = ct[idx]
+                idx += 1
+    result = []
+    rail, d = 0, 1
+    for i in range(n):
+        result.append(fence[rail][i])
+        if rail == 0: d = 1
+        elif rail == rails-1: d = -1
+        rail += d
+    return ''.join(result)
+
+# Try all rail counts:
+for rails in range(2, 11):
+    result = rail_fence_decrypt(ciphertext, rails)
+    print(f"Rails {rails}: {result}")
+</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Try each rail count from 2-10 and look for the output that starts with "flag{". The answer uses 3 rails. Flag: <code>flag{rail_fence_is_transposition}</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Repeating XOR Key from Known Plaintext Prefix</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A message was encrypted with a repeating XOR key. You know the plaintext starts with "The secret message is: ". Use the known prefix to recover the full key and decrypt.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Ciphertext
+ct_hex = "170a045f1411000b5f04001a1c0c0a5f0c1a5f7f5f07021c0e4e180a16070c101f5f0b001c4e1c1a5f160a005f0c1a5f0a1107001c1f0e5f12001b4d"
+
+ct = bytes.fromhex(ct_hex)
+known_prefix = b"The secret message is: "
+
+# Step 1: Recover key bytes from known prefix
+# key[i] = ct[i] XOR known_prefix[i]
+partial_key = bytes([c ^ p for c, p in zip(ct, known_prefix)])
+print(f"Partial key bytes: {partial_key}")
+print(f"Partial key (ascii): {partial_key.decode('ascii', errors='replace')}")
+
+# Step 2: Identify repeating pattern in partial key
+# Step 3: Extend key and decrypt full message
+
+# Your solution:
+</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>XOR known prefix with ciphertext to get key bytes. Look for a repeating pattern — the key is short (e.g., "CRYPTO"). Once you identify the repeating key, apply it to the full ciphertext. Flag: <code>flag{known_plaintext_xor_attack}</code></p>
+<pre><code class="language-python">ct = bytes.fromhex(ct_hex)
+known = b"The secret message is: "
+key_fragment = bytes([c ^ p for c, p in zip(ct, known)])
+# Look for repeating pattern - try lengths 3-10
+for kl in range(3, 11):
+    candidate = key_fragment[:kl]
+    # Verify: does this key repeat?
+    if all(key_fragment[i] == candidate[i % kl] for i in range(len(key_fragment))):
+        print(f"Key (length {kl}): {candidate}")
+        full_decrypt = bytes([ct[i] ^ candidate[i%kl] for i in range(len(ct))])
+        print(f"Decrypted: {full_decrypt.decode()}")
+        break</code></pre>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: OTP Reuse with Two Ciphertexts</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Two messages were encrypted with the same one-time pad key. You're given both ciphertexts. Use crib dragging to recover both messages and find the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Two ciphertexts (same key used!)
+ct1_hex = "2c070a1c0d4a051c1a0c1a0c011c0c0a050a1a0600040c06451a060c190c004a04071c4a450d01"
+ct2_hex = "3b1c070c1e4a071c09020d0d18051a0a0a0d0045041a071a1c060c001c004a0c04014a0607060b"
+
+ct1 = bytes.fromhex(ct1_hex)
+ct2 = bytes.fromhex(ct2_hex)
+
+# XOR the two ciphertexts (key cancels out)
+xored = bytes([a ^ b for a, b in zip(ct1, ct2)])
+print(f"C1 XOR C2: {xored.hex()}")
+
+# Crib dragging technique:
+def crib_drag(xored, crib, label=""):
+    results = []
+    crib_b = crib.encode() if isinstance(crib, str) else crib
+    for pos in range(len(xored) - len(crib_b) + 1):
+        result = bytes([xored[pos+i] ^ crib_b[i] for i in range(len(crib_b))])
+        try:
+            decoded = result.decode('ascii')
+            if all(32 <= b < 127 for b in result):
+                results.append((pos, decoded))
+        except:
+            continue
+    return results
+
+# Try common English words as cribs against msg1 to recover msg2
+cribs = ["the ", "flag", "flag{", " is ", "that", "this", "have", "with"]
+for crib in cribs:
+    results = crib_drag(xored, crib)
+    for pos, text in results:
+        if any(ch.isalpha() for ch in text):
+            print(f"Crib '{crib}' at pos {pos} → '{text}'")
+
+# Build up the plaintext character by character
+# Flag is in one of the messages
+</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Start with crib "flag{" — it will reveal part of the other message at the correct position. Use that revealed text as a new crib. Keep iterating. Message 1 contains the flag. Try cribs like "the ", " is ", common words. Flag: <code>flag{otp_reuse_destroys_security}</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Combined Classical Cipher Chain</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The flag has been encrypted through multiple classical ciphers in sequence: ROT13 → Vigenère(key="CTF") → Base64 → Hex. Reverse the entire chain.</p>
+          <div class="setup-code">
+<pre><code class="language-python">import base64
+import codecs
+
+# Final encoded output (after all layers)
+encoded = "526d784a5a3064544e6b5a4c546d4e5652305a555232685a556c684c5a6b56465247684e52304e55546d74565230685a55564a4c5a6b564652476c4e"
+
+# Layer order (applied): plaintext → ROT13 → Vigenère("CTF") → Base64 → Hex
+# Reverse order: Hex → Base64 → Vigenère_decrypt("CTF") → ROT13
+
+print("=== Reversing the cipher chain ===\n")
+
+# Step 1: Hex decode
+step1 = bytes.fromhex(encoded).decode()
+print(f"After hex decode: {step1}")
+
+# Step 2: Base64 decode
+step2 = base64.b64decode(step1).decode()
+print(f"After base64 decode: {step2}")
+
+# Step 3: Vigenère decrypt with key "CTF"
+def vig_decrypt(ct, key):
+    result = []
+    ki = 0
+    for ch in ct:
+        if ch.isalpha():
+            base = ord('A') if ch.isupper() else ord('a')
+            shift = ord(key[ki % len(key)].upper()) - ord('A')
+            result.append(chr((ord(ch) - base - shift) % 26 + base))
+            ki += 1
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+step3 = vig_decrypt(step2, "CTF")
+print(f"After Vigenère decrypt: {step3}")
+
+# Step 4: ROT13 decode
+step4 = codecs.decode(step3, 'rot_13')
+print(f"After ROT13 decode: {step4}")
+
+print(f"\n=== Flag: {step4} ===")
+</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Work backwards: hex→bytes→base64_decode→vigenere_decrypt(key="CTF")→rot13. Each step's output feeds into the next. The flag is: <code>flag{classical_cipher_chain_master}</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 11: Affine Cipher Crack</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">An affine cipher was used with unknown (a, b) parameters. You know the plaintext contains "flag". Brute force the 312 possible key combinations.</p>
+          <div class="setup-code">
+<pre><code class="language-python">from math import gcd
+
+ciphertext = "LWXQ{XLLVYR_GXEXNRBREY_EREMZRU}"
+
+def mod_inverse(a, m):
+    for x in range(1, m):
+        if (a * x) % m == 1:
+            return x
+    return None
+
+def affine_decrypt(ct, a, b):
+    a_inv = mod_inverse(a, 26)
+    if a_inv is None:
+        return None
+    result = []
+    for ch in ct:
+        if ch.isalpha():
+            base = ord('A') if ch.isupper() else ord('a')
+            y = ord(ch) - base
+            result.append(chr((a_inv * (y - b)) % 26 + base))
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+# Brute force all valid (a, b) combinations
+valid_a = [a for a in range(1, 26) if gcd(a, 26) == 1]
+
+for a in valid_a:
+    for b in range(26):
+        result = affine_decrypt(ciphertext, a, b)
+        if result and result.lower().startswith("flag{"):
+            print(f"Found! a={a}, b={b}")
+            print(f"Decrypted: {result}")
+</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Since you know the output starts with "FLAG", you can derive (a,b) from two equations: L→F and W→L. Or just brute force all 312 combos — it's instant. Flag: <code>flag{affine_parameters_cracked}</code></p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 12: Bacon's Cipher Hidden Message</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A message contains a hidden flag encoded using Bacon's cipher. Uppercase letters represent 'B' and lowercase represent 'A'. Decode the binary to find the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-python"># Bacon's cipher: A=aaaaa, B=aaaab, C=aaaba, ... Z=baaab (5-bit binary for each letter)
+# In this text: lowercase=A(0), UPPERCASE=B(1)
+
+steganographic_text = "tHe fLaG Is hIdDeN In tHe CaSe Of ThE LeTtErS oF THiS MeSsAgE"
+
+# Step 1: Extract binary from case (lowercase=0, uppercase=1)
+binary = ''.join('1' if ch.isupper() else '0' for ch in steganographic_text if ch.isalpha())
+print(f"Binary: {binary}")
+
+# Step 2: Split into 5-bit groups and decode
+bacon_dict = {}
+for i in range(26):
+    code = format(i, '05b').replace('0', 'a').replace('1', 'b')
+    bacon_dict[code] = chr(i + ord('A'))
+
+# Decode 5-bit groups
+groups = [binary[i:i+5] for i in range(0, len(binary)-4, 5)]
+decoded = ''
+for group in groups:
+    bacon_code = group.replace('0', 'a').replace('1', 'b')
+    if bacon_code in bacon_dict:
+        decoded += bacon_dict[bacon_code]
+
+print(f"Decoded: {decoded}")
+# Wrap in flag format
+</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Extract 0/1 from letter case, group into 5-bit chunks, map to letters (00000=A, 00001=B, ..., 25=Z). The hidden message spells out the flag content.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

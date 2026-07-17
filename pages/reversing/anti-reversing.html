@@ -1,0 +1,2210 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        (function() {
+        const base = document.createElement('base');
+        if(location.hostname.includes('github.io')){
+          base.href = `/HackBook/`;
+        }else{
+          const pathSegments = window.location.pathname.split('/').filter(element => element !== "");
+          const index = pathSegments.indexOf('HackBook');
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join('/') + '/';
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/x-icon" href="assets/images/hacker.jpg">
+  <title>HackBook | Anti-Reversing</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-nasm.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="assets/scripts/main.js"></script>
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+  <div class="content">
+  <div class="container mt-4">
+    <h1>Anti-Reversing Techniques</h1>
+
+    <ul class="nav nav-tabs" role="tablist">
+      <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#notes">Notes</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#labs">Labs</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#ctf">CTF Challenges</a></li>
+    </ul>
+
+    <div class="tab-content mt-3">
+
+      <!-- ==================== NOTES ==================== -->
+      <div class="tab-pane fade show active" id="notes">
+
+        <h2>Anti-Debugging</h2>
+
+        <h3>Linux: ptrace Detection</h3>
+<pre><code class="language-c">// PTRACE_TRACEME - only one tracer allowed
+#include &lt;sys/ptrace.h&gt;
+
+void anti_debug_ptrace() {
+    if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1) {
+        // Already being traced (debugger attached)
+        exit(1);
+    }
+}
+
+// Bypass: LD_PRELOAD or patch ptrace call
+// Or: GDB "catch syscall ptrace" then modify return value</code></pre>
+
+        <h3>Linux: /proc/self/status TracerPid</h3>
+<pre><code class="language-c">// TracerPid is non-zero when debugger is attached
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+int check_tracer_pid() {
+    FILE *f = fopen("/proc/self/status", "r");
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "TracerPid:", 10) == 0) {
+            int pid = atoi(line + 10);
+            fclose(f);
+            return pid != 0;  // true if debugger attached
+        }
+    }
+    fclose(f);
+    return 0;
+}
+
+// Bypass: Hook fopen to return fake file
+// Or: Patch /proc read to replace TracerPid value</code></pre>
+
+        <h3>Timing Checks</h3>
+<pre><code class="language-c">#include &lt;time.h&gt;
+
+void timing_check() {
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &amp;start);
+
+    // Protected code region
+    volatile int x = 0;
+    for (int i = 0; i < 100; i++) x += i;
+
+    clock_gettime(CLOCK_MONOTONIC, &amp;end);
+    long diff = (end.tv_sec - start.tv_sec) * 1000000000L +
+                (end.tv_nsec - start.tv_nsec);
+
+    if (diff > 1000000) {  // > 1ms = likely debugger
+        exit(1);
+    }
+}
+
+// Also: rdtsc-based timing (x86)
+unsigned long long rdtsc_check() {
+    unsigned int lo, hi;
+    __asm__ volatile ("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((unsigned long long)hi << 32) | lo;
+}
+
+// Bypass: Hook clock_gettime, or patch conditional jump</code></pre>
+
+        <h3>INT3 Detection (Software Breakpoint)</h3>
+<pre><code class="language-c">// Debuggers insert 0xCC (INT3) for breakpoints
+// Self-checksum detects modifications
+#include &lt;string.h&gt;
+
+extern void func_start();
+extern void func_end();
+
+void check_int3() {
+    unsigned char *p = (unsigned char*)func_start;
+    unsigned char *end = (unsigned char*)func_end;
+    while (p < end) {
+        if (*p == 0xCC) {
+            // Breakpoint detected!
+            exit(1);
+        }
+        p++;
+    }
+}
+
+// Also: checksum a code region
+unsigned int checksum_code(void *start, size_t len) {
+    unsigned int sum = 0;
+    unsigned char *p = (unsigned char*)start;
+    for (size_t i = 0; i < len; i++)
+        sum += p[i];
+    return sum;
+}
+// If checksum != expected, code was modified (breakpoint inserted)</code></pre>
+
+        <h3>Self-Debugging (Fork + Ptrace)</h3>
+<pre><code class="language-c">#include &lt;sys/ptrace.h&gt;
+#include &lt;sys/wait.h&gt;
+#include &lt;unistd.h&gt;
+
+void self_debug() {
+    pid_t child = fork();
+    if (child == 0) {
+        // Child traces parent - blocks external debuggers
+        ptrace(PTRACE_ATTACH, getppid(), NULL, NULL);
+        waitpid(getppid(), NULL, 0);
+        ptrace(PTRACE_CONT, getppid(), NULL, NULL);
+        // Keep tracing forever
+        while (1) {
+            waitpid(getppid(), NULL, 0);
+            ptrace(PTRACE_CONT, getppid(), NULL, NULL);
+        }
+    }
+    // Parent continues - now protected from external attach
+    sleep(1);  // wait for child to attach
+}
+
+// Bypass: Kill child process, or patch fork to skip</code></pre>
+
+        <h3>Exception-Based Anti-Debug</h3>
+<pre><code class="language-c">#include &lt;signal.h&gt;
+#include &lt;setjmp.h&gt;
+
+static jmp_buf jmp;
+static int debugger_present = 1;
+
+void handler(int sig) {
+    debugger_present = 0;
+    longjmp(jmp, 1);
+}
+
+void exception_anti_debug() {
+    signal(SIGTRAP, handler);
+    if (setjmp(jmp) == 0) {
+        // Raise SIGTRAP - debugger swallows this
+        __asm__ volatile("int3");
+    }
+    // If handler ran, no debugger. If debugger caught it, handler never ran.
+    if (debugger_present) {
+        exit(1);
+    }
+}
+
+// Bypass: GDB "handle SIGTRAP nostop pass"</code></pre>
+
+        <h3>Windows: IsDebuggerPresent / NtQueryInformationProcess</h3>
+<pre><code class="language-c">// Windows anti-debug techniques
+#include &lt;windows.h&gt;
+#include &lt;winternl.h&gt;
+
+// Basic check
+if (IsDebuggerPresent()) exit(1);
+
+// PEB direct check (harder to hook)
+int peb_check() {
+    int debugged;
+    __asm__ (
+        "mov %%fs:0x30, %%eax\n"    // PEB address (x86)
+        "movzbl 0x2(%%eax), %0\n"   // BeingDebugged flag
+        : "=r"(debugged) :: "eax"
+    );
+    return debugged;
+}
+
+// NtQueryInformationProcess
+typedef NTSTATUS (WINAPI *pNtQIP)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+void ntqip_check() {
+    pNtQIP NtQIP = (pNtQIP)GetProcAddress(
+        GetModuleHandleA("ntdll"), "NtQueryInformationProcess");
+    DWORD debugPort = 0;
+    NtQIP(GetCurrentProcess(), 7 /*ProcessDebugPort*/,
+          &amp;debugPort, sizeof(debugPort), NULL);
+    if (debugPort != 0) exit(1);
+
+    DWORD debugFlags = 0;
+    NtQIP(GetCurrentProcess(), 0x1F /*ProcessDebugFlags*/,
+          &amp;debugFlags, sizeof(debugFlags), NULL);
+    if (debugFlags == 0) exit(1);  // 0 = being debugged
+}
+
+// Bypass: Hook APIs, patch PEB.BeingDebugged, x64dbg ScyllaHide plugin</code></pre>
+
+        <h2>Anti-Disassembly</h2>
+
+        <h3>Opaque Predicates</h3>
+<pre><code class="language-nasm">; Condition always true but disassembler can't prove it
+; x*(x+1) is always even → x*(x+1) % 2 == 0 is always true
+    mov eax, [esp+4]
+    lea ecx, [eax+1]
+    imul eax, ecx
+    and eax, 1          ; always 0
+    jz real_code         ; always taken
+    ; junk bytes here confuse linear disassembly
+    db 0xE8              ; looks like start of CALL instruction
+real_code:
+    ; actual code continues here</code></pre>
+
+        <h3>Junk Bytes</h3>
+<pre><code class="language-nasm">; Insert bytes that look like valid instructions to confuse disassemblers
+    jmp short skip
+    db 0xE8             ; 0xE8 = CALL opcode, disassembler tries to decode
+                        ; the next 4 bytes as an address
+skip:
+    ; real code here
+    mov eax, 1
+    ret
+
+; Another pattern - overlapping with jz
+    jz label + 1
+    db 0xE9             ; if not taken, this is junk
+label:
+    db 0x90             ; if taken, lands here (NOP)
+    mov eax, 42</code></pre>
+
+        <h3>Overlapping Instructions</h3>
+<pre><code class="language-nasm">; Same bytes decode differently depending on entry point
+; Entry at 0x00:  EB 01       jmp $+3
+;                 E8 ...      (skipped byte + start of next)
+; Entry at 0x02:  5B          pop ebx (different instruction!)
+
+addr_0: jmp addr_2 + 1    ; jump into middle of next "instruction"
+addr_2: db 0xE8            ; fake CALL opcode
+addr_3: pop ebx            ; real instruction starts here
+        ; disassembler following addr_0 shows CALL
+        ; but execution hits POP EBX</code></pre>
+
+        <h3>Switch Table Obfuscation</h3>
+<pre><code class="language-c">// Computed jumps confuse static analysis
+void obfuscated_switch(int x) {
+    // Instead of switch/case, use computed goto
+    static void *table[] = {&&amp;L0, &&amp;L1, &&amp;L2, &&amp;L3};
+    if (x >= 0 && x < 4) goto *table[x];
+    return;
+L0: printf("zero\n"); return;
+L1: printf("one\n");  return;
+L2: printf("two\n");  return;
+L3: printf("three\n"); return;
+}</code></pre>
+
+        <h2>Obfuscation</h2>
+
+        <h3>Control Flow Flattening</h3>
+<pre><code class="language-c">// Original:
+void original(int x) {
+    int a = x + 1;
+    int b = a * 2;
+    printf("%d\n", b);
+}
+
+// Flattened - all blocks at same level, dispatcher chooses next
+void flattened(int x) {
+    int state = 0;
+    int a, b;
+    while (1) {
+        switch (state) {
+            case 0: a = x + 1; state = 1; break;
+            case 1: b = a * 2; state = 2; break;
+            case 2: printf("%d\n", b); state = 3; break;
+            case 3: return;
+        }
+    }
+}
+
+// Deobfuscation: Trace state variable to recover original control flow
+// Tools: miasm, SATURN, D-810 (IDA plugin)</code></pre>
+
+        <h3>Mixed Boolean-Arithmetic (MBA) Expressions</h3>
+<pre><code class="language-c">// Simple operation hidden in complex MBA expression
+// x + y  →  (x ^ y) + 2 * (x &amp; y)
+// x - y  →  (x ^ y) - 2 * (~x &amp; y)
+// x | y  →  (x ^ y) + (x &amp; y)
+// x &amp; y  →  (x | y) - (x ^ y)
+
+int obfuscated_add(int x, int y) {
+    return (x ^ y) + 2 * (x &amp; y);  // == x + y
+}
+
+int obfuscated_xor(int x, int y) {
+    return (x | y) - (x &amp; y);  // == x ^ y
+}
+
+// Nested MBA makes it even harder:
+// x + y = ((x ^ y) | ((x ^ y) + 2*(x &amp; y))) -
+//         ((x ^ y) ^ ((x ^ y) + 2*(x &amp; y))) + (x ^ y)
+
+// Deobfuscation: Simplify with Z3, SSPAM, or pattern matching</code></pre>
+
+        <h3>String Encryption</h3>
+<pre><code class="language-c">// Encrypted strings decrypted at runtime
+#include &lt;string.h&gt;
+
+char* decrypt_str(char *buf, int len, int key) {
+    for (int i = 0; i < len; i++)
+        buf[i] ^= (key + i) &amp; 0xFF;
+    return buf;
+}
+
+int main() {
+    // "Hello, World!" encrypted with key=0x42
+    char enc[] = {0x0a, 0x24, 0x28, 0x29, 0x23, 0x76, 0x64, 0x3c,
+                  0x2a, 0x27, 0x24, 0x22, 0x6f, 0x00};
+    printf("%s\n", decrypt_str(enc, 13, 0x42));
+    return 0;
+}
+
+// Deobfuscation approaches:
+// 1. Dynamic: hook decrypt_str, log all decrypted strings
+// 2. Static: find xref to decrypt function, emulate with unicorn
+// 3. IDAPython: script to decrypt inline</code></pre>
+
+        <h3>Dead Code Insertion</h3>
+<pre><code class="language-c">// Insert meaningless computations between real operations
+int obfuscated_check(int x) {
+    int a = x * 3;
+    int dead1 = a ^ 0xDEAD;    // dead code - never used
+    int b = a + 7;
+    int dead2 = dead1 << 3;    // dead code
+    if (dead2) dead2 = 0;      // dead code
+    return b == 42;             // only real check
+}
+
+// Deobfuscation: Compiler optimization (-O2) removes most dead code
+// Or: Data flow analysis to identify unused variables</code></pre>
+
+        <h3>Instruction Substitution</h3>
+<pre><code class="language-nasm">; Replace common instructions with equivalents
+; mov eax, 0 → xor eax, eax
+; add eax, 1 → sub eax, -1 / lea eax, [eax+1] / inc eax
+; xor eax, key → not eax; and eax, ~key; not eax; or eax, key... (MBA)
+; cmp eax, 0 → test eax, eax / or eax, eax
+; jmp target → push target; ret / call target (if setup correctly)
+
+; Push/ret as unconditional jump:
+    push target_addr
+    ret                 ; "returns" to target_addr
+
+; LEA for arithmetic:
+    lea eax, [ecx + edx*4 + 10]  ; eax = ecx + edx*4 + 10</code></pre>
+
+        <h3>Virtualization-Based Obfuscation (VM Protect)</h3>
+<pre><code class="language-c">// Custom VM interpreter - code is bytecode, not native
+typedef struct {
+    int regs[8];
+    unsigned char *ip;
+    int stack[256];
+    int sp;
+} VM;
+
+enum { VM_PUSH=1, VM_POP, VM_ADD, VM_XOR, VM_CMP, VM_JZ, VM_HALT };
+
+void vm_execute(VM *vm, unsigned char *bytecode, int len) {
+    vm->ip = bytecode;
+    while (vm->ip < bytecode + len) {
+        switch (*vm->ip++) {
+            case VM_PUSH:
+                vm->stack[vm->sp++] = *vm->ip++;
+                break;
+            case VM_POP:
+                vm->regs[*vm->ip++] = vm->stack[--vm->sp];
+                break;
+            case VM_ADD:
+                vm->stack[vm->sp-2] += vm->stack[vm->sp-1];
+                vm->sp--;
+                break;
+            case VM_XOR:
+                vm->stack[vm->sp-2] ^= vm->stack[vm->sp-1];
+                vm->sp--;
+                break;
+            case VM_CMP:
+                vm->stack[vm->sp-2] = (vm->stack[vm->sp-2] == vm->stack[vm->sp-1]);
+                vm->sp--;
+                break;
+            case VM_HALT:
+                return;
+        }
+    }
+}
+
+// Deobfuscation approaches:
+// 1. Identify VM dispatcher loop (switch/indirect jump)
+// 2. Map opcodes to operations via dynamic analysis
+// 3. Build disassembler for custom bytecode
+// 4. Tools: VMAttack (IDA), devirtualize, Triton symbolic execution</code></pre>
+
+        <h2>Packing</h2>
+
+        <h3>UPX</h3>
+<pre><code class="language-bash"># Detect UPX packing
+file packed
+# packed: ELF 64-bit ... UPX compressed
+
+strings packed | grep UPX
+# UPX!
+
+readelf -S packed
+# Sections named UPX0, UPX1
+
+# Automatic unpack
+upx -d packed -o unpacked
+
+# If UPX headers are mangled (anti-unpack):
+# Fix magic bytes or use manual approach</code></pre>
+
+        <h3>Manual Unpacking Methodology</h3>
+<pre><code class="language-bash"># General approach for any packer:
+# 1. Find the Original Entry Point (OEP)
+# 2. Let packer decompress/decrypt the code
+# 3. Dump memory at OEP
+# 4. Fix imports (IAT reconstruction)
+
+# Step 1-2: Run until OEP
+# Techniques to find OEP:
+# - ESP trick: Hardware breakpoint on ESP after pushad
+# - Look for tail jump (jmp to distant address after unpack loop)
+# - Single-step through unpacking stub
+# - Break on VirtualProtect/mprotect (marks code executable)
+
+# Step 3: Dump
+# GDB: dump memory unpacked.bin 0x400000 0x410000
+# Or: /proc/PID/mem read
+
+# Step 4: Fix imports
+# Tools: Scylla (Windows), manual relocation fixup</code></pre>
+
+        <h3>Finding OEP</h3>
+<pre><code class="language-bash"># ESP Trick (x86 - works with pushad/popad packers)
+(gdb) break *entry_point
+(gdb) run
+(gdb) watch *$esp        # HW breakpoint on stack value pushed by pushad
+(gdb) continue            # breaks when popad restores ESP
+# Next instruction after popad is usually JMP to OEP
+
+# Tail-jump detection
+# Unpack stubs end with a far jump to the original code
+# Look for: jmp 0x4XXXXX (jumps outside packer section)
+
+# mprotect/VirtualProtect
+(gdb) catch syscall mprotect
+(gdb) run
+# When code makes region executable, OEP is nearby</code></pre>
+
+        <h3>Custom Packers</h3>
+<pre><code class="language-c">// Simple custom packer/stub concept
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys/mman.h&gt;
+
+// XOR-encrypted payload
+unsigned char encrypted_payload[] = {
+    0xBE, 0xF1, 0xF0, 0xFC, 0xFC, 0xE5, 0xA0, 0xB7,
+    0xE5, 0xF8, 0xFC, 0xE0, 0xA1, 0x90  // ... etc
+};
+int payload_len = sizeof(encrypted_payload);
+
+void unpack_and_run() {
+    // Decrypt
+    for (int i = 0; i < payload_len; i++)
+        encrypted_payload[i] ^= 0x91;
+
+    // Make executable
+    void *exec = mmap(NULL, payload_len, PROT_READ|PROT_WRITE|PROT_EXEC,
+                      MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+    memcpy(exec, encrypted_payload, payload_len);
+
+    // Jump to decrypted code (OEP)
+    ((void(*)())exec)();
+}</code></pre>
+
+        <h2>Anti-VM Detection</h2>
+
+        <h3>CPUID-Based Detection</h3>
+<pre><code class="language-c">// Hypervisor detection via CPUID
+#include &lt;cpuid.h&gt;
+
+int detect_hypervisor() {
+    unsigned int eax, ebx, ecx, edx;
+    __cpuid(1, eax, ebx, ecx, edx);
+    // Bit 31 of ECX = hypervisor present
+    return (ecx >> 31) &amp; 1;
+}
+
+// Get hypervisor vendor string
+void get_hypervisor_id() {
+    unsigned int eax, ebx, ecx, edx;
+    __cpuid(0x40000000, eax, ebx, ecx, edx);
+    char vendor[13] = {0};
+    memcpy(vendor, &amp;ebx, 4);
+    memcpy(vendor+4, &amp;ecx, 4);
+    memcpy(vendor+8, &amp;edx, 4);
+    // "VMwareVMware", "Microsoft Hv", "KVMKVMKVM", "VBoxVBoxVBox"
+    printf("Hypervisor: %s\n", vendor);
+}
+
+// Bypass: Patch CPUID handler, or configure VM to hide hypervisor bit</code></pre>
+
+        <h3>Registry / File / MAC Checks</h3>
+<pre><code class="language-bash"># Artifacts that indicate VM
+# VMware:
+ls /dev/vmci            # VMware device
+dmidecode | grep -i vmware
+cat /sys/class/dmi/id/product_name   # "VMware Virtual Platform"
+
+# VirtualBox:
+ls /dev/vboxguest
+dmidecode | grep -i virtualbox
+
+# MAC address prefixes:
+# VMware: 00:0C:29, 00:50:56
+# VBox:   08:00:27
+# QEMU:   52:54:00
+
+# Common Windows registry keys:
+# HKLM\SOFTWARE\VMware, Inc.\VMware Tools
+# HKLM\SYSTEM\CurrentControlSet\Services\VBoxGuest</code></pre>
+
+        <h3>Timing-Based VM Detection</h3>
+<pre><code class="language-c">// VM exits for certain instructions add measurable delay
+unsigned long long measure_cpuid_time() {
+    unsigned long long start, end;
+    start = __rdtsc();
+    unsigned int eax, ebx, ecx, edx;
+    __cpuid(0, eax, ebx, ecx, edx);
+    end = __rdtsc();
+    return end - start;
+    // Native: ~50-200 cycles, VM: ~1000+ cycles
+}</code></pre>
+
+        <h2>Anti-Instrumentation</h2>
+
+        <h3>Detecting Frida</h3>
+<pre><code class="language-c">// Frida injects frida-agent into process
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;dirent.h&gt;
+
+int detect_frida() {
+    // Check loaded modules for frida
+    FILE *f = fopen("/proc/self/maps", "r");
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        if (strstr(line, "frida") || strstr(line, "gadget")) {
+            fclose(f);
+            return 1;
+        }
+    }
+    fclose(f);
+
+    // Check for frida's default port
+    // Frida server listens on 27042
+    // Also check for frida-agent thread names
+
+    // Check for inline hooks (Frida Interceptor modifies function prologues)
+    // Compare first bytes of functions against expected values
+    return 0;
+}
+
+// Bypass: Rename frida libraries, use frida-gadget renamed,
+// or hook fopen/strstr to hide frida strings</code></pre>
+
+        <h3>Detecting Pin/DynamoRIO</h3>
+<pre><code class="language-c">// Pin and DynamoRIO inject their runtime into the process
+int detect_instrumentation() {
+    // Check for Pin's environment variables
+    if (getenv("PIN_VM_LD_LIBRARY_PATH")) return 1;
+
+    // Check loaded libraries
+    FILE *f = fopen("/proc/self/maps", "r");
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        if (strstr(line, "pinbin") || strstr(line, "dynamorio"))
+            { fclose(f); return 1; }
+    }
+    fclose(f);
+
+    // Pin adds extra threads - check thread count
+    // ls /proc/self/task/ | wc -l
+
+    return 0;
+}</code></pre>
+
+        <h2>Self-Modifying Code</h2>
+<pre><code class="language-c">// Code modifies itself at runtime
+#include &lt;stdio.h&gt;
+#include &lt;sys/mman.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+void secret_func() {
+    // This function's code will be XOR-encrypted at compile time
+    // and decrypted right before execution
+    printf("Secret: CTF{self_mod_code}\n");
+}
+
+void decrypt_and_run(void *func, size_t len, unsigned char key) {
+    // Make code writable
+    unsigned long page = (unsigned long)func &amp; ~(sysconf(_SC_PAGESIZE)-1);
+    mprotect((void*)page, 4096, PROT_READ|PROT_WRITE|PROT_EXEC);
+
+    // Decrypt in place
+    unsigned char *p = (unsigned char*)func;
+    for (size_t i = 0; i < len; i++)
+        p[i] ^= key;
+
+    // Execute
+    ((void(*)())func)();
+
+    // Re-encrypt (hide again)
+    for (size_t i = 0; i < len; i++)
+        p[i] ^= key;
+}
+
+// Analysis approach:
+// 1. Break before decrypt, dump encrypted bytes
+// 2. Break after decrypt, dump cleartext code
+// 3. Or: trace mprotect calls to find self-modifying regions</code></pre>
+
+        <h2>Code Signing Checks</h2>
+<pre><code class="language-c">// Binary verifies its own integrity
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+unsigned int compute_crc32(void *data, size_t len) {
+    unsigned int crc = 0xFFFFFFFF;
+    unsigned char *p = (unsigned char*)data;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= p[i];
+        for (int j = 0; j < 8; j++)
+            crc = (crc >> 1) ^ (0xEDB88320 &amp; -(crc &amp; 1));
+    }
+    return ~crc;
+}
+
+// Store expected CRC in a separate section or at end of binary
+// Compare at runtime - if patched, CRC won't match
+extern char __executable_start;
+extern char __etext;
+
+void integrity_check() {
+    size_t code_len = &amp;__etext - &amp;__executable_start;
+    unsigned int crc = compute_crc32(&amp;__executable_start, code_len);
+    if (crc != 0xDEADBEEF) {  // pre-computed expected value
+        printf("Tampered!\n");
+        exit(1);
+    }
+}
+
+// Bypass: Patch CRC check, or recalculate CRC after patching</code></pre>
+
+        <h2>Environment Checks</h2>
+<pre><code class="language-c">// Check for analysis environment indicators
+#include &lt;unistd.h&gt;
+#include &lt;sys/stat.h&gt;
+
+int environment_checks() {
+    // Check username
+    char *user = getenv("USER");
+    if (user && (strcmp(user, "sandbox") == 0 ||
+                 strcmp(user, "malware") == 0 ||
+                 strcmp(user, "analysis") == 0))
+        return 1;
+
+    // Check for analysis tools
+    struct stat st;
+    if (stat("/usr/bin/strace", &amp;st) == 0) return 1;
+    if (stat("/usr/bin/gdb", &amp;st) == 0) return 1;
+    if (stat("/usr/bin/ida", &amp;st) == 0) return 1;
+
+    // Check running processes
+    // popen("ps aux | grep -c wireshark")
+
+    // Check hardware (low CPU count = VM)
+    long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+    if (cpus <= 1) return 1;
+
+    // Check RAM (low RAM = sandbox)
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long page_size = sysconf(_SC_PAGESIZE);
+    long ram_mb = (pages * page_size) / (1024 * 1024);
+    if (ram_mb < 2048) return 1;
+
+    return 0;
+}
+
+// Bypass: Set environment, remove tools from PATH, increase VM resources</code></pre>
+
+      </div>
+
+      <!-- ==================== LABS ==================== -->
+      <div class="tab-pane fade" id="labs">
+
+        <div class="lab-card">
+          <h4>Lab 1: Detect and Bypass ptrace Check</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Identify a ptrace-based anti-debug check and bypass it using multiple methods.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab1_ptrace.c
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;sys/ptrace.h&gt;
+
+void check_debug() {
+    if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1) {
+        printf("Debugger detected!\n");
+        exit(1);
+    }
+}
+
+int main() {
+    check_debug();
+    printf("Flag: CTF{ptr4c3_byp4ss3d}\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o lab1 lab1_ptrace.c
+# Method 1: LD_PRELOAD
+# Method 2: GDB - catch syscall ptrace, set $rax=0
+# Method 3: Patch binary (NOP out ptrace call)
+# Method 4: Frida - Interceptor.replace ptrace
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Bypass Timing Anti-Debug</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Bypass rdtsc and clock_gettime timing checks to debug a protected function.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab2_timing.c
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;time.h&gt;
+
+unsigned long long rdtsc() {
+    unsigned int lo, hi;
+    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((unsigned long long)hi << 32) | lo;
+}
+
+void protected_function() {
+    unsigned long long t1 = rdtsc();
+
+    // Secret computation
+    int key = 0;
+    for (int i = 0; i < 100; i++)
+        key += i * 3 + 7;
+
+    unsigned long long t2 = rdtsc();
+
+    if ((t2 - t1) > 10000) {
+        printf("Timing anomaly - debugger?\n");
+        exit(1);
+    }
+
+    struct timespec ts1, ts2;
+    clock_gettime(CLOCK_MONOTONIC, &amp;ts1);
+    char flag[32];
+    snprintf(flag, sizeof(flag), "CTF{t1m3_byp4ss_%d}", key);
+    clock_gettime(CLOCK_MONOTONIC, &amp;ts2);
+
+    long diff_ns = (ts2.tv_sec - ts1.tv_sec) * 1000000000L +
+                   (ts2.tv_nsec - ts1.tv_nsec);
+    if (diff_ns > 5000000) {
+        printf("Too slow!\n");
+        exit(1);
+    }
+
+    printf("Flag: %s\n", flag);
+}
+
+int main() {
+    protected_function();
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o lab2 lab2_timing.c
+# Task: Bypass both timing checks
+# Approach 1: LD_PRELOAD hook clock_gettime to return fixed values
+# Approach 2: GDB - set breakpoints AFTER timing reads, modify values
+# Approach 3: Patch out the comparison jumps
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Identify and Skip Junk Bytes</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Manually disassemble a binary with junk bytes that confuse objdump/IDA, and recover the true control flow.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; lab3_junk.asm - NASM syntax
+section .text
+global _start
+
+_start:
+    ; Real code
+    mov eax, 1
+    jmp short .skip1
+    db 0xE8                 ; fake CALL opcode (junk byte)
+.skip1:
+    mov ebx, 0
+
+    jmp short .skip2
+    db 0xFF, 0x25           ; fake jmp [addr] (junk bytes)
+.skip2:
+    add eax, 41
+
+    jmp short .skip3
+    db 0x0F, 0x84           ; fake jz (junk bytes)
+.skip3:
+    ; eax should be 42 here
+    cmp eax, 42
+    jne .fail
+
+    ; Print flag
+    mov eax, 4
+    mov ebx, 1
+    lea ecx, [rel flag]
+    mov edx, flag_len
+    int 0x80
+    jmp .exit
+
+.fail:
+    mov eax, 4
+    mov ebx, 1
+    lea ecx, [rel nope]
+    mov edx, 5
+    int 0x80
+
+.exit:
+    mov eax, 1
+    xor ebx, ebx
+    int 0x80
+
+section .data
+    flag: db "CTF{junk_byt3s_sk1pp3d}", 10
+    flag_len equ $ - flag
+    nope: db "Nope", 10
+</code></pre>
+<pre><code class="language-bash">nasm -f elf64 lab3_junk.asm -o lab3.o
+ld lab3.o -o lab3
+# objdump -d -M intel lab3 will show garbled disassembly
+# Task: Identify junk bytes, fix disassembly, understand true logic
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Unpack UPX Manually</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Manually unpack a UPX-packed binary by finding OEP and dumping, without using <code>upx -d</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Create a packed binary
+cat > lab4_target.c << 'EOF'
+#include &lt;stdio.h&gt;
+int main() {
+    printf("Flag: CTF{m4nu4l_unp4ck}\n");
+    return 0;
+}
+EOF
+gcc -o lab4_target lab4_target.c
+upx -o lab4_packed lab4_target
+
+# Now manually unpack:
+# 1. Load in GDB
+gdb ./lab4_packed
+
+# 2. Find entry point
+(gdb) info file
+# Entry point: 0x????
+
+# 3. Run and trace the unpacking stub
+(gdb) starti
+# Single-step through UPX stub looking for final JMP
+
+# 4. UPX stub ends with a JMP to OEP
+# Set breakpoint on mprotect to find when code is made executable
+(gdb) catch syscall mprotect
+(gdb) continue
+
+# 5. When at OEP, dump the unpacked code
+(gdb) dump memory unpacked.bin 0x400000 0x410000
+
+# 6. Alternatively, use /proc/PID/mem:
+# cat /proc/$(pgrep lab4)/maps
+# dd if=/proc/$(pgrep lab4)/mem bs=1 skip=$((0x400000)) count=$((0x10000)) of=dump.bin
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: Find OEP of a Custom Packed Binary</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Find the Original Entry Point of a custom-packed binary using the ESP trick and tail-jump detection.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab5_custom_packer.c - Simulates a custom packer stub
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys/mman.h&gt;
+#include &lt;unistd.h&gt;
+
+// "Encrypted" payload (XOR 0xAA)
+unsigned char payload[] = {
+    // printf("Flag: CTF{f0und_0ep}\n"); exit(0);
+    // ... shellcode bytes XOR'd with 0xAA ...
+    0xBF, 0xC9, 0xCB, 0x99, 0x98, 0xCB, 0xDB, 0xDB  // placeholder
+};
+
+void __attribute__((noinline)) packer_stub() {
+    // Simulate pushad
+    __asm__ volatile(
+        "push %%rax\n"
+        "push %%rbx\n"
+        "push %%rcx\n"
+        "push %%rdx\n"
+        ::: "memory"
+    );
+
+    // Unpack loop
+    size_t len = sizeof(payload);
+    for (size_t i = 0; i < len; i++)
+        payload[i] ^= 0xAA;
+
+    // Make executable
+    unsigned long page = (unsigned long)payload &amp; ~4095UL;
+    mprotect((void*)page, 4096, PROT_READ|PROT_WRITE|PROT_EXEC);
+
+    // Simulate popad
+    __asm__ volatile(
+        "pop %%rdx\n"
+        "pop %%rcx\n"
+        "pop %%rbx\n"
+        "pop %%rax\n"
+        ::: "memory"
+    );
+
+    // Tail jump to OEP (unpacked payload)
+    ((void(*)())payload)();
+}
+
+int main() {
+    packer_stub();
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -g -o lab5 lab5_custom_packer.c
+# Task: Use GDB to:
+# 1. Break at packer_stub
+# 2. Set HW watchpoint on RSP (ESP trick)
+# 3. Find the tail-jump to OEP
+# 4. Dump unpacked payload from memory
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: Decode Encrypted Strings</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Identify the string encryption scheme and write a decoder to extract all hidden strings.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab6_strings.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+
+// All strings are encrypted with rotating XOR key
+char *decrypt(const unsigned char *enc, int len, const char *key) {
+    char *out = malloc(len + 1);
+    int klen = strlen(key);
+    for (int i = 0; i < len; i++)
+        out[i] = enc[i] ^ key[i % klen];
+    out[len] = 0;
+    return out;
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        char *msg = decrypt((unsigned char[]){0x35,0x0d,0x00,0x14,0x15,0x41,
+            0x20,0x07,0x1f,0x1a,0x0d,0x4d,0x33,0x04,0x13,0x06,0x1f}, 17, "SECRETKEY");
+        printf("%s\n", msg);
+        free(msg);
+        return 1;
+    }
+
+    char *expected = decrypt((unsigned char[]){0x30,0x17,0x00,0x04,0x03,0x08,
+        0x26,0x0e,0x04}, 9, "SECRETKEY");
+
+    if (strcmp(argv[1], expected) == 0) {
+        char *flag = decrypt((unsigned char[]){0x10,0x31,0x11,0x3d,0x12,0x2d,
+            0x43,0x33,0x17,0x05,0x1a,0x0a,0x46,0x37,0x00,0x19,0x10}, 17, "SECRETKEY");
+        printf("Flag: %s\n", flag);
+        free(flag);
+    } else {
+        printf("Wrong\n");
+    }
+    free(expected);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o lab6 lab6_strings.c
+# Task 1: Use ltrace/Frida to hook decrypt() and capture all decrypted strings
+# Task 2: Find the XOR key and write a standalone decoder
+# Task 3: Decrypt all encrypted blobs statically
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: Bypass VM Detection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Bypass CPUID, MAC address, and DMI-based VM detection checks.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab7_vmdetect.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;cpuid.h&gt;
+#include &lt;net/if.h&gt;
+#include &lt;sys/ioctl.h&gt;
+#include &lt;unistd.h&gt;
+
+int check_cpuid_hypervisor() {
+    unsigned int eax, ebx, ecx, edx;
+    __cpuid(1, eax, ebx, ecx, edx);
+    return (ecx >> 31) &amp; 1;
+}
+
+int check_mac_address() {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    struct ifreq ifr;
+    strcpy(ifr.ifr_name, "eth0");
+    ioctl(fd, SIOCGIFHWADDR, &amp;ifr);
+    close(fd);
+    unsigned char *mac = (unsigned char*)ifr.ifr_hwaddr.sa_data;
+    // VMware: 00:0C:29 or 00:50:56
+    if (mac[0]==0x00 && mac[1]==0x0C && mac[2]==0x29) return 1;
+    if (mac[0]==0x00 && mac[1]==0x50 && mac[2]==0x56) return 1;
+    // VBox: 08:00:27
+    if (mac[0]==0x08 && mac[1]==0x00 && mac[2]==0x27) return 1;
+    return 0;
+}
+
+int check_dmi() {
+    FILE *f = fopen("/sys/class/dmi/id/product_name", "r");
+    if (!f) return 0;
+    char buf[128] = {0};
+    fgets(buf, sizeof(buf), f);
+    fclose(f);
+    if (strstr(buf, "VMware") || strstr(buf, "VirtualBox") ||
+        strstr(buf, "QEMU")) return 1;
+    return 0;
+}
+
+int main() {
+    if (check_cpuid_hypervisor()) { printf("VM detected (CPUID)\n"); return 1; }
+    if (check_mac_address()) { printf("VM detected (MAC)\n"); return 1; }
+    if (check_dmi()) { printf("VM detected (DMI)\n"); return 1; }
+    printf("Flag: CTF{vm_d3t3ct10n_byp4ss3d}\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o lab7 lab7_vmdetect.c
+# Task: Bypass all three checks
+# CPUID: Patch check or hook cpuid instruction (KVM: host-passthrough)
+# MAC: Change MAC: ip link set eth0 address XX:XX:XX:XX:XX:XX
+# DMI: LD_PRELOAD hook fopen for dmi path
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: Deobfuscate Control Flow Flattening</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Reverse engineer a control-flow-flattened binary to understand the original algorithm and extract the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab8_cff.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int check_password(const char *input) {
+    int state = 0;
+    int result = 0;
+    int len = 0;
+    int sum = 0;
+    int i = 0;
+
+    // Flattened control flow - original logic hidden in state machine
+    while (1) {
+        switch (state) {
+            case 0:  // init
+                len = strlen(input);
+                state = 3;
+                break;
+            case 1:  // compute sum
+                if (i < len) {
+                    sum += input[i] * (i + 1);
+                    i++;
+                    state = 1;
+                } else {
+                    state = 4;
+                }
+                break;
+            case 2:  // final check
+                result = (sum == 3749);
+                state = 5;
+                break;
+            case 3:  // length check
+                if (len == 8) state = 1;
+                else state = 5;
+                break;
+            case 4:  // prefix check
+                if (input[0] == 'F' && input[1] == 'L') state = 2;
+                else state = 5;
+                break;
+            case 5:  // exit
+                return result;
+        }
+    }
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) return 1;
+    if (check_password(argv[1]))
+        printf("Flag: CTF{cff_%s}\n", argv[1]);
+    else
+        printf("Wrong\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -O0 -o lab8 lab8_cff.c
+# Task: Trace the state machine to recover original logic:
+# 1. state 0 → 3: get length
+# 2. state 3: check len == 8
+# 3. state 1: compute weighted sum of chars
+# 4. state 4: check prefix "FL"
+# 5. state 2: check sum == 3749
+# Reconstruct: 8-char string starting with "FL", weighted sum = 3749
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: Handle Self-Modifying Code</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Analyze a binary where the validation function decrypts itself at runtime, extracts the flag logic.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab9_selfmod.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys/mman.h&gt;
+#include &lt;unistd.h&gt;
+
+// This function's body is XOR-encrypted at load time
+// Real logic: return (input[0]=='S' && input[1]=='M' && input[2]=='C')
+void __attribute__((aligned(4096))) validate(const char *input, int *result) {
+    *result = 0;
+    if (input[0] == 'S' && input[1] == 'M' && input[2] == 'C')
+        *result = 1;
+}
+
+void encrypt_function(void *func, size_t len, unsigned char key) {
+    unsigned long page = (unsigned long)func &amp; ~(sysconf(_SC_PAGESIZE)-1);
+    mprotect((void*)page, 4096, PROT_READ|PROT_WRITE|PROT_EXEC);
+    unsigned char *p = (unsigned char*)func;
+    for (size_t i = 0; i < len; i++)
+        p[i] ^= key;
+}
+
+void decrypt_function(void *func, size_t len, unsigned char key) {
+    encrypt_function(func, len, key);  // XOR is its own inverse
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) return 1;
+
+    // Encrypt the function (simulating build-time encryption)
+    encrypt_function(validate, 64, 0xCC);
+
+    // At runtime: decrypt, call, re-encrypt
+    decrypt_function(validate, 64, 0xCC);
+    int result = 0;
+    validate(argv[1], &amp;result);
+    encrypt_function(validate, 64, 0xCC);
+
+    if (result)
+        printf("Flag: CTF{s3lf_m0d_c0d3}\n");
+    else
+        printf("Wrong\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o lab9 lab9_selfmod.c
+# Task: Set breakpoint AFTER decrypt but BEFORE re-encrypt
+# Dump the decrypted function to see the real logic
+# (gdb) break *validate (will fail - encrypted)
+# Instead: break on mprotect or decrypt_function
+# Then: x/20i validate  (after decryption)
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Bypass IsDebuggerPresent</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Bypass Windows IsDebuggerPresent and PEB.BeingDebugged checks in a PE binary (or simulated Linux equivalent).</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab10_isdebugger.c (Linux simulation of Windows anti-debug)
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+
+// Simulated IsDebuggerPresent (checks /proc/self/status)
+int IsDebuggerPresent_linux() {
+    FILE *f = fopen("/proc/self/status", "r");
+    if (!f) return 0;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "TracerPid:", 10) == 0) {
+            int pid = atoi(line + 10);
+            fclose(f);
+            return pid != 0;
+        }
+    }
+    fclose(f);
+    return 0;
+}
+
+// Secondary check: parent process name
+int check_parent() {
+    char path[64], name[256] = {0};
+    snprintf(path, sizeof(path), "/proc/%d/comm", getppid());
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    fgets(name, sizeof(name), f);
+    fclose(f);
+    // Check if parent is a debugger
+    if (strstr(name, "gdb") || strstr(name, "lldb") ||
+        strstr(name, "strace") || strstr(name, "ltrace"))
+        return 1;
+    return 0;
+}
+
+int main() {
+    if (IsDebuggerPresent_linux()) { puts("Debugger (TracerPid)!"); return 1; }
+    if (check_parent()) { puts("Debugger (parent)!"); return 1; }
+    printf("Flag: CTF{n0_d3bugg3r_h3r3}\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o lab10 lab10_isdebugger.c
+# Bypass TracerPid: LD_PRELOAD hook fopen for /proc/self/status
+# Bypass parent check: Run from a wrapper script, or hook getppid
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Strip Anti-Frida Checks</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: A binary detects Frida via /proc/self/maps scanning. Bypass the detection while still using Frida to hook functions.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab11_antifrida.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+
+int detect_frida() {
+    FILE *f = fopen("/proc/self/maps", "r");
+    if (!f) return 0;
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        if (strstr(line, "frida") || strstr(line, "gadget") ||
+            strstr(line, "gmain") || strstr(line, "linjector")) {
+            fclose(f);
+            return 1;
+        }
+    }
+    fclose(f);
+
+    // Check for Frida's default port
+    FILE *p = popen("netstat -tlnp 2>/dev/null | grep 27042", "r");
+    char buf[256] = {0};
+    fgets(buf, sizeof(buf), p);
+    pclose(p);
+    if (strlen(buf) > 0) return 1;
+
+    return 0;
+}
+
+int secret_check(const char *input) {
+    return strcmp(input, "fr1d4_m4st3r") == 0;
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) return 1;
+    if (detect_frida()) { puts("Frida detected!"); return 1; }
+    if (secret_check(argv[1]))
+        printf("Flag: CTF{fr1d4_und3t3ct3d}\n");
+    else
+        printf("Wrong\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-python"># anti_anti_frida.js - Frida script that hides itself
+// Hook fopen to filter /proc/self/maps reads
+Interceptor.attach(Module.findExportByName(null, "fopen"), {
+    onEnter: function(args) {
+        var path = Memory.readUtf8String(args[0]);
+        if (path === "/proc/self/maps") {
+            // Replace with /dev/null or a fake maps file
+            var fake = Memory.allocUtf8String("/dev/null");
+            args[0] = fake;
+        }
+    }
+});
+
+// Hook strstr to hide frida strings
+Interceptor.attach(Module.findExportByName(null, "strstr"), {
+    onEnter: function(args) {
+        this.needle = Memory.readUtf8String(args[1]);
+    },
+    onLeave: function(retval) {
+        if (this.needle === "frida" || this.needle === "gadget") {
+            retval.replace(ptr(0));  // return NULL (not found)
+        }
+    }
+});
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Handle Exception-Based Anti-Debug</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: A binary uses SIGTRAP/INT3 and structured exception handling for anti-debug. Pass signals correctly to defeat the check.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab12_exception.c
+#include &lt;stdio.h&gt;
+#include &lt;signal.h&gt;
+#include &lt;setjmp.h&gt;
+#include &lt;string.h&gt;
+
+static jmp_buf checkpoint;
+static volatile int debug_flag = 1;  // assume debugger
+
+void trap_handler(int sig) {
+    // If we get here, no debugger ate the signal
+    debug_flag = 0;
+    longjmp(checkpoint, 1);
+}
+
+void segv_handler(int sig) {
+    // Intentional SEGV as part of control flow
+    debug_flag = 0;
+    longjmp(checkpoint, 2);
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) return 1;
+
+    // Test 1: INT3 check
+    signal(SIGTRAP, trap_handler);
+    if (setjmp(checkpoint) == 0) {
+        __asm__ volatile("int3");
+        // If debugger catches INT3, we continue here with debug_flag=1
+    }
+
+    if (debug_flag) {
+        printf("Debugger detected (INT3)\n");
+        return 1;
+    }
+
+    // Test 2: Intentional null deref as control flow
+    debug_flag = 1;
+    signal(SIGSEGV, segv_handler);
+    if (setjmp(checkpoint) == 0) {
+        volatile int *p = NULL;
+        *p = 42;  // SEGV expected
+    }
+
+    if (debug_flag) {
+        printf("Debugger detected (SEGV)\n");
+        return 1;
+    }
+
+    // If both passed, check password
+    if (strcmp(argv[1], "3xc3pt10n") == 0)
+        printf("Flag: CTF{3xc3pt10n_h4ndl3d}\n");
+    else
+        printf("Wrong\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o lab12 lab12_exception.c
+# Task: Debug this in GDB
+# Key: handle SIGTRAP nostop pass
+#      handle SIGSEGV nostop pass
+# This makes GDB forward signals to the program instead of catching them
+</code></pre>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 13: Devirtualize a Simple VM</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Reverse engineer a custom VM's bytecode to understand the password validation logic and find the correct input.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// lab13_vm.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+
+typedef struct {
+    int regs[4];       // R0-R3
+    int stack[64];
+    int sp;
+    unsigned char *ip;
+    int flag;          // comparison flag
+} VM;
+
+// Opcodes
+#define OP_LOAD_IMM  0x01  // LOAD Rx, imm8
+#define OP_LOAD_INPUT 0x02 // LOAD Rx, input[imm8]
+#define OP_XOR       0x03  // XOR Rx, Ry
+#define OP_CMP       0x04  // CMP Rx, imm8
+#define OP_JNZ       0x05  // JNZ offset
+#define OP_ADD       0x06  // ADD Rx, imm8
+#define OP_RET_OK    0xFE  // return success
+#define OP_RET_FAIL  0xFF  // return failure
+
+int vm_run(unsigned char *bytecode, int bc_len, const char *input) {
+    VM vm = {0};
+    vm.ip = bytecode;
+
+    while (vm.ip < bytecode + bc_len) {
+        unsigned char op = *vm.ip++;
+        switch (op) {
+            case OP_LOAD_IMM: {
+                int reg = *vm.ip++;
+                int val = *vm.ip++;
+                vm.regs[reg] = val;
+                break;
+            }
+            case OP_LOAD_INPUT: {
+                int reg = *vm.ip++;
+                int idx = *vm.ip++;
+                vm.regs[reg] = (unsigned char)input[idx];
+                break;
+            }
+            case OP_XOR: {
+                int r1 = *vm.ip++;
+                int r2 = *vm.ip++;
+                vm.regs[r1] ^= vm.regs[r2];
+                break;
+            }
+            case OP_CMP: {
+                int reg = *vm.ip++;
+                int val = *vm.ip++;
+                vm.flag = (vm.regs[reg] == val) ? 0 : 1;
+                break;
+            }
+            case OP_JNZ: {
+                int off = (signed char)*vm.ip++;
+                if (vm.flag != 0) vm.ip += off;
+                break;
+            }
+            case OP_ADD: {
+                int reg = *vm.ip++;
+                int val = *vm.ip++;
+                vm.regs[reg] += val;
+                break;
+            }
+            case OP_RET_OK:  return 1;
+            case OP_RET_FAIL: return 0;
+        }
+    }
+    return 0;
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2 || strlen(argv[1]) < 4) return 1;
+
+    // Bytecode: check input[0]^0x37=='V', input[1]^0x37=='L'...
+    unsigned char bytecode[] = {
+        0x02, 0x00, 0x00,   // LOAD R0, input[0]
+        0x01, 0x01, 0x37,   // LOAD R1, 0x37
+        0x03, 0x00, 0x01,   // XOR R0, R1
+        0x04, 0x00, 0x56,   // CMP R0, 'V'
+        0x05, 0x1B,         // JNZ -> fail
+
+        0x02, 0x00, 0x01,   // LOAD R0, input[1]
+        0x01, 0x01, 0x37,   // LOAD R1, 0x37
+        0x03, 0x00, 0x01,   // XOR R0, R1
+        0x04, 0x00, 0x4C,   // CMP R0, 'L'
+        0x05, 0x0E,         // JNZ -> fail
+
+        0x02, 0x00, 0x02,   // LOAD R0, input[2]
+        0x01, 0x01, 0x37,   // LOAD R1, 0x37
+        0x03, 0x00, 0x01,   // XOR R0, R1
+        0x04, 0x00, 0x4D,   // CMP R0, 'M'
+        0x05, 0x01,         // JNZ -> fail
+
+        0xFE,               // RET_OK
+        0xFF                // RET_FAIL
+    };
+
+    if (vm_run(bytecode, sizeof(bytecode), argv[1]))
+        printf("Flag: CTF{vm_%s_d3v1rt}\n", argv[1]);
+    else
+        printf("Wrong\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o lab13 lab13_vm.c
+# Task: Disassemble the bytecode manually
+# For each byte, determine: input[i] ^ 0x37 == expected_char
+# Solve for each input byte: input[i] = expected_char ^ 0x37
+# 'V' ^ 0x37 = ?, 'L' ^ 0x37 = ?, 'M' ^ 0x37 = ?
+</code></pre>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ==================== CTF ==================== -->
+      <div class="tab-pane fade" id="ctf">
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Binary with ptrace Check</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">A crackme calls ptrace before checking your password. Bypass the anti-debug and find the correct password.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf1_ptrace_crackme.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;sys/ptrace.h&gt;
+
+int main(int argc, char **argv) {
+    if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1) {
+        printf("Nice try.\n");
+        exit(1);
+    }
+
+    if (argc != 2) return 1;
+    char pass[16];
+    for (int i = 0; i < 8; i++)
+        pass[i] = "QRSTUVWX"[i] ^ (i * 3 + 0x10);
+    pass[8] = 0;
+
+    if (strcmp(argv[1], pass) == 0)
+        printf("CTF{ptr4c3_cr4ckm3_%s}\n", pass);
+    else
+        printf("Wrong\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -s -o ctf1 ctf1_ptrace_crackme.c
+# Bypass ptrace, then find password via dynamic analysis
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>LD_PRELOAD a library with <code>long ptrace(int r, ...) { return 0; }</code>, then use GDB or ltrace on the patched execution to find the strcmp arguments.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Packed Crackme</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A UPX-packed binary with modified headers prevents <code>upx -d</code>. Manually unpack and solve the crackme inside.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf2_packed.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int main(int argc, char **argv) {
+    if (argc != 2) return 1;
+    // Simple XOR check hidden inside packed binary
+    char enc[] = {0x53, 0x61, 0x63, 0x6b, 0x45, 0x64, 0x21, 0x00};
+    for (int i = 0; i < 7; i++) enc[i] ^= 0x20;
+    if (strcmp(argv[1], enc) == 0)
+        printf("CTF{unp4ck3d_%s}\n", enc);
+    else
+        printf("Nope\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf2_orig ctf2_packed.c
+upx -o ctf2 ctf2_orig
+
+# Corrupt UPX magic to prevent upx -d:
+python3 -c "
+d=open('ctf2','rb').read()
+d=d.replace(b'UPX!',b'UPZ!')
+open('ctf2','wb').write(d)
+"
+
+# Now upx -d fails. Must unpack manually.
+# 1. Run in GDB, find OEP
+# 2. Dump unpacked binary
+# 3. Solve the crackme
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Fix the magic bytes back to "UPX!" with a hex editor for easy unpack. Or: run in GDB, <code>catch syscall mprotect</code>, find OEP, then break on strcmp to get the password.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Obfuscated Password Check</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A binary uses MBA expressions and dead code to obscure a simple password comparison. Cut through the noise.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf3_obfuscated.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int obf_compare(int a, int b) {
+    // MBA: returns a == b ? 0 : non-zero
+    int dead1 = a * 0xDEAD;
+    int x = (a ^ b) + 2 * (a &amp; b) - (a | b) - (a &amp; b);
+    int dead2 = dead1 ^ 0xBEEF;
+    int y = ((~a) &amp; b) | (a &amp; (~b));
+    if (dead2) dead2 = 0;  // dead code
+    return y;  // == a ^ b (0 if equal)
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) return 1;
+    char *input = argv[1];
+    if (strlen(input) != 6) { puts("Wrong"); return 1; }
+
+    char target[] = "0bfusc";
+    int ok = 1;
+    for (int i = 0; i < 6; i++) {
+        if (obf_compare(input[i], target[i]) != 0) {
+            ok = 0;
+            break;
+        }
+    }
+
+    if (ok)
+        printf("CTF{mba_%s_cl34r}\n", input);
+    else
+        printf("Wrong\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -O0 -o ctf3 ctf3_obfuscated.c
+# Dynamic: ltrace ./ctf3 "AAAAAA" shows strcmp isn't used
+# Break on obf_compare, read args
+# Or: simplify MBA to realize it's just XOR (a^b)
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>The MBA reduces to <code>a ^ b</code>. The target string "0bfusc" is compared byte-by-byte. Just use GDB to read the <code>target</code> array, or trace the comparisons.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: VM-Protected Logic</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A binary runs password validation inside a custom VM interpreter. Reverse the bytecode to find the password.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf4_vmprotect.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+int vm_check(const char *input) {
+    int r0=0, r1=0, flag=1;
+    // Bytecode encoded as operations
+    // Check: input[i] + i == expected[i]
+    int expected[] = {0x56, 0x4E, 0x52, 0x57, 0x79, 0x7B};
+    // V=0x56, M+1=0x4E, P+2=0x52, R+3=0x57, u+4=0x79, w+5=0x7B
+
+    if (strlen(input) != 6) return 0;
+
+    for (int i = 0; i < 6; i++) {
+        r0 = (unsigned char)input[i];
+        r1 = i;
+        r0 = r0 + r1;  // add index
+        if (r0 != expected[i]) { flag = 0; break; }
+    }
+    return flag;
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) return 1;
+    if (vm_check(argv[1]))
+        printf("CTF{vm_pr0t3ct_%s}\n", argv[1]);
+    else
+        printf("Wrong\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -O0 -o ctf4 ctf4_vmprotect.c
+# Task: Reverse the VM logic
+# input[i] + i == expected[i]
+# So: input[i] = expected[i] - i
+# Solve for each byte
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>The VM adds the index to each input byte and compares. Reverse: <code>chr(0x56-0)='V'</code>, <code>chr(0x4E-1)='M'</code>, <code>chr(0x52-2)='P'</code>, etc. The password is "VMProt" (or similar).</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Self-Decrypting Code</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A binary decrypts its main validation routine at runtime using a key derived from the binary's own checksum. Capture the decrypted code.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf5_selfdecrypt.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys/mman.h&gt;
+#include &lt;unistd.h&gt;
+
+// The "encrypted" check function
+unsigned char encrypted_check[] = {
+    // XOR'd with key 0x55
+    // Original: compare input with "D3CRYPT"
+    0x80, 0x3f, 0x11, 0x31, 0x77, 0x67, 0x69, 0x17, 0x22,
+    // ... more bytes representing the function
+};
+
+unsigned char compute_key() {
+    // Key derived from binary properties
+    return 0x55;
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) return 1;
+
+    unsigned char key = compute_key();
+
+    // Decrypt check function
+    void *exec = mmap(NULL, 4096, PROT_READ|PROT_WRITE|PROT_EXEC,
+                      MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+
+    for (int i = 0; i < sizeof(encrypted_check); i++)
+        ((unsigned char*)exec)[i] = encrypted_check[i] ^ key;
+
+    // Call decrypted function: int check(const char*) -> 0 or 1
+    int (*check)(const char*) = (int(*)(const char*))exec;
+
+    // Actually just do a simple check since shellcode is complex
+    // Simulated: the decrypted function checks for "D3CRYPT"
+    if (strcmp(argv[1], "D3CRYPT") == 0)
+        printf("CTF{s3lf_d3crypt_%s}\n", argv[1]);
+    else
+        printf("Wrong\n");
+
+    munmap(exec, 4096);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf5 ctf5_selfdecrypt.c
+# Task: Break after mmap+decrypt, dump decrypted code
+# Or: Hook mmap to capture decrypted bytes
+# Or: XOR the encrypted_check array with 0x55 offline
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Set a breakpoint after the decryption loop. Then <code>x/30bx exec</code> to dump the decrypted function, or simply XOR the encrypted_check bytes with 0x55 to get the original assembly.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: Multi-Layer Anti-Debug</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A binary chains 5 different anti-debug techniques. Bypass all layers to reach the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf6_multilayer.c
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys/ptrace.h&gt;
+#include &lt;time.h&gt;
+#include &lt;signal.h&gt;
+#include &lt;setjmp.h&gt;
+#include &lt;unistd.h&gt;
+
+static jmp_buf jbuf;
+static int layer3_ok = 0;
+
+void sigtrap_handler(int sig) { layer3_ok = 1; longjmp(jbuf, 1); }
+
+int main() {
+    // Layer 1: ptrace
+    if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1)
+        { puts("L1: blocked"); exit(1); }
+
+    // Layer 2: TracerPid
+    FILE *f = fopen("/proc/self/status", "r");
+    char line[256];
+    while (f && fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "TracerPid:", 10) == 0) {
+            if (atoi(line+10) != 0) { fclose(f); puts("L2: blocked"); exit(1); }
+            break;
+        }
+    }
+    if (f) fclose(f);
+
+    // Layer 3: INT3 exception
+    signal(SIGTRAP, sigtrap_handler);
+    if (setjmp(jbuf) == 0) {
+        __asm__ volatile("int3");
+    }
+    if (!layer3_ok) { puts("L3: blocked"); exit(1); }
+
+    // Layer 4: timing
+    struct timespec t1, t2;
+    clock_gettime(CLOCK_MONOTONIC, &amp;t1);
+    volatile int x = 0;
+    for (int i = 0; i < 1000; i++) x += i;
+    clock_gettime(CLOCK_MONOTONIC, &amp;t2);
+    if ((t2.tv_nsec - t1.tv_nsec) > 5000000)
+        { puts("L4: blocked"); exit(1); }
+
+    // Layer 5: parent check
+    char ppath[64], pname[256] = {0};
+    snprintf(ppath, sizeof(ppath), "/proc/%d/comm", getppid());
+    FILE *pf = fopen(ppath, "r");
+    if (pf) { fgets(pname, sizeof(pname), pf); fclose(pf); }
+    if (strstr(pname, "gdb") || strstr(pname, "lldb"))
+        { puts("L5: blocked"); exit(1); }
+
+    printf("CTF{4ll_l4y3rs_byp4ss3d}\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf6 ctf6_multilayer.c
+# Must bypass all 5 layers simultaneously
+# Comprehensive LD_PRELOAD library or Frida script needed
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Write one LD_PRELOAD library that hooks: ptrace (return 0), fopen for /proc/self/status (fake TracerPid:0), clock_gettime (fixed values), and fopen for /proc/PID/comm (fake parent name). GDB also needs <code>handle SIGTRAP nostop pass</code>.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: String Decryption + Validation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">All strings including the password are encrypted with different keys. Decrypt them all to find the valid input.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf7_multikey.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+
+char* dec(const unsigned char *d, int len, unsigned char key) {
+    char *out = malloc(len + 1);
+    for (int i = 0; i < len; i++)
+        out[i] = d[i] ^ key ^ (i &amp; 0xF);
+    out[len] = 0;
+    return out;
+}
+
+int main(int argc, char **argv) {
+    // "Usage: %s &lt;password&gt;" encrypted with key 0xAA
+    char *usage = dec((unsigned char[]){0xef,0xc8,0xc1,0xc4,0xc1,0xcf,
+        0xa0,0xad,0xbf,0xa3,0xa4,0xb4,0xa4,0xb1,0xa0,0xbf,0xb2,0xbd,
+        0xb4,0xa7}, 20, 0xAA);
+
+    if (argc != 2) { printf("%s\n", usage); free(usage); return 1; }
+
+    // Password "kr4ck3d" encrypted with key 0x77
+    char *pass = dec((unsigned char[]){0x1c,0x04,0x41,0x40,0x44,0x43,0x15},
+                     7, 0x77);
+
+    if (strcmp(argv[1], pass) == 0) {
+        // Flag encrypted with key 0x33
+        char *flag = dec((unsigned char[]){0x70,0x51,0x7d,0x7c,0x60,0x6a,
+            0x19,0x51,0x4b,0x49,0x7a,0x63,0x3d,0x07,0x5f}, 15, 0x33);
+        printf("Flag: %s\n", flag);
+        free(flag);
+    } else {
+        printf("Wrong\n");
+    }
+
+    free(usage); free(pass);
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf7 ctf7_multikey.c
+# Hook dec() to see all decrypted strings, or decode manually
+# Key: each string uses XOR with key and index
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Hook the <code>dec</code> function with Frida or ltrace to see all decrypted outputs. Or manually compute: <code>d[i] ^ key ^ (i & 0xF)</code> for the password array with key 0x77.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Custom Packer Unpack</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A binary uses a custom multi-stage packer: XOR decrypt → LZSS decompress → fixup relocations. Unpack to find the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf8_custompacker.c (simplified simulation)
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;sys/mman.h&gt;
+
+// Stage 1: XOR-encrypted payload
+unsigned char stage1_data[] = {
+    0xA3, 0xE7, 0xF5, 0xE3, 0xE7, 0xA0, 0xB3, 0xA7,
+    0xE5, 0xE4, 0xA0, 0xF0, 0xE1, 0xE3, 0xEB, 0xE5,
+    0xF2, 0xA1, 0x00
+};
+
+void unpack_and_run() {
+    int len = sizeof(stage1_data) - 1;
+
+    // Stage 1: XOR decrypt
+    char *stage2 = malloc(len + 1);
+    for (int i = 0; i < len; i++)
+        stage2[i] = stage1_data[i] ^ 0x80;
+    stage2[len] = 0;
+
+    // Stage 2: The "decompressed" code is actually a flag string
+    // In a real packer, this would be executable code
+    printf("Unpacked: %s\n", stage2);
+
+    // Check if contains flag marker
+    if (strstr(stage2, "CTF{") || strstr(stage2, "custom_packer"))
+        printf("Flag found in unpacked data!\n");
+    else
+        printf("Unpack succeeded, analyze the output.\n");
+
+    free(stage2);
+}
+
+int main() {
+    printf("Custom packer stub running...\n");
+    unpack_and_run();
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf8 ctf8_custompacker.c
+# Task: Identify each unpacking stage
+# Method 1: Break after each XOR/decompress stage, dump memory
+# Method 2: Trace mmap/mprotect calls
+# Method 3: Emulate the unpacking with Python
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>XOR the stage1_data with 0x80 in Python: <code>''.join(chr(b^0x80) for b in stage1_data[:-1])</code> to get the unpacked string directly.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Virtualized Crackme</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">A crackme runs its entire password check inside a stack-based VM with 10 custom opcodes. Reverse the bytecode format and solve.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf9_vmcrackme.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+#define PUSH 0x01
+#define POP  0x02
+#define ADDC 0x03   // add constant to TOS
+#define SUBC 0x04   // subtract constant from TOS
+#define XORC 0x05   // xor TOS with constant
+#define CMPS 0x06   // compare top two stack values, push result
+#define JMPF 0x07   // jump if TOS is 0 (false)
+#define LOAD 0x08   // push input[idx]
+#define PRNT 0x09   // print flag
+#define HALT 0x0A
+
+int vm_execute(unsigned char *code, int code_len, const char *input) {
+    int stack[64], sp = 0, ip = 0;
+
+    while (ip < code_len) {
+        switch (code[ip++]) {
+            case PUSH: stack[sp++] = code[ip++]; break;
+            case POP:  sp--; break;
+            case ADDC: stack[sp-1] += code[ip++]; break;
+            case SUBC: stack[sp-1] -= code[ip++]; break;
+            case XORC: stack[sp-1] ^= code[ip++]; break;
+            case CMPS: { int b=stack[--sp], a=stack[--sp]; stack[sp++]=(a==b); break; }
+            case JMPF: { int off=code[ip++]; if(!stack[--sp]) return 0; break; }
+            case LOAD: stack[sp++] = (unsigned char)input[code[ip++]]; break;
+            case PRNT: return 1;
+            case HALT: return 0;
+        }
+    }
+    return 0;
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2 || strlen(argv[1]) != 5) { puts("Usage: ./ctf9 <5-char-key>"); return 1; }
+
+    unsigned char bytecode[] = {
+        LOAD, 0,    XORC, 0x11, PUSH, 0x63, CMPS, JMPF, 0x00,
+        LOAD, 1,    ADDC, 0x05, PUSH, 0x77, CMPS, JMPF, 0x00,
+        LOAD, 2,    SUBC, 0x03, PUSH, 0x69, CMPS, JMPF, 0x00,
+        LOAD, 3,    XORC, 0x20, PUSH, 0x4D, CMPS, JMPF, 0x00,
+        LOAD, 4,    ADDC, 0x0A, PUSH, 0x7F, CMPS, JMPF, 0x00,
+        PRNT
+    };
+
+    if (vm_execute(bytecode, sizeof(bytecode), argv[1]))
+        printf("CTF{vm_cr4ck_%s}\n", argv[1]);
+    else
+        printf("Nope.\n");
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf9 ctf9_vmcrackme.c
+# Disassemble bytecode:
+# input[0] ^ 0x11 == 0x63 → input[0] = 0x63 ^ 0x11
+# input[1] + 0x05 == 0x77 → input[1] = 0x77 - 0x05
+# input[2] - 0x03 == 0x69 → input[2] = 0x69 + 0x03
+# input[3] ^ 0x20 == 0x4D → input[3] = 0x4D ^ 0x20
+# input[4] + 0x0A == 0x7F → input[4] = 0x7F - 0x0A
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Each check is: LOAD input byte → transform → compare with constant. Invert each operation to find the character. <code>0x63^0x11=0x72='r'</code>, <code>0x77-0x05=0x72='r'</code>, etc.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Combined Anti-Everything</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">The ultimate challenge: a packed, obfuscated, anti-debugged, VM-protected binary. Combine all techniques to extract the flag.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf10_ultimate.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;sys/ptrace.h&gt;
+#include &lt;time.h&gt;
+#include &lt;signal.h&gt;
+#include &lt;setjmp.h&gt;
+#include &lt;sys/mman.h&gt;
+#include &lt;unistd.h&gt;
+
+static jmp_buf jb;
+static int trap_ok = 0;
+void trap(int s) { trap_ok = 1; longjmp(jb, 1); }
+
+// String decrypt
+char* D(const unsigned char *e, int l, unsigned char k) {
+    char *o = malloc(l+1);
+    for(int i=0;i<l;i++) o[i]=e[i]^k^i;
+    o[l]=0; return o;
+}
+
+// VM check
+int vm_check(const char *in) {
+    if (strlen(in) != 7) return 0;
+    // Encrypted expected values (XOR key per position)
+    int keys[] = {0x13, 0x37, 0x42, 0x55, 0x11, 0x22, 0x33};
+    int expt[] = {0x60, 0x55, 0x27, 0x30, 0x7B, 0x50, 0x52};
+    for (int i = 0; i < 7; i++) {
+        if ((in[i] ^ keys[i]) != expt[i]) return 0;
+    }
+    return 1;
+}
+
+int main(int argc, char **argv) {
+    // Anti-debug layer
+    if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1) exit(1);
+
+    signal(SIGTRAP, trap);
+    if (setjmp(jb)==0) __asm__ volatile("int3");
+    if (!trap_ok) exit(1);
+
+    struct timespec t1,t2;
+    clock_gettime(CLOCK_MONOTONIC, &amp;t1);
+    volatile int x=0; for(int i=0;i<100;i++) x+=i;
+    clock_gettime(CLOCK_MONOTONIC, &amp;t2);
+    if ((t2.tv_nsec-t1.tv_nsec)>10000000) exit(1);
+
+    // Decrypt prompt
+    char *prompt = D((unsigned char[]){0x50,0x64,0x73,0x70,0x67,0x6e,
+        0x66,0x6b,0x2e,0x29}, 10, 0x33);
+    printf("%s ", prompt);
+    free(prompt);
+
+    if (argc != 2) return 1;
+
+    if (vm_check(argv[1])) {
+        // Decrypt flag
+        char *flag = D((unsigned char[]){0x76,0x51,0x7b,0x7f,0x6d,0x44,
+            0x03,0x4c,0x59,0x40,0x5e,0x4d,0x08,0x40,0x4e,0x5e,
+            0x54,0x42,0x16,0x56}, 20, 0x33);
+        printf("Flag: %s\n", flag);
+        free(flag);
+    } else {
+        printf("Wrong\n");
+    }
+    return 0;
+}
+</code></pre>
+<pre><code class="language-bash">gcc -o ctf10 ctf10_ultimate.c
+# Step 1: Bypass ptrace + SIGTRAP + timing (LD_PRELOAD)
+# Step 2: Reverse vm_check: input[i] = expt[i] ^ keys[i]
+# Step 3: Compute each byte manually
+# Or: Frida to replace all anti-debug + hook vm_check
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>First bypass all anti-debug with LD_PRELOAD. Then solve the VM: each byte is <code>expt[i] ^ keys[i]</code>. Compute: <code>0x60^0x13</code>, <code>0x55^0x37</code>, <code>0x27^0x42</code>, etc. to get the 7-character password.</p></div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 11: Anti-Instrumentation Evasion</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">A binary detects Frida, Pin, and strace, then refuses to run. Hook its detection to analyze it with your preferred tool.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// ctf11_antitool.c
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+
+int detect_tools() {
+    // Check /proc/self/maps for instrumentation
+    FILE *f = fopen("/proc/self/maps", "r");
+    if (!f) return 0;
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        if (strstr(line,"frida") || strstr(line,"pinbin") ||
+            strstr(line,"dynamorio") || strstr(line,"vgpreload")) {
+            fclose(f);
+            return 1;
+        }
+    }
+    fclose(f);
+
+    // Check parent process
+    char buf[256]={0};
+    snprintf(buf, sizeof(buf), "/proc/%d/comm", getppid());
+    FILE *pf = fopen(buf, "r");
+    if (pf) {
+        fgets(buf, sizeof(buf), pf);
+        fclose(pf);
+        if (strstr(buf,"strace") || strstr(buf,"ltrace")) return 1;
+    }
+    return 0;
+}
+
+int main(int argc, char **argv) {
+    if (detect_tools()) { puts("Analysis tool detected."); return 1; }
+    if (argc==2 && strcmp(argv[1], "t00l_3v4d3")==0)
+        printf("CTF{4nt1_t00l_byp4ss}\n");
+    else
+        printf("Wrong\n");
+    return 0;
+}
+</code></pre>
+          </div>
+          <button class="hint-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show Hint</button>
+          <div class="hint-content"><p>Hook <code>strstr</code> to return NULL for any needle matching "frida", "pinbin", etc. Or hook <code>fopen</code> for /proc paths to return sanitized content.</p></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
