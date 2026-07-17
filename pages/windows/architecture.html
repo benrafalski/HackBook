@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script>
+      (function () {
+        const base = document.createElement("base");
+        if (location.hostname.includes("github.io")) {
+          base.href = `/HackBook/`;
+        } else {
+          const pathSegments = window.location.pathname
+            .split("/")
+            .filter((element) => element !== "");
+          const index = pathSegments.indexOf("HackBook");
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join("/") + "/";
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/x-icon" href="assets\images\hacker.jpg" />
+
+    <title>HackBook | Windows Architecture</title>
+
+    <!-- Bootstrap CSS -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Prism JS -->
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-nasm.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/prismjs/plugins/command-line/prism-command-line.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/prismjs/plugins/command-line/prism-command-line.min.js"></script>
+    <!-- Fonts -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <script src="assets\scripts\main.js"></script>
+    <link rel="stylesheet" href="assets\styles\styles.css" />
+  </head>
+  <body>
+    <!-- Main Content -->
+    <div class="content">
+      <h1>Windows Architecture</h1>
+      <hr />
+
+      <!-- NT Kernel -->
+      <h2>NT Kernel</h2>
+
+      <h3>Overview</h3>
+      <ul>
+        <li><strong>Hybrid kernel</strong>: both monolithic kernel and microkernel</li>
+        <li><strong>Design</strong>: Portability, Reliability, Security, Compatibility, Extensibility</li>
+      </ul>
+
+      <h3>Evolution Timeline</h3>
+      <table>
+        <tr><th>Version</th><th>Release</th><th>Kernel Notable Changes</th></tr>
+        <tr><td>NT 3.1</td><td>1993</td><td>First release, GDI in user mode</td></tr>
+        <tr><td>NT 4.0</td><td>1996</td><td>Moved GDI/Window Manager into kernel mode (<code>win32k.sys</code>) for performance — a decision with lasting security implications</td></tr>
+        <tr><td>Windows 2000 (NT 5.0)</td><td>2000</td><td>Active Directory, Plug and Play, WDM driver model</td></tr>
+        <tr><td>Windows XP (NT 5.1)</td><td>2001</td><td>DEP (Data Execution Prevention) support, prefetch</td></tr>
+        <tr><td>Windows Vista (NT 6.0)</td><td>2007</td><td>ASLR, kernel patch protection (PatchGuard) on x64, mandatory integrity levels, UAC, KMCS</td></tr>
+        <tr><td>Windows 7 (NT 6.1)</td><td>2009</td><td>MinWin componentization, kernel transaction manager improvements</td></tr>
+        <tr><td>Windows 8 (NT 6.2)</td><td>2012</td><td>Secure Boot, UEFI, Connected Standby, Hyper-V integration</td></tr>
+        <tr><td>Windows 10 (NT 10.0)</td><td>2015</td><td>VBS, Credential Guard, Device Guard, HVCI, WSL1 (pico processes)</td></tr>
+        <tr><td>Windows 11 (NT 10.0.22000+)</td><td>2021</td><td>Hardware-enforced stack protection (CET), Pluton integration, stricter TPM 2.0 requirement</td></tr>
+      </table>
+
+      <h3>High-Level Component Map</h3>
+      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/5d/Windows_2000_architecture.svg/960px-Windows_2000_architecture.svg.png" width="600" alt="Windows 2000 Architecture" />
+
+      <h3>The Two Layers Inside ntoskrnl.exe</h3>
+      <p><strong>The Kernel Layer (Ke prefix)</strong>: Thread scheduling, Interrupt dispatching, DPC (Deferred Procedure Call) processing, Exception dispatching, Synchronization primitives, Trap handling</p>
+      <p><strong>The Executive Layer (Ex, Ps, Mm, Io, Ob, Se, Cm, Cc, Po, Pp prefixes)</strong>: Process Manager (Ps), Memory Manager (Mm), I/O Manager (Io), Object Manager (Ob), Security Reference Monitor (Se), Configuration Manager (Cm), Cache Manager (Cc), Power Manager (Po), Plug and Play Manager (Pp)</p>
+
+      <h3>Boot Process</h3>
+      <ol>
+        <li><strong>UEFI</strong>: SEC, PEI, DXE phases</li>
+        <li><strong>BDS Phase</strong>: Boot Device Selection — find <code>bootmgfw.efi</code></li>
+        <li><strong><code>bootmgfw.efi</code></strong> (Windows Boot Manager):
+          <ul>
+            <li>Reads BCD (Boot Configuration Data)</li>
+            <li>Validates Secure Boot signatures</li>
+            <li>Loads <code>winload.efi</code> (or <code>winresume.efi</code> for hibernate)</li>
+          </ul>
+        </li>
+        <li><strong><code>winload.efi</code></strong> (Windows OS Loader):
+          <ul>
+            <li>Loads the SYSTEM registry hive</li>
+            <li>Loads <code>ntoskrnl.exe</code>, <code>HAL.dll</code>, boot-start drivers, <code>CI.dll</code> (Code Integrity)</li>
+            <li>Initializes the hypervisor if VBS is enabled</li>
+            <li>Transfers control to <code>ntoskrnl.exe</code></li>
+          </ul>
+        </li>
+        <li><strong><code>hal.dll</code></strong> specific:
+          <ul>
+            <li><strong>Phase 0</strong>: <code>HalInitSystem(0, ...)</code> called very early during kernel init — Init APIC, scheduler timer, spinlocks, detect ACPI/UEFI</li>
+            <li><strong>Phase 1</strong>: <code>HalInitSystem(1, ...)</code> called later — Complete ACPI table parsing, init DMA, performance counters</li>
+          </ul>
+        </li>
+        <li><strong><code>ntoskrnl.exe</code> Phase 0 initialization</strong> (<code>KiInitializeKernel</code>):
+          <ul>
+            <li>Initialize the kernel (scheduler, memory manager, object manager)</li>
+            <li>Security Reference Monitor initialization</li>
+            <li>PnP manager enumerates boot-start devices</li>
+          </ul>
+        </li>
+        <li><strong>Phase 1 initialization</strong> (<code>Phase1InitializationDiscard</code>):
+          <ul>
+            <li>Start remaining executive subsystems</li>
+            <li>Launch <code>smss.exe</code> (Session Manager) — the first user-mode process</li>
+          </ul>
+        </li>
+      </ol>
+
+      <hr />
+
+      <!-- User vs. Kernel Mode -->
+      <h2>User vs. Kernel Mode</h2>
+<pre><code class="language-none">Ring 0 = Kernel Mode
+Ring 3 = User Mode
+
+Stored in two least-significant bits of CS register (CS.RPL)
+Bit 2 of each page table entry is supervisor bit (1=ring0, 0=ring3)
+Address spaces:
+    User:   0x0000000000000000 - 0x00007FFFFFFFFFFF
+    Kernel: 0xFFFF800000000000 - 0xFFFFFFFFFFFFFFFF
+
+Kernel Pool Types:
+    NonPagedPoolNx  — non-pageable, NX enforced (default post-Win8)
+    NonPagedPool    — non-pageable, executable (legacy, avoid)
+    PagedPool       — pageable (most allocations below APC_LEVEL)
+    Segment Heap    — randomized layout, guard pages, metadata validation (Win10 20H1+)
+
+!!! PreviousMode is a single byte that controls access checks → most powerful exploitation primitive</code></pre>
+      <h3>IRQL (Interrupt Request Levels)</h3>
+      <p>Kernel priority mechanism — determines what can preempt what. Stored per-processor.</p>
+<pre><code class="language-none">HIGH_LEVEL (31/15)     ← Bugcheck, NMI, machine check
+POWER_LEVEL (30/14)    ← Power failure
+IPI_LEVEL (29/13)      ← Inter-processor interrupt
+CLOCK_LEVEL (28/13)    ← Clock interrupt
+Device IRQLs (3–11)    ← Hardware device interrupts (DIRQL)
+DISPATCH_LEVEL (2)     ← Thread scheduling, DPCs
+APC_LEVEL (1)          ← Async Procedure Calls
+PASSIVE_LEVEL (0)      ← Normal thread execution</code></pre>
+
+      <p><strong>Rules:</strong></p>
+      <ul>
+        <li>Running at IRQL N → all interrupts ≤ N are <strong>masked</strong></li>
+        <li><strong>≥ DISPATCH_LEVEL</strong>: cannot access pageable memory (<code>IRQL_NOT_LESS_OR_EQUAL</code> BSOD), cannot block/wait on dispatcher objects</li>
+        <li>Most driver code runs at PASSIVE_LEVEL. ISRs run at DIRQL. DPCs run at DISPATCH_LEVEL</li>
+        <li><code>KeRaiseIrql</code> / <code>KeLowerIrql</code> — never lower below the level you entered at</li>
+        <li>Cannot allocate paged pool at ≥ DISPATCH_LEVEL</li>
+      </ul>
+      <h3>System Calls (SYSCALL/SYSENTER)</h3>
+<pre><code class="language-none">User Application
+    │
+    ▼
+kernel32.dll / kernelbase.dll    (Win32 API layer)
+    │
+    ▼
+ntdll.dll                        (Native API layer — Nt*/Zw* functions)
+    │
+    ▼
+SYSCALL instruction              (Ring 3 → Ring 0 transition)
+    │
+    ▼
+KiSystemCall64                   (in ntoskrnl.exe, kernel-mode entry point)
+    │
+    ▼
+Nt* function in kernel           (actual implementation)
+    │
+    ▼
+SYSRET instruction               (Ring 0 → Ring 3 return)</code></pre>
+
+      <h4>Nt* vs Zw*</h4>
+      <ul>
+        <li><strong>Nt* functions</strong> (e.g., <code>NtCreateFile</code>):
+          <ul>
+            <li>When called from user mode (<code>KTHREAD.PreviousMode = 1</code>) → checks permissions</li>
+            <li>When called from kernel mode (<code>KTHREAD.PreviousMode = 0</code>) → also checks permissions (the caller might be a driver acting on behalf of a user)</li>
+          </ul>
+        </li>
+        <li><strong>Zw* functions</strong> (e.g., <code>ZwCreateFile</code>): Set <code>KTHREAD.PreviousMode = 0</code> before calling the Nt* function. This <strong>bypasses</strong> user-mode access checks. Intended for kernel-mode callers that need to access objects with kernel-level privileges</li>
+      </ul>
+
+      <p><strong>User-mode stub</strong> (<code>ntdll!NtCreateFile</code>, for example):</p>
+<pre><code class="language-nasm">mov eax, 0x55         ; System call number (SSN) for NtCreateFile
+syscall               ; Transfer to kernel
+ret</code></pre>
+
+      <p><strong>SYSCALL instruction</strong> executes:</p>
+      <ul>
+        <li>CPU loads <code>RIP</code> from <code>IA32_LSTAR</code> MSR (→ <code>KiSystemCall64</code>)</li>
+        <li>CPU loads <code>CS</code> from <code>IA32_STAR</code> MSR bits 47:32 (kernel CS)</li>
+        <li>CPU masks <code>RFLAGS</code> with <code>IA32_FMASK</code> MSR (disables interrupts)</li>
+        <li>CPU saves return address in <code>RCX</code>, saves <code>RFLAGS</code> in <code>R11</code></li>
+      </ul>
+
+      <p><strong>KiSystemCall64</strong> in the kernel:</p>
+      <ul>
+        <li>Saves user-mode register state on kernel stack (KTRAP_FRAME)</li>
+        <li>Swaps GS base (user GS ↔ kernel GS) — <code>swapgs</code></li>
+        <li>Looks up table base offset using the system call number in the <strong>System Service Descriptor Table (SSDT)</strong></li>
+        <li>Calls the target function (e.g., <code>nt!NtCreateFile</code>)</li>
+      </ul>
+
+      <p><strong>SYSRET mechanics:</strong></p>
+      <ul>
+        <li>CPU loads <code>RIP</code> from <code>RCX</code>, loads <code>RFLAGS</code> from <code>R11</code></li>
+        <li>CPU sets CPL to 3 (user mode)</li>
+        <li>Result in <code>RAX</code></li>
+      </ul>
+
+      <h3>System Service Descriptor Table (SSDT)</h3>
+      <ul>
+        <li><strong>KeServiceDescriptorTable</strong>: <code>ntoskrnl</code> system call table only</li>
+        <li><strong>KeServiceDescriptorTableShadow</strong>: <code>ntoskrnl</code> AND <code>win32k.sys</code> (GDI/USER) system call tables</li>
+        <li>GUI threads use the Shadow table; non-GUI threads use the regular table</li>
+        <li>The table is <strong>read-only</strong> on x64 systems</li>
+        <li>System call numbers change between Windows builds — they are not stable ABI. This is intentional: it forces user-mode code to go through <code>ntdll.dll</code> rather than hardcoding syscall numbers</li>
+      </ul>
+
+      <h3>Kernel vs User Components</h3>
+      <table>
+        <tr><th>Mode</th><th>Component</th><th>File</th><th>Purpose</th></tr>
+        <tr><td rowspan="10">Kernel</td><td>NT Kernel</td><td><code>ntoskrnl.exe</code></td><td>Core kernel + executive</td></tr>
+        <tr><td>HAL</td><td><code>hal.dll</code></td><td>Hardware abstraction</td></tr>
+        <tr><td>Win32k</td><td><code>win32kfull.sys</code>, <code>win32kbase.sys</code></td><td>Window manager, GDI</td></tr>
+        <tr><td>File system drivers</td><td><code>ntfs.sys</code>, <code>refs.sys</code>, <code>fastfat.sys</code></td><td>File system implementations</td></tr>
+        <tr><td>Network stack</td><td><code>tcpip.sys</code>, <code>ndis.sys</code>, <code>afd.sys</code></td><td>Networking</td></tr>
+        <tr><td>Storage drivers</td><td><code>storport.sys</code>, <code>storahci.sys</code></td><td>Storage stack</td></tr>
+        <tr><td>Filter manager</td><td><code>fltmgr.sys</code></td><td>Minifilter driver framework</td></tr>
+        <tr><td>Code Integrity</td><td><code>ci.dll</code></td><td>Driver signature verification</td></tr>
+        <tr><td>ELAM driver</td><td>Vendor-specific</td><td>Early boot AV scanning</td></tr>
+        <tr><td>Third-party drivers</td><td>Various <code>.sys</code> files</td><td>Device drivers, AV kernel components, VPN drivers</td></tr>
+        <tr><td rowspan="12">User</td><td>NT DLL</td><td><code>ntdll.dll</code></td><td>System call stubs, loader, heap manager, NT runtime</td></tr>
+        <tr><td>Win32 subsystem DLL</td><td><code>kernel32.dll</code>, <code>kernelbase.dll</code></td><td>Win32 API implementation (user-mode portion)</td></tr>
+        <tr><td>GDI client</td><td><code>gdi32.dll</code>, <code>gdi32full.dll</code></td><td>Graphics API (user-mode portion, calls into win32k)</td></tr>
+        <tr><td>User client</td><td><code>user32.dll</code></td><td>Window/message API (calls into win32k)</td></tr>
+        <tr><td>COM runtime</td><td><code>combase.dll</code>, <code>ole32.dll</code></td><td>Component Object Model</td></tr>
+        <tr><td>CRT</td><td><code>ucrtbase.dll</code>, <code>msvcrt.dll</code></td><td>C/C++ runtime</td></tr>
+        <tr><td>.NET runtime</td><td><code>coreclr.dll</code></td><td>Managed code execution</td></tr>
+        <tr><td>CSRSS</td><td><code>csrss.exe</code></td><td>Windows subsystem process (console, shutdown)</td></tr>
+        <tr><td>SMSS</td><td><code>smss.exe</code></td><td>Session manager</td></tr>
+        <tr><td>LSASS</td><td><code>lsass.exe</code></td><td>Local Security Authority — authentication, credentials</td></tr>
+        <tr><td>Services</td><td><code>svchost.exe</code>, various</td><td>Windows services</td></tr>
+        <tr><td>Applications</td><td><code>*.exe</code></td><td>User applications</td></tr>
+      </table>
+
+      <h3>The Secure Kernel (VTL 1)</h3>
+      <p>With Virtualization-Based Security (VBS), Windows introduces a <strong>third execution context</strong>:</p>
+<pre><code class="language-none">┌────────────────────────────────────────────────────┐
+│                  Hypervisor (Ring -1)               │
+├──────────────────────┬─────────────────────────────┤
+│   VTL 0 (Normal)     │    VTL 1 (Secure World)     │
+│                      │                             │
+│  ntoskrnl.exe        │  securekernel.exe           │
+│  Drivers             │  Credential Guard           │
+│  User applications   │  (lsaiso.exe — isolated     │
+│                      │   LSA process)              │
+│                      │  HVCI enforcement           │
+│                      │  Secure enclaves            │
+├──────────────────────┴─────────────────────────────┤
+│                    Hardware                         │
+└────────────────────────────────────────────────────┘</code></pre>
+      <ul>
+        <li><strong>VTL 0</strong> (Virtual Trust Level 0): The normal Windows kernel and user mode. This is what you see without VBS</li>
+        <li><strong>VTL 1</strong> (Virtual Trust Level 1): The secure kernel. Even if VTL 0 kernel is fully compromised, VTL 1 secrets (like Credential Guard-protected credentials) remain safe because the hypervisor prevents VTL 0 from accessing VTL 1 memory</li>
+        <li>The hypervisor enforces VTL memory permissions via <strong>SLAT (Second Level Address Translation) / EPT (Extended Page Tables)</strong></li>
+      </ul>
+
+      <h3>User-Mode Security Boundaries</h3>
+
+      <h4>Session Isolation</h4>
+      <ul>
+        <li>Each logon session has its own <strong>window station</strong> and <strong>desktop</strong> — processes in different sessions cannot send window messages to each other</li>
+        <li>Session 0 isolation (Vista+): Services run in Session 0; interactive users in Session 1+</li>
+      </ul>
+
+      <h4>Mandatory Integrity Control (MIC)</h4>
+      <table>
+        <tr><th>Integrity Level</th><th>SID</th><th>Who Runs Here</th></tr>
+        <tr><td>Untrusted</td><td>S-1-16-0</td><td>Almost nothing</td></tr>
+        <tr><td>Low</td><td>S-1-16-4096</td><td>Protected Mode IE, sandboxed processes</td></tr>
+        <tr><td>Medium</td><td>S-1-16-8192</td><td>Standard user processes</td></tr>
+        <tr><td>High</td><td>S-1-16-12288</td><td>Elevated (admin) processes</td></tr>
+        <tr><td>System</td><td>S-1-16-16384</td><td>SYSTEM services, kernel-initiated processes</td></tr>
+      </table>
+      <ul>
+        <li>A process at a lower integrity level <strong>cannot write to</strong> objects at a higher integrity level (no write up)</li>
+        <li>A process at a lower integrity level <strong>cannot read</strong> objects labeled "no read up"</li>
+        <li>UAC prompt moves a process from Medium to High integrity</li>
+      </ul>
+
+      <h4>AppContainer Isolation</h4>
+      <p>Strongest user-mode sandbox (used by UWP apps, Edge, sandboxed browser tabs):</p>
+      <ul>
+        <li>AppContainer processes have a unique <strong>AppContainer SID</strong> and a set of <strong>Capabilities</strong></li>
+        <li>Default deny: An AppContainer process cannot access ANY resource unless explicitly granted</li>
+        <li>Cannot access the network without the <code>internetClient</code> capability</li>
+        <li>Cannot access the file system outside its own package folder without broker mediation</li>
+        <li>Cannot access other processes, registry keys, or named objects unless they explicitly grant access to the AppContainer SID</li>
+      </ul>
+
+      <h4>Protected Processes (PP / PPL)</h4>
+      <p>Prevents administrators from opening a process with full access:</p>
+      <table>
+        <tr><th>Protection Level</th><th>Signer</th><th>Examples</th></tr>
+        <tr><td>PsProtectedSignerWinTcb-Light</td><td>Windows TCB</td><td><code>csrss.exe</code>, <code>smss.exe</code></td></tr>
+        <tr><td>PsProtectedSignerWindows-Light</td><td>Windows</td><td><code>services.exe</code></td></tr>
+        <tr><td>PsProtectedSignerAntimalware-Light</td><td>Antimalware</td><td>Windows Defender, third-party AV</td></tr>
+        <tr><td>PsProtectedSignerLsa-Light</td><td>LSA</td><td><code>lsass.exe</code> (when RunAsPPL is enabled)</td></tr>
+        <tr><td>PsProtectedSignerWinTcb</td><td>Windows TCB (Full)</td><td>System process</td></tr>
+      </table>
+      <ul>
+        <li>A process can only be opened with <code>PROCESS_ALL_ACCESS</code> by a process with <strong>equal or higher</strong> protection level</li>
+        <li>This protects LSASS from credential dumping (Mimikatz) — unless the attacker has kernel access or a vulnerable signed driver</li>
+        <li>The protection level is stored in <code>EPROCESS.Protection</code></li>
+      </ul>
+
+      <h3>Kernel Mitigations</h3>
+      <table>
+        <tr><th>Mitigation</th><th>What It Prevents</th></tr>
+        <tr><td>SMEP</td><td>Kernel executing user-mode code</td></tr>
+        <tr><td>SMAP</td><td>Kernel reading/writing user-mode data</td></tr>
+        <tr><td>KASLR</td><td>Hardcoded kernel address exploitation</td></tr>
+        <tr><td>NX (DEP)</td><td>Executing data pages (stack/heap/pool)</td></tr>
+        <tr><td>CFG / kCFG</td><td>Control flow hijacking via indirect calls</td></tr>
+        <tr><td>CET Shadow Stack</td><td>ROP (Return-Oriented Programming)</td></tr>
+        <tr><td>PatchGuard</td><td>Modifying kernel structures (SSDT, IDT, etc.)</td></tr>
+        <tr><td>HVCI</td><td>Loading unsigned code in kernel, modifying code pages</td></tr>
+        <tr><td>KVA Shadow (KPTI)</td><td>Meltdown (speculative kernel memory read)</td></tr>
+        <tr><td>Secure Boot</td><td>Boot-time kernel/driver replacement</td></tr>
+        <tr><td>Driver signing</td><td>Loading unsigned drivers</td></tr>
+        <tr><td>VBS / Secure Kernel</td><td>Compromised kernel accessing VTL 1 secrets</td></tr>
+        <tr><td>Kernel pool hardening</td><td>Pool overflow exploitation</td></tr>
+        <tr><td>BYOVD blocklist</td><td>Loading known-vulnerable signed drivers</td></tr>
+      </table>
+
+      <h4>Checking Mitigations</h4>
+<pre><code class="language-powershell"># Check VBS status
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard
+
+# Check process mitigations
+Get-ProcessMitigation -Name chrome.exe
+
+# Check Credential Guard
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard |
+    Select-Object SecurityServicesRunning
+
+# Check LSASS PPL
+Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "RunAsPPL"</code></pre>
+
+      <hr />
+
+      <!-- HAL -->
+      <h2>HAL</h2>
+
+      <h3>Overview</h3>
+      <ul>
+        <li><code>hal.dll</code> is a kernel-mode module that sits between the NT kernel (<code>ntoskrnl.exe</code>) and the physical hardware to abstract away platform-specific hardware details into portable APIs</li>
+        <li>Loaded during boot by <code>winload.efi</code>, mapped into the kernel address space, and runs in Ring 0</li>
+        <li>Base <code>hal.dll</code> provides the common framework and loads <strong>HAL Extensions</strong> (<code>.dll</code> files loaded by the HAL to provide platform-specific functionality)
+          <ul><li>Example: <code>HalExtIntcLpioDMA.dll</code> (Intel Low Power DMA)</li></ul>
+        </li>
+        <li><strong>ACPI tables</strong> (MADT, FADT, DSDT, SSDT, etc.) and <strong>UEFI Runtime Service Wrappers</strong> (<code>GetTime</code>, <code>SetTime</code>, <code>GetVariable</code>, <code>SetVariable</code>)</li>
+        <li>HAL Heap: separate from kernel pools, used for HAL extension data, adapter objects, and DMA mapping structures</li>
+      </ul>
+
+      <h3>Functions</h3>
+
+      <h4>Interrupts</h4>
+      <table>
+        <tr><th>Function</th><th>Purpose</th></tr>
+        <tr><td><code>HalEnableSystemInterrupt</code></td><td>Connect a device interrupt to the IDT</td></tr>
+        <tr><td><code>HalDisableSystemInterrupt</code></td><td>Disconnect a device interrupt</td></tr>
+        <tr><td><code>HalBeginSystemInterrupt</code></td><td>Called at ISR entry — acknowledge interrupt, raise IRQL</td></tr>
+        <tr><td><code>HalEndSystemInterrupt</code></td><td>Called at ISR exit — lower IRQL, signal EOI to controller</td></tr>
+        <tr><td><code>HalRequestSoftwareInterrupt</code></td><td>Trigger a software interrupt (used for DPC and APC delivery)</td></tr>
+      </table>
+      <p><strong>IRQL-to-hardware mapping</strong>: The HAL translates the kernel's abstract IRQL levels into physical interrupt controller priority masks. When the kernel calls <code>KeRaiseIrql(DISPATCH_LEVEL)</code>, the HAL programs the APIC TPR (Task Priority Register) or equivalent to mask lower-priority hardware interrupts.</p>
+
+      <h4>Timers</h4>
+      <table>
+        <tr><th>Timer</th><th>HAL Function</th><th>Resolution</th><th>Purpose</th></tr>
+        <tr><td>ACPI PM Timer</td><td><code>HalQueryPerformanceCounter</code></td><td>~279 ns</td><td>Legacy performance counter</td></tr>
+        <tr><td>HPET</td><td>Various</td><td>~100 ns</td><td>Platform timer, schedulable</td></tr>
+        <tr><td>TSC</td><td><code>HalQueryPerformanceCounter</code></td><td>~1 ns (varies)</td><td>Preferred performance counter on modern CPUs with invariant TSC</td></tr>
+        <tr><td>LAPIC Timer</td><td>Internal</td><td>Programmable</td><td>Per-processor timer for scheduling ticks</td></tr>
+        <tr><td>RTC</td><td><code>HalQueryRealTimeClock</code></td><td>1 second</td><td>Wall-clock time, CMOS backed</td></tr>
+      </table>
+      <p><strong><code>KeQueryPerformanceCounter</code></strong> (the kernel API) calls into the HAL to read the best available high-resolution timer. On modern systems with invariant TSC (constant rate regardless of P-state), the TSC is preferred. The HAL detects TSC invariance via CPUID.</p>
+
+      <h4>DMA</h4>
+      <table>
+        <tr><th>Function</th><th>Purpose</th></tr>
+        <tr><td><code>HalAllocateAdapterChannel</code></td><td>Reserve DMA channel for a device</td></tr>
+        <tr><td><code>HalAllocateCommonBuffer</code></td><td>Allocate physically contiguous, cache-coherent DMA buffer</td></tr>
+        <tr><td><code>HalGetAdapter</code></td><td>Get a DMA adapter object for a device</td></tr>
+        <tr><td><code>HalMapTransfer</code></td><td>Set up scatter/gather DMA mapping</td></tr>
+      </table>
+      <p><strong>IOMMU integration (Intel VT-d, AMD-Vi)</strong>: HAL programs the IOMMU to restrict which physical memory regions a device can access</p>
+      <ul>
+        <li>Without IOMMU: malicious PCIe/Thunderbolt device can DMA read/write any physical memory → kernel compromise (tools: <code>PCILeech</code>)</li>
+        <li>With IOMMU (Kernel DMA Protection, Win10 1803+): device restricted to assigned memory regions</li>
+      </ul>
+
+      <h4>Multiprocessing</h4>
+      <table>
+        <tr><th>Function</th><th>Purpose</th></tr>
+        <tr><td><code>HalStartNextProcessor</code></td><td>Boot an Application Processor (AP) during MP initialization</td></tr>
+        <tr><td><code>HalRequestIpi</code></td><td>Send an Inter-Processor Interrupt to another CPU</td></tr>
+        <tr><td><code>HalProcessorIdle</code></td><td>Enter processor idle state (HLT or MWAIT)</td></tr>
+        <tr><td><code>HalInitializeBios</code></td><td>Initialize real-mode BIOS emulation (legacy x86)</td></tr>
+      </table>
+      <p><strong>IPI (Inter-Processor Interrupts)</strong>: TLB shootdown (page tables change, notify all processors caching those translations), processor freeze or debugging, DPC targeting on specific processor, kernel panic (freeze all processors during bugcheck)</p>
+
+      <h3>HAL Internals</h3>
+
+      <h4>HalDispatchTable</h4>
+      <p>A function pointer table used by the kernel to call HAL functions. Structure:</p>
+<pre><code class="language-c">typedef struct _HAL_DISPATCH {
+    ULONG Version;
+    pHalQuerySystemInformation HalQuerySystemInformation;    // +0x8 — classic exploit target
+    pHalSetSystemInformation HalSetSystemInformation;        // +0x10
+    pHalQueryBusSlots HalQueryBusSlots;                      // +0x18
+    // ... more entries
+} HAL_DISPATCH, *PHAL_DISPATCH;</code></pre>
+      <p><strong>Exploitation history</strong>: Overwriting <code>HalDispatchTable+0x8</code> with a controlled address, then triggering a call to <code>NtQueryIntervalProfile</code> → <code>KeQueryIntervalProfile</code> → <code>HalDispatchTable.HalQuerySystemInformation</code> → attacker's code. This was one of the most common kernel EoP primitives for years until PatchGuard and SMEP mitigations made it harder.</p>
+
+      <h4>HalPrivateDispatchTable</h4>
+      <p>Additional function pointers for internal HAL operations. Less documented, occasionally targeted.</p>
+
+      <h4>ADAPTER_OBJECT</h4>
+      <p>Represents a DMA adapter for a device. Contains scatter/gather capabilities, DMA channel info, IOMMU domain assignment.</p>
+
+      <h3>HAL Enumeration</h3>
+<pre><code class="language-powershell"># Check if Kernel DMA Protection is enabled
+Get-SystemInfo | findstr /i "DMA"
+msinfo32  # System Summary → Kernel DMA Protection
+
+# PowerShell: Check VBS status (includes DMA protection info)
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard</code></pre>
+
+      <hr />
+
+      <!-- Subsystems -->
+      <h2>Subsystems</h2>
+
+      <h3>Overview</h3>
+      <ol>
+        <li><strong>Native API</strong> (<code>ntdll.dll</code>): The lowest-level user-mode API that provides ~460 system call stubs (<code>Nt*</code> functions) plus runtime library functions (<code>Rtl*</code>). All subsystems ultimately call through <code>ntdll.dll</code>
+          <ul><li>Ldr* (DLL Loader) functions: maps EXE and DLLs to memory and maintains three module lists in the PEB (<code>InLoadOrderModuleList</code>, <code>InMemoryOrderModuleList</code>, <code>InInitializationOrderModuleList</code>)</li></ul>
+        </li>
+        <li><strong>Environment Subsystem Process</strong>: Each subsystem has a <strong>server process</strong> that runs in user mode and manages state for its client applications:
+          <ul>
+            <li>Win32: <code>csrss.exe</code> (Client/Server Runtime Subsystem)</li>
+            <li>POSIX: <code>psxss.exe</code> (removed)</li>
+            <li>OS/2: <code>os2ss.exe</code> (removed)</li>
+          </ul>
+        </li>
+        <li><strong>Subsystem DLLs</strong>: Each subsystem provides DLLs that applications link against. These DLLs translate the subsystem's API into Native API calls:
+          <ul>
+            <li>Win32: <code>kernel32.dll</code>, <code>user32.dll</code>, <code>gdi32.dll</code>, <code>advapi32.dll</code></li>
+            <li>POSIX: <code>psxdll.dll</code> (removed)</li>
+          </ul>
+        </li>
+        <li><strong>ALPC (Advanced Local Procedure Call)</strong>: The IPC mechanism subsystem DLLs use to communicate with their subsystem server process (e.g. a Win32 app calls certain APIs that are passed to <code>csrss.exe</code> for processing via ALPC)
+          <ul>
+            <li>Server controls who can connect. Enables <strong>impersonation</strong> — the server can impersonate the client's security context (token). Used by Windows task scheduler.</li>
+          </ul>
+        </li>
+        <li><strong>Subsystem Hardening</strong>: <code>DisallowWin32kSystemCalls</code> (no win32k syscalls), Server Core / Nano Server (no <code>win32kfull.sys</code> loaded), AppContainer + win32k filtering, Constrained Language Mode (PowerShell)</li>
+      </ol>
+
+      <img src="https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/images/ntarch.png" width="600" alt="Windows Subsystem NT Arch" />
+
+      <h4>Monitoring Subsystem Activity</h4>
+<pre><code class="language-powershell"># See which processes are connected to CSRSS
+Get-Process csrss | Format-List *
+
+# Event Tracing for subsystem activity
+logman create trace SubsystemTrace -p Microsoft-Windows-Subsys-SMSS 0xFFFF -o smss_trace.etl
+logman create trace CSRSSTrace -p Microsoft-Windows-Subsys-Csr 0xFFFF -o csrss_trace.etl
+
+# WSL information
+wsl --status
+wsl --list --verbose</code></pre>
+
+      <h3>Win32 Subsystem</h3>
+      <ul>
+        <li><strong>Primary and mandatory</strong> subsystem</li>
+        <li><strong>API Sets</strong>: allows Microsoft to refactor DLL internals without breaking application compatibility
+          <ul>
+            <li>Application imports from <code>api-ms-win-core-file-l1-1-0.dll</code></li>
+            <li>Loader resolves this to the actual implementing DLL (<code>kernelbase.dll</code>)</li>
+            <li>Mapping is stored in the <strong>ApiSetSchema</strong> (data structure in PEB, loaded from <code>apisetschema.dll</code>)</li>
+          </ul>
+        </li>
+      </ul>
+
+      <h4>csrss.exe</h4>
+      <ul>
+        <li>One instance per session (Session 0 has its own, each interactive session has its own)</li>
+        <li>Runs as <strong>PPL (Protected Process Light)</strong> with WinTcb signer level</li>
+        <li><strong>Console window management</strong>: Creates and manages console windows for command-line applications. Console hosting was partially moved to <code>conhost.exe</code> (Vista+) and more recently to Windows Terminal</li>
+        <li><strong>Process/thread creation notifications</strong>: The kernel notifies CSRSS when processes and threads are created/terminated (CSRSS maintains internal bookkeeping)</li>
+        <li><strong>Shutdown management</strong>: CSRSS sends <code>WM_QUERYENDSESSION</code> and <code>WM_ENDSESSION</code> to all top-level windows during shutdown</li>
+        <li><strong>Hard error handling</strong>: Displays "Application Error" dialog boxes for unhandled exceptions</li>
+        <li><strong>DOS device mapping</strong>: Maintains per-session <code>\DosDevices</code> namespace (drive letters, named pipes, etc.)</li>
+      </ul>
+
+      <h4>win32k.sys</h4>
+      <ul>
+        <li>Runs in kernel mode</li>
+        <li><strong>Window Manager (USER)</strong>: Window creation, message queuing/dispatching, input (keyboard/mouse), menus, hooks, clipboard</li>
+        <li><strong>GDI (Graphics Device Interface)</strong>: Drawing primitives (lines, rectangles, text, bitmaps, regions, paths), font rendering, device contexts, print spooling interface</li>
+        <li><strong>DirectComposition</strong>: Modern composition engine for DWM (Desktop Window Manager)</li>
+        <li><strong>Architecture</strong> (<code>win32k.sys</code> is split into):
+          <ul>
+            <li><code>win32kbase.sys</code>: Core functionality (shared between full and Nano Server)</li>
+            <li><code>win32kfull.sys</code>: Full window manager and GDI (loaded on full desktop SKUs)</li>
+            <li><code>win32kmin.sys</code>: Minimal stub (on Nano Server / Server Core without desktop)</li>
+          </ul>
+        </li>
+        <li><strong>Kernel-mode conversion callbacks</strong>: When <code>win32k.sys</code> needs to call back into user mode, it uses <code>KeUserModeCallback</code> (kernel → user mode mid-syscall and returns)</li>
+      </ul>
+
+      <h4>Win32 DLLs</h4>
+      <table>
+        <tr><th>DLL</th><th>Purpose</th><th>Calls Into</th></tr>
+        <tr><td><code>kernel32.dll</code> / <code>kernelbase.dll</code></td><td>Process/thread management, file I/O, memory, console, synchronization</td><td><code>ntdll.dll</code> (Native API)</td></tr>
+        <tr><td><code>user32.dll</code></td><td>Window management, message processing, input, menus, dialog boxes</td><td><code>win32k.sys</code> (via win32k syscalls), CSRSS (via ALPC)</td></tr>
+        <tr><td><code>gdi32.dll</code> / <code>gdi32full.dll</code></td><td>Drawing, fonts, device contexts, printing</td><td><code>win32k.sys</code> (via win32k syscalls)</td></tr>
+        <tr><td><code>advapi32.dll</code></td><td>Security (tokens, ACLs, privileges), registry, services, event log</td><td><code>ntdll.dll</code>, LSASS (via ALPC/RPC)</td></tr>
+        <tr><td><code>sechost.dll</code></td><td>Service control, event logging (split from advapi32)</td><td>SCM, Event Log service</td></tr>
+        <tr><td><code>combase.dll</code> / <code>ole32.dll</code></td><td>COM runtime, marshaling, activation</td><td>Various (RPC, registry)</td></tr>
+        <tr><td><code>ws2_32.dll</code></td><td>Winsock (network sockets)</td><td><code>afd.sys</code> (via DeviceIoControl → ntdll)</td></tr>
+        <tr><td><code>rpcrt4.dll</code></td><td>RPC (Remote Procedure Call) runtime</td><td>Network stack, ALPC</td></tr>
+      </table>
+
+      <h3>Windows Subsystem for Linux (WSL)</h3>
+
+      <h4>WSL 1 (Translation Layer)</h4>
+      <ul>
+        <li>Is a <strong>true subsystem</strong>: translates Linux system calls to NT kernel calls</li>
+        <li><strong>Pico processes</strong>: introduced for WSL1 and are minimal processes managed by a <strong>pico provider</strong> (<code>lxcore.sys</code> driver) rather than the Win32 subsystem. The kernel dispatches system calls from pico processes to the registered pico provider instead of the SSDT. They're subject to Windows security (tokens, ACLs, integrity levels) but can also interact with the Windows filesystem and processes</li>
+        <li><strong>System call translation</strong>: e.g. <code>lxcore.sys</code> translates <code>fork()</code> → <code>NtCreateProcess</code></li>
+        <li><strong>VFS (Virtual File System)</strong>:
+          <ul>
+            <li><strong>VolFs</strong>: Maps Linux root filesystem to a Windows directory (Linux metadata like perms + symlinks stored in NTFS extended attributes)</li>
+            <li><strong>DrvFs</strong>: Maps Windows drives like <code>/mnt/c</code></li>
+            <li><strong>Procfs, Sysfs, Tmpfs</strong>: Emulated in-memory filesystems</li>
+          </ul>
+        </li>
+        <li><strong>ELF loader</strong>: The kernel (via <code>lxcore.sys</code>) directly loads and executes ELF binaries (no PE conversion)</li>
+        <li><strong>Signal handling</strong>: Linux signals are mapped to and from NT's exception/APC mechanisms</li>
+      </ul>
+
+      <h4>WSL 2 (Lightweight VM)</h4>
+      <ul>
+        <li>Runs a <strong>real Linux kernel</strong> built by Microsoft in a lightweight utility Hyper-V VM (isolated by the hypervisor = stronger isolation)</li>
+        <li><strong>9P protocol</strong>: Linux FS <code>/mnt/c</code> uses Plan 9 File Protocol (9P) to access Windows drives</li>
+        <li><strong>ext4 root fs</strong>: stored in a <code>.vhdx</code> file</li>
+      </ul>
+
+      <h3>Session Manager (smss.exe)</h3>
+      <p><strong>First user-mode process</strong> launched by the kernel. <strong>Session isolation</strong> prevents cross-session attacks since each session has its own window station namespace (<code>\Sessions\&lt;N&gt;\Windows</code>).</p>
+      <p>Responsible for:</p>
+      <ol>
+        <li>Creating environment variables from registry</li>
+        <li>Loading the initial <code>\KnownDlls</code> section objects</li>
+        <li>Creating paging files</li>
+        <li>Launching <code>autochk.exe</code> (if disk check needed)</li>
+        <li>Creating <strong>Session 0</strong> (services session) and <strong>Session 1</strong> (first interactive session)</li>
+        <li>Launching <code>csrss.exe</code> and <code>wininit.exe</code> (Session 0) or <code>csrss.exe</code> and <code>winlogon.exe</code> (interactive sessions)</li>
+        <li>Acting as the parent of all subsequent CSRSS instances</li>
+      </ol>
+<pre><code class="language-none">Session 0 (Services)          Session 1 (User)           Session N (RDP User)
+├── csrss.exe                 ├── csrss.exe              ├── csrss.exe
+├── wininit.exe               ├── winlogon.exe           ├── winlogon.exe
+│   ├── services.exe          │   ├── userinit.exe       │   └── ...
+│   │   ├── svchost.exe       │   │   └── explorer.exe   │
+│   │   ├── svchost.exe       │   │       ├── user apps  │
+│   │   └── ...               │   │       └── ...        │
+│   └── lsass.exe             │   └── dwm.exe            │
+└── fontdrvhost.exe           └── fontdrvhost.exe         │</code></pre>
+
+      <hr />
+
+      <!-- Exploitation -->
+      <h2>Exploitation</h2>
+
+      <h3>Kernel Attack Surfaces</h3>
+      <table>
+        <tr><th>Surface</th><th>Components</th><th>Why It Matters</th></tr>
+        <tr><td>System calls</td><td>~460 in ntoskrnl, ~1200 in win32k</td><td>Largest attack surface, fuzzable from user mode</td></tr>
+        <tr><td>Win32k</td><td><code>win32kfull.sys</code></td><td>#1 source of kernel EoP for a decade — complex, legacy, user-mode callbacks</td></tr>
+        <tr><td>Driver IOCTLs</td><td>Third-party <code>.sys</code></td><td>Weak input validation, BYOVD vector</td></tr>
+        <tr><td>File systems</td><td><code>ntfs.sys</code>, VHD/VHDX parsing</td><td>Mount malicious images → kernel parsing bugs</td></tr>
+        <tr><td>Network stack</td><td><code>tcpip.sys</code>, <code>http.sys</code>, <code>afd.sys</code></td><td>Remotely reachable</td></tr>
+        <tr><td>Registry</td><td>Hive parsing</td><td>Malformed hives can trigger kernel bugs</td></tr>
+        <tr><td>Font parsing</td><td>Historically win32k, now partially sandboxed</td><td>Complex format parsing in kernel</td></tr>
+      </table>
+
+      <h3>Common Kernel Vulnerability Classes</h3>
+      <ul>
+        <li><strong>Use-After-Free (UAF)</strong>: win32k objects freed during user-mode callback, kernel still holds stale pointer</li>
+        <li><strong>Pool buffer overflow</strong>: integer overflow → small allocation → write past boundary</li>
+        <li><strong>Type confusion</strong>: wrong object type passed/cast, fields misinterpreted</li>
+        <li><strong>Race conditions (TOCTOU)</strong>: user-mode changes data between kernel's check and use</li>
+        <li><strong>Uninitialized memory</strong>: kernel stack/pool data leaked to user mode (info disclosure)</li>
+        <li><strong>Missing ProbeForRead/Write</strong>: kernel trusts user-supplied pointer without validating it's in user space → arbitrary kernel read/write</li>
+        <li><strong>Double fetch</strong>: kernel reads user memory twice — attacker modifies between reads</li>
+      </ul>
+
+      <h3>Exploitation Primitives (Chaining Steps)</h3>
+<pre><code class="language-none">1. Info Leak          → Defeat KASLR (find ntoskrnl base)
+2. Arbitrary Write    → Overwrite token pointer, security descriptor, or PreviousMode
+3. Privilege Escalation:
+   Option A: Token Stealing    — copy SYSTEM token → attacker's EPROCESS.Token
+   Option B: PreviousMode      — set KTHREAD.PreviousMode = 0 → bypass all access checks
+   Option C: ACL Overwrite     — null out security descriptor → unrestricted access</code></pre>
+
+      <h3>Classic Exploitation Targets</h3>
+      <table>
+        <tr><th>Target</th><th>Technique</th></tr>
+        <tr><td><code>EPROCESS.Token</code></td><td>Overwrite with SYSTEM process token (PID 4) → instant SYSTEM</td></tr>
+        <tr><td><code>KTHREAD.PreviousMode</code></td><td>Set to 0 → <code>NtReadVirtualMemory</code>/<code>NtWriteVirtualMemory</code> work as arbitrary kernel R/W</td></tr>
+        <tr><td><code>HalDispatchTable+0x8</code></td><td>Overwrite → trigger via <code>NtQueryIntervalProfile</code> → code exec (legacy, blocked by PatchGuard/SMEP)</td></tr>
+        <tr><td><code>SEP_TOKEN_PRIVILEGES</code></td><td>Enable <code>SeDebugPrivilege</code>, <code>SeLoadDriverPrivilege</code>, etc. in token</td></tr>
+        <tr><td>PTE manipulation</td><td>Remap user page as kernel page to bypass SMEP, or make kernel page writable</td></tr>
+      </table>
+
+      <h3>Mitigation Bypass Techniques</h3>
+      <table>
+        <tr><th>Mitigation</th><th>Bypass</th></tr>
+        <tr><td>KASLR</td><td>Info leak via <code>NtQuerySystemInformation</code>, uninitialized pool/stack, side channels</td></tr>
+        <tr><td>SMEP</td><td>ROP in kernel, PTE remapping (make user page supervisor), data-only attacks</td></tr>
+        <tr><td>SMAP</td><td>Data-only attacks (never touch user pages), kernel object corruption</td></tr>
+        <tr><td>kCFG</td><td>Abuse valid call targets, data-only attacks that don't hijack control flow</td></tr>
+        <tr><td>PatchGuard</td><td>Timing-based (disable/modify/re-enable between checks), data-only attacks</td></tr>
+        <tr><td>HVCI</td><td>Data-only attacks (no code injection needed), abuse existing signed code gadgets</td></tr>
+        <tr><td>CET Shadow Stack</td><td>JOP (Jump-Oriented Programming), data-only attacks</td></tr>
+        <tr><td>Driver signing</td><td>BYOVD — load known-vulnerable signed driver, exploit it for kernel R/W</td></tr>
+      </table>
+
+      <h3>BYOVD (Bring Your Own Vulnerable Driver)</h3>
+      <ul>
+        <li>Load a legitimately signed but vulnerable driver → exploit its IOCTL for kernel read/write</li>
+        <li>Common targets: <code>dbutil_2_3.sys</code> (Dell), <code>RTCore64.sys</code> (MSI), <code>capcom.sys</code>, <code>gdrv.sys</code> (Gigabyte)</li>
+        <li>Defense: Microsoft vulnerable driver blocklist, HVCI, WDAC driver file rules</li>
+      </ul>
+
+      <h3>Direct Syscall / EDR Evasion</h3>
+      <ul>
+        <li>EDR products hook <code>ntdll.dll</code> in user mode to monitor API calls</li>
+        <li>Bypass: call <code>SYSCALL</code> directly with extracted SSN, bypassing hooked ntdll</li>
+        <li>Tools/techniques: SysWhispers, HellsGate, Halo's Gate, manual ntdll mapping from disk</li>
+        <li>Defense: kernel-mode ETW (EtwTi — Threat Intelligence), kernel callbacks, minifilter drivers</li>
+      </ul>
+
+    </div>
+  </body>
+</html>
