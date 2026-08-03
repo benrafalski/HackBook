@@ -833,10 +833,10 @@ int main(int argc, char *argv[]) {
 }</code></pre>
             <p><strong>Tasks:</strong></p>
             <ol>
-              <li>Use <code>handle.exe -p lsass.exe</code> to discover what files and keys lsass holds open.</li>
+              <li>Use <code>handle.exe -p explorer.exe -a</code> to discover what files and keys explorer holds open.</li>
               <li>Compile and run <code>handle_enum.exe</code> against various PIDs — correlate object type numbers with names.</li>
-              <li>Find all processes that have a handle to <code>\Device\Afd</code> (network sockets).</li>
-              <li>Identify processes holding mutex objects — these often indicate singleton applications.</li>
+              <li>Search system-wide for device handles: <code>handle.exe | Select-String "\\Device\\"</code>. Identify what <code>\Device\Mup</code> (network/SMB/UNC access), <code>\Device\HarddiskVolume[N]</code> (disk I/O), and <code>\Device\NamedPipe</code> (IPC) represent. Raw <code>\Device\Afd</code> (socket) handles are usually invisible at user level — the kernel abstracts them.</li>
+              <li>Identify synchronization object handles: <code>handle.exe | Select-String "Event|Section"</code>. <code>Event</code> objects are used for thread signaling; <code>Section</code> objects represent shared memory (memory-mapped files). Examine which processes hold these and infer communication patterns (e.g., svchost.exe events indicate background service coordination).</li>
             </ol>
           </div>
         </div>
