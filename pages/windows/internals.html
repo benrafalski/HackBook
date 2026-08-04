@@ -853,8 +853,10 @@ int main(int argc, char *argv[]) {
 # Find the EPROCESS for explorer.exe
 # !process 0 0 explorer.exe
 #
-# The OBJECT_HEADER is at EPROCESS_ADDR - sizeof(OBJECT_HEADER)
-# dt nt!_OBJECT_HEADER [address]
+# The OBJECT_HEADER precedes the body, but the offset is NOT sizeof(_OBJECT_HEADER) (0x38) —
+# it's 0x30 on Win10/11 x64, since the Body field overlaps the end of the struct.
+# Find the real offset first: ?? (int)&amp;(((nt!_OBJECT_HEADER*)0)->Body)
+# dt nt!_OBJECT_HEADER EPROCESS_ADDR-0x30
 #
 # Key fields:
 #   PointerCount — kernel-mode reference count
