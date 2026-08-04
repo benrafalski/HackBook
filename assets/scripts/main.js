@@ -125,7 +125,7 @@ document.addEventListener("DOMContentLoaded", () => {
                   Web
                 </a>
                 <ul class="dropdown-menu bg-dark text-light" aria-labelledby="webDropdown">
-                  <li><a class="dropdown-item text-light" href="pages/web/javascript.html">JavaScript</a></li>
+                  <li><a class="dropdown-item text-light" href="pages/web/http.html">HTTP</a></li>
                   <li><a class="dropdown-item text-light" href="pages/web/xss.html">XSS</a></li>
                   <li><a class="dropdown-item text-light" href="pages/web/sqli.html">SQL Injection</a></li>
                   <li><a class="dropdown-item text-light" href="pages/web/ssrf.html">SSRF</a></li>
@@ -149,6 +149,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 </a>
                 <ul class="dropdown-menu bg-dark text-light" aria-labelledby="winDropdown">
                   <li><a class="dropdown-item text-light" href="pages/windows/internals.html">Internals</a></li>
+                  <li><a class="dropdown-item text-light" href="pages/windows/architecture.html">Architecture</a></li>
                   <li><a class="dropdown-item text-light" href="pages/windows/authentication.html">Authentication</a></li>
                   <li><a class="dropdown-item text-light" href="pages/windows/kernel-security.html">Kernel Security</a></li>
                   <li><a class="dropdown-item text-light" href="pages/windows/os-security.html">OS Security Mechanisms</a></li>
@@ -213,22 +214,6 @@ document.addEventListener("DOMContentLoaded", () => {
                   <li><a class="dropdown-item text-light" href="pages/forensics/disk.html">Disk Forensics</a></li>
                   <li><a class="dropdown-item text-light" href="pages/forensics/memory.html">Memory Forensics</a></li>
                   <li><a class="dropdown-item text-light" href="pages/forensics/steganography.html">Steganography</a></li>
-                </ul>
-              </li>
-              <li class="nav-item dropdown">
-                <a class="nav-link dropdown-toggle" id="blockchainDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                  Blockchain
-                </a>
-                <ul class="dropdown-menu bg-dark text-light" aria-labelledby="blockchainDropdown">
-                  <li><a class="dropdown-item text-light" href="pages/blockchain/solidity.html">Solidity</a></li>
-                </ul>
-              </li>
-              <li class="nav-item dropdown">
-                <a class="nav-link dropdown-toggle" id="windowsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                  Windows
-                </a>
-                <ul class="dropdown-menu bg-dark text-light" aria-labelledby="windowsDropdown">
-                  <li><a class="dropdown-item text-light" href="pages/windows/architecture.html">Architecture</a></li>
                 </ul>
               </li>
 

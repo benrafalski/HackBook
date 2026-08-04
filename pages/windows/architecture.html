@@ -60,6 +60,16 @@
       <h1>Windows Architecture</h1>
       <hr />
 
+      <div class="tab-container">
+        <div class="tab-buttons">
+          <button class="tab-btn active" data-tab="notes">Notes</button>
+          <button class="tab-btn" data-tab="lab">Lab</button>
+          <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+        </div>
+
+        <!-- NOTES TAB -->
+        <div class="tab-content active" id="notes">
+
       <!-- NT Kernel -->
       <h2>NT Kernel</h2>
 
@@ -677,6 +687,678 @@ wsl --list --verbose</code></pre>
         <li>Tools/techniques: SysWhispers, HellsGate, Halo's Gate, manual ntdll mapping from disk</li>
         <li>Defense: kernel-mode ETW (EtwTi — Threat Intelligence), kernel callbacks, minifilter drivers</li>
       </ul>
+
+        </div>
+
+        <!-- LAB TAB -->
+        <div class="tab-content" id="lab">
+          <h2>Labs</h2>
+
+          <div class="lab-card">
+            <h4>Lab 1: NT Kernel Component Exploration</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Identify the two layers inside ntoskrnl.exe (Kernel Layer vs Executive Layer) and map running components to their prefix conventions.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># List all functions exported by ntoskrnl.exe grouped by prefix
+$ntk = [System.IO.Path]::Combine($env:SystemRoot, 'System32', 'ntoskrnl.exe')
+dumpbin /exports $ntk | Select-String '\s+(Ke|Ex|Ps|Mm|Io|Ob|Se|Cm|Cc|Po|Pp|Rtl)\w+' |
+    ForEach-Object { ($_ -split '\s+')[-1] } |
+    Group-Object { $_.Substring(0,2) } |
+    Sort-Object Count -Descending |
+    Format-Table Name, Count
+
+# Check which kernel modules are loaded
+Get-CimInstance Win32_SystemDriver | Where-Object { $_.State -eq 'Running' } |
+    Select-Object Name, PathName, StartMode | Format-Table -AutoSize
+
+# View boot driver load order
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\ServiceGroupOrder" /v List</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Run the dumpbin command (requires Visual Studio developer tools). Categorize at least 5 prefixes (Ke, Ps, Mm, Io, Ob) and list 2-3 example functions for each.</li>
+                <li>Identify which drivers loaded on your system are boot-start (Start=0) vs system-start (Start=1).</li>
+                <li>In WinDbg (local kernel debug or livekd): run <code>lm kn</code> to list kernel modules. Find <code>ntoskrnl.exe</code>, <code>hal.dll</code>, <code>ci.dll</code>, and <code>win32kfull.sys</code>. Note their base addresses.</li>
+                <li>Use <code>!drvobj \Driver\Ntfs 2</code> to view the NTFS driver's dispatch table — identify the IRP_MJ_CREATE and IRP_MJ_READ handlers.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 2: Boot Process Tracing</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Trace the Windows boot chain from UEFI through ntoskrnl initialization and identify each component's role.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Check boot configuration
+bcdedit /enum all
+
+# Check Secure Boot state
+Confirm-SecureBootUEFI
+
+# View boot log (enable first: bcdedit /set bootlog yes, reboot)
+Get-Content $env:SystemRoot\ntbtlog.txt | Select-Object -First 50
+
+# Check for boot-start drivers
+Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\*' |
+    Where-Object { $_.Start -eq 0 } |
+    Select-Object PSChildName, ImagePath, Group | Format-Table -AutoSize
+
+# Check VBS/Hypervisor status
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard |
+    Select-Object VirtualizationBasedSecurityStatus, SecurityServicesRunning</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Enable boot logging (<code>bcdedit /set bootlog yes</code>), reboot, and examine <code>ntbtlog.txt</code>. Identify the first 10 drivers loaded and which service group they belong to.</li>
+                <li>Use <code>bcdedit /enum all</code> to find the Windows Boot Manager and OS Loader entries. Identify the path to <code>winload.efi</code> and the BCD options enabled.</li>
+                <li>Check if VBS/Hypervisor is active. If it is, identify which security services are running (Credential Guard, HVCI).</li>
+                <li>Map the boot chain: bootmgfw.efi → winload.efi → ntoskrnl.exe → smss.exe → csrss.exe → winlogon.exe. Verify each process exists with <code>Get-Process</code>.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 3: IRQL and Kernel Debugging</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Use WinDbg to inspect IRQL levels, DPC queues, and understand how the kernel scheduler interacts with interrupt priority.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Setup: Enable local kernel debugging
+bcdedit /debug on
+bcdedit /dbgsettings local
+# Reboot, then open WinDbg as admin → File → Kernel Debug → Local
+
+# In WinDbg:
+# Check current IRQL
+!irql
+
+# View DPC queue for current processor
+!dpcs
+
+# List IDT (Interrupt Descriptor Table)
+!idt
+
+# View KPCR (Kernel Processor Control Region)
+dt nt!_KPCR @$pcr
+
+# Check scheduler state
+!running -it</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>In a local kernel debug session, run <code>!irql</code> to see the current IRQL. Verify it's PASSIVE_LEVEL (0) during normal operation.</li>
+                <li>Run <code>!idt</code> and identify the interrupt handlers for: timer (vector 0xD1), IPI (vector 0xE1), and the system call handler. Note which point into ntoskrnl vs hal.</li>
+                <li>Use <code>dt nt!_KPCR @$pcr</code> to examine the per-processor control region. Find the current thread (<code>Prcb.CurrentThread</code>) and identify which process it belongs to.</li>
+                <li>Set a breakpoint on <code>nt!KiDpcInterrupt</code> and examine the DPC object when it fires — identify the deferred routine address and which driver queued it.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 4: HAL Dispatch Table Inspection</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Examine the HalDispatchTable structure in kernel memory — a historically important exploitation target — and understand why it was valuable to attackers.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># In WinDbg (local kernel debug):
+
+# Dump HalDispatchTable
+dq nt!HalDispatchTable L8
+
+# Resolve each function pointer
+ln poi(nt!HalDispatchTable+0x8)
+ln poi(nt!HalDispatchTable+0x10)
+ln poi(nt!HalDispatchTable+0x18)
+
+# Check the call chain that reaches HalDispatchTable+0x8:
+# NtQueryIntervalProfile → KeQueryIntervalProfile → HalDispatchTable[1]
+uf nt!KeQueryIntervalProfile
+
+# Check if PatchGuard monitors this table
+# (PatchGuard will BSOD if you modify it in modern Windows)</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Dump <code>nt!HalDispatchTable</code> and resolve each entry to a function name. Identify <code>HalQuerySystemInformation</code> at offset +0x8.</li>
+                <li>Disassemble <code>nt!KeQueryIntervalProfile</code> and trace how it calls through HalDispatchTable — this is the classic exploitation path.</li>
+                <li>Explain why overwriting HalDispatchTable+0x8 gave arbitrary code execution on older systems and what mitigations (PatchGuard, SMEP, HVCI) now prevent it.</li>
+                <li>Dump <code>nt!HalPrivateDispatchTable</code> — compare its size and entries to the public table.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 5: VBS and Secure Kernel Exploration</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Verify VBS status, understand VTL 0 vs VTL 1 isolation, and examine how Credential Guard protects secrets.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Check VBS status
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard |
+    Format-List *
+
+# Check if Credential Guard is running
+$dg = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard
+if ($dg.SecurityServicesRunning -contains 1) {
+    Write-Host '[+] Credential Guard is ACTIVE'
+} else {
+    Write-Host '[-] Credential Guard is NOT running'
+}
+
+# Check HVCI status
+if ($dg.SecurityServicesRunning -contains 2) {
+    Write-Host '[+] HVCI is ACTIVE'
+}
+
+# Check lsaiso.exe (the isolated LSA process in VTL 1)
+Get-Process lsaiso -ErrorAction SilentlyContinue
+
+# Verify Secure Boot is part of the chain
+Confirm-SecureBootUEFI
+
+# In WinDbg: check secure kernel presence
+# lm m securekernel</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Run the DeviceGuard query. Determine if VBS, Credential Guard, and HVCI are all enabled on your system.</li>
+                <li>Check if <code>lsaiso.exe</code> is running — this is the isolated LSA process that holds Credential Guard-protected secrets in VTL 1.</li>
+                <li>Try to open <code>lsaiso.exe</code> with <code>OpenProcess(PROCESS_ALL_ACCESS)</code> — observe the access denial even from SYSTEM.</li>
+                <li>Explain: if an attacker achieves full kernel (VTL 0) compromise, what can and cannot be accessed in VTL 1?</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 6: Subsystem DLL Call Tracing</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Trace the call chain from a Win32 API through subsystem DLLs to the kernel syscall boundary using API Monitor and x64dbg.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Method 1: API Monitor
+# Open API Monitor, attach to notepad.exe
+# Filter for kernel32!CreateFileW
+# Observe call chain: CreateFileW → kernelbase!CreateFileInternal → ntdll!NtCreateFile
+
+# Method 2: x64dbg
+# Attach to notepad.exe, set BP on kernel32!CreateFileW
+# Step into each call, note the DLL transitions
+# At ntdll!NtCreateFile, observe the syscall stub:
+#   mov r10, rcx
+#   mov eax, 0x55    ; SSN
+#   syscall
+
+# Method 3: Process Monitor
+# Filter: Process Name = notepad.exe, Operation = CreateFile
+# Stack tab shows full call chain with DLL names</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Use API Monitor to trace <code>CreateFileW</code> when notepad opens a file. Document every DLL transition.</li>
+                <li>In x64dbg, set a breakpoint on <code>ntdll!NtCreateFile</code>. Read EAX to get the SSN. Is it 0x55 on your build?</li>
+                <li>Compare the call chain for <code>ReadFile</code> vs <code>CreateFile</code> — which layers are shared?</li>
+                <li>Use Process Monitor stack trace to verify your manual trace matches.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 7: ALPC Communication Monitoring</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Observe ALPC (Advanced Local Procedure Call) messages between user-mode processes and the CSRSS subsystem server.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># List ALPC ports on the system
+Import-Module NtObjectManager
+Get-NtAlpcPort | Select-Object Name, OwnerProcess | Format-Table -AutoSize
+
+# Find CSRSS ALPC ports
+Get-NtAlpcPort | Where-Object { $_.OwnerProcess -like '*csrss*' } |
+    Select-Object Name, OwnerProcess
+
+# ETW trace for ALPC activity
+logman create trace alpc_trace -p Microsoft-Windows-ALPC -o alpc.etl
+logman start alpc_trace
+# ... perform some activity (open/close console windows) ...
+logman stop alpc_trace
+tracerpt alpc.etl -o alpc_report.html -of HTML</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>List all ALPC ports owned by csrss.exe. Identify the port used for console management.</li>
+                <li>Start an ETW trace for ALPC, open a new cmd.exe window, then stop the trace. Find the ALPC messages related to console creation.</li>
+                <li>Use WinDbg <code>!alpc /lpp</code> to list ALPC port connections for csrss.exe.</li>
+                <li>Explain the security implication: why can ALPC server processes impersonate their clients?</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 8: Protected Process Light (PPL) Enumeration</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Enumerate all PPL-protected processes, understand the signer hierarchy, and attempt to access a protected process.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Enumerate protected processes
+Import-Module NtObjectManager
+Get-NtProcess -Access QueryLimitedInformation | ForEach-Object {
+    [PSCustomObject]@{
+        PID        = $_.ProcessId
+        Name       = $_.Name
+        Protection = $_.Protection
+    }
+} | Where-Object { $_.Protection -ne 'None' } |
+    Sort-Object Protection | Format-Table -AutoSize
+
+# Try to open lsass.exe with full access
+try {
+    $h = [System.Diagnostics.Process]::GetProcessesByName('lsass')[0]
+    $h.Handle  # Will fail if PPL is active
+} catch {
+    Write-Host "[-] Access denied: $($_.Exception.Message)"
+}
+
+# Check if RunAsPPL is enabled for LSASS
+Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -Name RunAsPPL</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>List all PPL-protected processes. Categorize them by signer level (WinTcb, Windows, Antimalware, Lsa).</li>
+                <li>Verify that <code>lsass.exe</code> is running as PPL (RunAsPPL=1). If not, enable it and reboot.</li>
+                <li>Try to use <code>OpenProcess(PROCESS_ALL_ACCESS)</code> against csrss.exe from an elevated prompt — observe the failure even as admin.</li>
+                <li>Research: what tools (PPLKiller, mimidrv.sys) bypass PPL and how? What kernel access do they require?</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 9: Kernel Mitigation Verification</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Verify which kernel-level mitigations (SMEP, SMAP, KASLR, CFG, HVCI, CET) are active on your system.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># System-wide mitigations
+Get-ProcessMitigation -System
+
+# Per-process mitigations for a specific app
+Get-ProcessMitigation -Name chrome.exe
+
+# VBS / HVCI status
+$dg = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard
+$dg | Format-List VirtualizationBasedSecurityStatus, SecurityServicesRunning,
+    SecurityServicesConfigured, RequiredSecurityProperties
+
+# Check if CET Shadow Stack is supported
+Get-CimInstance Win32_Processor | Select-Object Name, *Feature* | Format-List
+
+# KASLR verification: compare ntoskrnl base across reboots
+# In WinDbg: lm m nt → note base address → reboot → compare</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Run <code>Get-ProcessMitigation -System</code> and list all system-wide defaults (DEP, ASLR, CFG, etc.).</li>
+                <li>Check VBS status — is the hypervisor running? Is HVCI enforcing code integrity?</li>
+                <li>Compare process mitigations for <code>chrome.exe</code> vs <code>notepad.exe</code> — which has more protections?</li>
+                <li>Verify KASLR by comparing kernel base addresses across two reboots (use livekd or WinDbg).</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 10: User vs Kernel Mode Boundary</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Demonstrate the syscall transition from user mode to kernel mode. Trace a NtCreateFile call through the SSDT to the kernel handler.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># In WinDbg (kernel debug session):
+
+# Set breakpoint on the kernel-side NtCreateFile
+bp nt!NtCreateFile
+
+# When it fires, examine the trap frame
+dt nt!_KTRAP_FRAME @rsp
+
+# Check PreviousMode
+dt nt!_KTHREAD @$thread PreviousMode
+
+# View the SSDT
+dps nt!KiServiceTable L20
+
+# Decode an SSDT entry (entries are offsets, not addresses on x64)
+# Address = KiServiceTable + (entry >> 4)
+
+# Observe the swapgs and stack switch
+uf nt!KiSystemCall64</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Break on <code>nt!NtCreateFile</code> and inspect <code>KTHREAD.PreviousMode</code> — verify it's 1 (UserMode) when called from user space.</li>
+                <li>Disassemble <code>KiSystemCall64</code> and identify: the <code>swapgs</code> instruction, the GS-based stack switch, and the SSDT lookup.</li>
+                <li>Dump 20 entries from <code>KiServiceTable</code>. Decode entry #0x55 to verify it resolves to <code>NtCreateFile</code>.</li>
+                <li>Explain: why does <code>Zw*</code> set PreviousMode=0 while <code>Nt*</code> preserves it? What access check difference does this cause?</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 11: Mandatory Integrity Control (MIC) Investigation</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Explore integrity levels across processes and objects, and demonstrate the "no write up" policy.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Check current integrity level
+whoami /groups | findstr /i "mandatory"
+
+# Launch a low-integrity process
+icacls C:\temp\test.txt /setintegritylevel low
+runas /trustlevel:0x20000 cmd.exe
+# In the new low-IL cmd: whoami /groups | findstr mandatory
+
+# Try to write to a medium-IL file from low-IL process
+# From the low-IL cmd:
+echo test > C:\Users\%USERNAME%\Desktop\test.txt
+# Should fail: "Access is denied" (no write up)
+
+# Compare token integrity levels
+Import-Module NtObjectManager
+Get-NtToken -Effective | Select-Object IntegrityLevel</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Check your current integrity level (should be Medium for standard user, High for elevated admin).</li>
+                <li>Launch a Low integrity cmd.exe. Verify it cannot write to Medium-IL files on your Desktop.</li>
+                <li>Create a file with Low integrity label. Verify a Medium-IL process CAN write to it (write-down is allowed).</li>
+                <li>Use Process Explorer to compare integrity levels of explorer.exe, svchost.exe, and your browser process.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 12: AppContainer Sandbox Inspection</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Examine AppContainer isolation for a UWP app or sandboxed browser process. Identify its capabilities and verify default-deny behavior.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Find AppContainer processes
+Import-Module NtObjectManager
+Get-NtProcess -Access QueryLimitedInformation | ForEach-Object {
+    $token = Get-NtToken -Process $_ -Access Query -ErrorAction SilentlyContinue
+    if ($token -and $token.AppContainer) {
+        [PSCustomObject]@{
+            PID = $_.ProcessId
+            Name = $_.Name
+            AppContainerSid = $token.AppContainerSid
+            Capabilities = ($token.Capabilities | ForEach-Object { $_.Sid }) -join ', '
+        }
+    }
+} | Format-Table -AutoSize
+
+# Check AppContainer profile for a known UWP app
+Get-AppxPackage *calculator* | Select-Object Name, PackageFamilyName
+CheckNetIsolation LoopbackExempt -s
+
+# Check what an AppContainer process can access
+icacls C:\Windows\System32\drivers\etc\hosts
+# Note: AppContainer processes cannot read this unless explicitly granted</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Find all AppContainer processes running on your system (Edge tabs, UWP apps).</li>
+                <li>For an Edge renderer process, list its capabilities. Does it have <code>internetClient</code>?</li>
+                <li>Try to access a system file from within an AppContainer — verify the default-deny behavior.</li>
+                <li>Compare the token of an AppContainer process vs a regular process — identify the AppContainerSid and LowBox token flag.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+        <!-- CTF TAB -->
+        <div class="tab-content" id="ctf">
+          <h2>CTF Challenges</h2>
+
+          <div class="ctf-card">
+            <h4>Challenge 1: Identify the Boot Component</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Given a memory dump of early boot, identify which UEFI phase (SEC/PEI/DXE/BDS) the system was in when the snapshot was taken. The flag is the phase name and the last loaded driver.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># You're given a partial boot log:
+# LOADED: securekernel.exe
+# LOADED: ntoskrnl.exe
+# LOADED: hal.dll
+# LOADED: ci.dll
+# LOADED: storport.sys
+# INIT:   KiInitializeKernel called
+#
+# Questions:
+# 1. Which boot component loaded these files? (winload.efi)
+# 2. What phase is the kernel in? (Phase 0 — KiInitializeKernel)
+# 3. Has smss.exe started yet? (No — that's Phase 1)
+#
+# FLAG{winload_Phase0_pre-smss}</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>The boot chain is: UEFI (SEC→PEI→DXE→BDS) → bootmgfw.efi → winload.efi → ntoskrnl.exe. <code>winload.efi</code> loads ntoskrnl, hal, ci.dll, and boot-start drivers. <code>KiInitializeKernel</code> runs during Phase 0 (before user mode exists). <code>smss.exe</code> is launched during Phase 1 (<code>Phase1InitializationDiscard</code>).</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 2: IRQL Violation Analysis</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">A kernel driver crashed with IRQL_NOT_LESS_OR_EQUAL (0xA). Given the crash dump parameters, determine what the driver did wrong and which IRQL rule was violated.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Bugcheck parameters:
+# BugCheck 0xA (IRQL_NOT_LESS_OR_EQUAL)
+#   Arg1: FFFFF80123456000    (address accessed)
+#   Arg2: 00000002             (IRQL at time of fault)
+#   Arg3: 00000000             (read operation)
+#   Arg4: FFFFF80198765432    (faulting instruction)
+#
+# The faulting instruction is in a DPC routine.
+# Arg1 is a paged pool allocation address.
+#
+# What went wrong?
+# FLAG{paged_pool_at_DISPATCH_LEVEL}
+
+# WinDbg analysis:
+# !analyze -v
+# ln FFFFF80198765432    → identify the driver and function
+# !pool FFFFF80123456000 → confirm it's paged pool</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>IRQL 2 = DISPATCH_LEVEL (DPCs run here). Paged pool memory can be paged out. At DISPATCH_LEVEL, a page fault cannot be serviced because the pager runs at PASSIVE_LEVEL (0), which is masked. The driver accessed paged pool from a DPC routine — it must use NonPagedPool for any data accessed at ≥ DISPATCH_LEVEL.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 3: HAL Dispatch Exploitation (Historical)</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Given a Windows 7 kernel memory dump (no SMEP, no PatchGuard integrity check on HalDispatchTable), construct the exploitation chain to achieve EoP via HalDispatchTable overwrite.</p>
+            <div class="setup-code">
+<pre><code class="language-c">// Exploitation steps (Windows 7 x64, pre-SMEP):
+// 1. Leak kernel base via NtQuerySystemInformation(SystemModuleInformation)
+// 2. Calculate HalDispatchTable address: kernel_base + offset
+// 3. Use arbitrary write primitive to overwrite HalDispatchTable+0x8
+//    with address of user-mode payload
+// 4. Payload: token-stealing shellcode
+//    - Find current EPROCESS via gs:[0x188] → KTHREAD → EPROCESS
+//    - Walk ActiveProcessLinks to find PID 4 (System)
+//    - Copy System token to current process
+// 5. Trigger: call NtQueryIntervalProfile()
+//    → KeQueryIntervalProfile() → HalDispatchTable[1]() → shellcode
+// 6. Spawn cmd.exe — now running as SYSTEM
+
+typedef NTSTATUS (*pNtQueryIntervalProfile)(ULONG, PULONG);
+pNtQueryIntervalProfile NtQIP = GetProcAddress(
+    GetModuleHandleA("ntdll.dll"), "NtQueryIntervalProfile");
+
+// After overwriting HalDispatchTable+0x8:
+ULONG dummy;
+NtQIP(2, &amp;dummy);  // Triggers call to our shellcode
+// FLAG{HalDispatch_token_steal_EoP}</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>The classic chain: (1) Info leak to defeat KASLR and find ntoskrnl base. (2) Arbitrary write — from a pool overflow, use-after-free, or driver IOCTL vulnerability. (3) Overwrite <code>HalDispatchTable+0x8</code> with user-mode shellcode address. (4) Trigger via <code>NtQueryIntervalProfile(2, &amp;dummy)</code>. On modern systems, SMEP prevents executing user-mode code from Ring 0, PatchGuard detects the table modification, and HVCI prevents allocating executable memory in kernel space.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 4: VBS Escape Assessment</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">You have full kernel (VTL 0) compromise. Assess which assets are and aren't protected by VBS/Credential Guard (VTL 1). List all assets that remain safe.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Scenario: Full ntoskrnl.exe compromise achieved
+# The attacker can read/write arbitrary kernel memory in VTL 0
+#
+# Which of these can the attacker access?
+# [  ] NTLM hashes cached in lsass.exe memory (VTL 0)
+# [  ] Credential Guard-protected TGTs (VTL 1 — lsaiso.exe)
+# [  ] Kernel pool data (NonPagedPool)
+# [  ] HVCI-protected code integrity state
+# [  ] Secure Boot UEFI variables
+# [  ] DPAPI master keys (if CG-protected)
+#
+# FLAG{only_VTL1_assets_survive_kernel_compromise}
+
+# Verification:
+# Try reading lsaiso.exe memory from kernel — hypervisor blocks the EPT mapping
+# Try disabling HVCI from VTL 0 — hypervisor ignores the request</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>VTL 0 kernel compromise gives access to: all user-mode process memory (including lsass.exe's VTL 0 portions), kernel pool, driver memory, EPROCESS/token structures. VTL 1 protects: Credential Guard-isolated secrets (Kerberos TGTs, DPAPI keys), HVCI policy enforcement (can't load unsigned kernel code even with kernel write), securekernel.exe memory. The hypervisor enforces this via EPT/SLAT — VTL 0 page tables cannot map VTL 1 memory regions.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 5: Subsystem Identification</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Map each DLL/process to its subsystem role. Given a list of loaded modules, identify the subsystem call flow for <code>CreateFileW</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Match each component to its layer:
+# kernel32.dll    → ??
+# ntdll.dll       → ??
+# csrss.exe       → ??
+# ntoskrnl.exe    → ??
+# win32kfull.sys  → ??
+#
+# Trace CreateFileW:
+# kernel32!CreateFileW → kernelbase!CreateFileInternal → ntdll!NtCreateFile → syscall → nt!NtCreateFile
+#
+# Which component uses ALPC to communicate?
+# FLAG{csrss_ALPC_subsystem_server}</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>kernel32.dll = Win32 subsystem DLL (documented API). ntdll.dll = Native API layer (Nt*/Zw* stubs + runtime). csrss.exe = Win32 subsystem server process (manages console, shutdown — communicates via ALPC). ntoskrnl.exe = kernel (executive + core). win32kfull.sys = kernel-mode window manager + GDI. CreateFileW doesn't go through csrss.exe — it goes directly to the kernel via ntdll syscall stub.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 6: Decode the SSDT Entry</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Given a raw SSDT entry value from <code>KiServiceTable</code>, decode it to find the target function address. Flag: <code>FLAG{function_name}</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># WinDbg output:
+# nt!KiServiceTable:
+#   0x00: 0x04106C00
+#   0x55: 0x042A8504
+#
+# x64 SSDT entries encode: offset = entry >> 4
+# Actual address = KiServiceTable + offset
+# Number of stack params = entry &amp; 0xF
+#
+# Given nt!KiServiceTable at 0xFFFFF805`41200000:
+# Entry 0x55 = 0x042A8504
+# Offset = 0x042A8504 >> 4 = 0x0042A850
+# Target = 0xFFFFF805`41200000 + 0x0042A850 = ???
+# Use: ln &lt;address&gt; to resolve</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>On x64 Windows, SSDT entries are 4-byte compressed offsets, not direct pointers. The top 28 bits are a signed offset from <code>KiServiceTable</code> base, and the low 4 bits encode the number of stack-passed parameters. SSN 0x55 is typically <code>NtCreateFile</code>. Use <code>dps nt!KiServiceTable + (0x55 * 4) L1</code> in WinDbg to verify.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 7: BYOVD Driver Selection</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">You need kernel read/write for a red team engagement. Given a list of signed drivers, identify which one has a known arbitrary R/W IOCTL. Flag: <code>FLAG{driver_filename}</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Available signed drivers:
+# A) dbutil_2_3.sys  (Dell BIOS utility, signed by Dell)
+# B) procmon.sys     (Sysinternals, signed by Microsoft)
+# C) wdf01000.sys    (WDF framework, signed by Microsoft)
+# D) nvflash64.sys   (NVIDIA flash tool, signed by NVIDIA)
+#
+# Research questions:
+# 1. Which driver exposes IOCTL for physical memory R/W?
+# 2. Is it on the Microsoft Vulnerable Driver Blocklist?
+# 3. What CVE is associated with it?
+# 4. Would HVCI prevent loading it?</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p><code>dbutil_2_3.sys</code> (CVE-2021-21551) has IOCTLs for arbitrary physical memory read/write and MSR access. It's legitimately signed by Dell but allows any admin-level process to gain kernel R/W. It IS on the Microsoft BYOVD blocklist (DriverSiPolicy.p7b), so modern systems with HVCI block it. Alternatives: RTCore64.sys (MSI Afterburner), gdrv.sys (Gigabyte). <code>FLAG{dbutil_2_3.sys}</code>.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 8: Integrity Level Escalation Path</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">You have a Medium integrity shell. Map out the exact steps to reach SYSTEM integrity via UAC bypass → token theft. Flag: the correct order of integrity transitions.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># Starting point: Medium integrity cmd.exe
+# Goal: SYSTEM integrity cmd.exe
+#
+# Arrange these steps in order:
+# A) Steal SYSTEM token from winlogon.exe
+# B) Exploit UAC bypass (e.g., fodhelper.exe registry trick)
+# C) Enable SeDebugPrivilege
+# D) DuplicateTokenEx + CreateProcessWithTokenW
+# E) Spawn elevated (High integrity) process
+#
+# FLAG{correct_order_of_letters}</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>Order: B → E → C → A → D. First, UAC bypass to get High integrity (B→E). Then enable SeDebugPrivilege which is available to admins (C). Open a SYSTEM process like winlogon.exe and duplicate its token (A). Finally, create a new process with the stolen SYSTEM token (D). <code>FLAG{BECAD}</code>.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 9: Kernel Pool Corruption Detection</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">A kernel pool overflow has corrupted adjacent allocations. Given a WinDbg crash dump, identify the corrupted pool tag, the overflowing allocation, and the vulnerable driver. Flag: <code>FLAG{pool_tag_driver}</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># WinDbg analysis of BSOD dump:
+# !analyze -v shows BAD_POOL_HEADER (0x19)
+# !pool @rcx shows:
+#   Pool page fffff805412ab000
+#   *aaaa  size: 0x100  prev: 0x40  (Allocated) VulnTag
+#   *bbbb  size: 0x80   prev: 0x100 (Free)     *CORRUPTED*
+#
+# The 'VulnTag' allocation is 0x100 bytes but the driver wrote 0x180
+# This overflowed into the next pool chunk header
+#
+# Find the driver:
+# !poolfind VulnTag → shows allocating driver
+# ln &lt;return_address_on_stack&gt; → identifies the function</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>Use <code>!pool</code> to examine the corrupted pool page. The pool header before the corrupted chunk shows the tag 'VulnTag' (or whatever 4-byte tag the driver used). Use <code>!poolfind VulnTag</code> to find all allocations with that tag and identify the driver. Modern pool hardening (Segment Heap in Win10 20H1+) adds guard pages and metadata validation that would have caught this overflow earlier.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 10: PreviousMode Exploitation</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Given an arbitrary kernel write primitive, explain how setting <code>KTHREAD.PreviousMode = 0</code> turns <code>NtReadVirtualMemory</code>/<code>NtWriteVirtualMemory</code> into arbitrary kernel R/W. Flag: the KTHREAD offset for PreviousMode on Win11 22H2.</p>
+            <div class="setup-code">
+<pre><code class="language-powershell"># PreviousMode exploitation chain:
+# 1. Find current KTHREAD address: gs:[0x188] in kernel mode
+# 2. Overwrite KTHREAD.PreviousMode from 1 (UserMode) to 0 (KernelMode)
+# 3. Now NtReadVirtualMemory / NtWriteVirtualMemory skip access checks
+# 4. Read/write ANY kernel address from user mode!
+#
+# WinDbg: find the offset
+# dt nt!_KTHREAD PreviousMode
+# Typical offset: 0x232 (varies by build)
+#
+# After setting PreviousMode = 0:
+NtReadVirtualMemory(GetCurrentProcess(),
+    (PVOID)0xFFFFF80541200000,  // kernel address!
+    buffer, 0x1000, NULL);      // succeeds!</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>PreviousMode is a single byte in KTHREAD that tells the kernel whether the current syscall originated from user mode (1) or kernel mode (0). When it's 0, <code>Nt*</code> functions skip <code>ProbeForRead</code>/<code>ProbeForWrite</code> checks and accept kernel addresses. This is the most powerful data-only exploitation primitive — it doesn't require code execution in kernel, just a single byte write. Offset varies: use <code>dt nt!_KTHREAD PreviousMode</code> in WinDbg for your build.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
 
     </div>
   </body>

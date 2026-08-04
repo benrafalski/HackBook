@@ -64,8 +64,509 @@
     <div class="content">
         <h1>x86 Firmware</h1>
         <hr />
-        <div id="pci-express">
-          <h2>PCIe</h2>
+
+        <div class="tab-container">
+          <div class="tab-buttons">
+            <button class="tab-btn active" data-tab="notes">Notes</button>
+            <button class="tab-btn" data-tab="lab">Lab</button>
+            <button class="tab-btn" data-tab="ctf">CTF Challenges</button>
+          </div>
+
+          <!-- NOTES TAB -->
+          <div class="tab-content active" id="notes">
+            
+            <h2>BIOS vs UEFI</h2>
+            <table>
+              <tr><th>Feature</th><th>Legacy BIOS</th><th>UEFI</th></tr>
+              <tr><td>Addressing</td><td>16-bit real mode (1 MB addressable)</td><td>32/64-bit protected mode (4 GB+)</td></tr>
+              <tr><td>Boot Mode</td><td>MBR (Master Boot Record)</td><td>GPT (GUID Partition Table)</td></tr>
+              <tr><td>Boot Loader Size</td><td>512 bytes (boot sector)</td><td>Up to 32 MB (EFI System Partition)</td></tr>
+              <tr><td>Security</td><td>No signature verification</td><td>Secure Boot (signature verification)</td></tr>
+              <tr><td>Drivers</td><td>ROM-based, minimal</td><td>LoadImage/StartImage, more flexible</td></tr>
+              <tr><td>Power State</td><td>No S4/S5 power management</td><td>Full ACPI support</td></tr>
+              <tr><td>Compatibility</td><td>Deprecated on modern systems</td><td>Mandatory on UEFI systems, CSM fallback available</td></tr>
+            </table>
+
+            <h3>BIOS Boot Process</h3>
+            <pre><code class="language-none">┌─────────────────────────────────────────┐
+│ 1. CPU Reset (Power-on)                 │
+│    - CPU jumps to 0xFFFFFF00            │
+│    - Loads first instruction from ROM   │
+└─────────────────────────────────────────┘
+            │
+            ▼
+┌─────────────────────────────────────────┐
+│ 2. ROM BIOS Initialization              │
+│    - Hardware POST (Power-On Self Test) │
+│    - Initialize chipset, memory         │
+│    - Scan PCI bus for ROMs              │
+│    - Execute video BIOS                 │
+│    - Execute NIC/storage controller ROMs│
+└─────────────────────────────────────────┘
+            │
+            ▼
+┌─────────────────────────────────────────┐
+│ 3. Boot Device Selection                │
+│    - Read boot order from CMOS/NVRAM    │
+│    - Try each device in order           │
+│    - Read MBR from boot device          │
+└─────────────────────────────────────────┘
+            │
+            ▼
+┌─────────────────────────────────────────┐
+│ 4. Execute Boot Loader (in Real Mode)   │
+│    - MBR code loaded at 0x7C00          │
+│    - 512 bytes, max 446 bytes code      │
+│    - Sets up stack, heap, jumps to OS   │
+└─────────────────────────────────────────┘
+            │
+            ▼
+    ┌──────────────────┐
+    │ OS Kernel Loaded │
+    └──────────────────┘</code></pre>
+
+            <h3>UEFI Boot Process</h3>
+            <pre><code class="language-none">┌──────────────────────────────────────────┐
+│ 1. CPU Reset / Firmware Initialization   │
+│    - CPU executes SEC phase              │
+│    - CAR (Cache-As-RAM) setup            │
+│    - Minimal chipset init                │
+└──────────────────────────────────────────┘
+            │
+            ▼
+┌──────────────────────────────────────────┐
+│ 2. PEI (Pre-EFI Initialization)          │
+│    - Detect memory, CPU count            │
+│    - Initialize memory controller        │
+│    - Set up PPI (PEI Services Table)     │
+└──────────────────────────────────────────┘
+            │
+            ▼
+┌──────────────────────────────────────────┐
+│ 3. DXE (Driver Execution Environment)    │
+│    - Load DXE drivers (firmware modules) │
+│    - Install protocols                   │
+│    - Initialize devices (USB, storage)   │
+│    - Set up UEFI runtime environment     │
+└──────────────────────────────────────────┘
+            │
+            ▼
+┌──────────────────────────────────────────┐
+│ 4. BDS (Boot Device Selection)           │
+│    - Read boot order from NVRAM/UEFI var│
+│    - Scan EFI System Partition (ESP)     │
+│    - Load .efi boot loader               │
+│    - Verify signatures (Secure Boot)     │
+└──────────────────────────────────────────┘
+            │
+            ▼
+┌──────────────────────────────────────────┐
+│ 5. Execute UEFI Boot Loader              │
+│    - Typically \EFI\BOOT\BOOTX64.EFI     │
+│    - Runs in 64-bit protected mode       │
+│    - Can use UEFI Runtime Services       │
+│    - Passes control to OS loader         │
+└──────────────────────────────────────────┘
+            │
+            ▼
+    ┌──────────────────┐
+    │ OS Kernel Loaded │
+    └──────────────────┘</code></pre>
+
+            <h3>Secure Boot</h3>
+            <ul>
+              <li><strong>How it works</strong>: Firmware verifies signatures of boot loader and drivers before execution</li>
+              <li><strong>Keys</strong>: PK (Platform Key), KEK (Key Exchange Key), DB (Authorized Signatures), DBX (Forbidden Signatures)</li>
+              <li><strong>Signature Check</strong>: Verify .efi binary against X.509 certificates in DB</li>
+              <li><strong>Bypass Techniques</strong>: 
+                <ul>
+                  <li>Disable Secure Boot (if allowed by TPM)</li>
+                  <li>UEFI variable tampering (if SMM doesn't protect it)</li>
+                  <li>Firmware vulnerabilities (flashing unsigned firmware)</li>
+                  <li>Supply chain attacks (compromised signing keys)</li>
+                </ul>
+              </li>
+            </ul>
+
+            <h3>UEFI Variables</h3>
+            <pre><code class="language-bash"># Linux: read UEFI variables
+efivarfs mount point: /sys/firmware/efi/efivars/
+ls /sys/firmware/efi/efivars/
+cat /sys/firmware/efi/efivars/SecureBoot-XXX
+
+# Windows: WMI / PowerShell
+Get-SecureBootUEFI
+Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State"
+
+# UEFI Shell (interactive boot)
+# Access UEFI variables via 'set' command in UEFI shell</code></pre>
+
+            <!-- ==================== SMM ==================== -->
+            <h2>System Management Mode (SMM)</h2>
+            <p>SMM is the most privileged execution mode on x86 — sometimes called "Ring -2". It runs invisible to the OS, hypervisor, and all software.</p>
+
+            <h3>Overview</h3>
+            <ul>
+              <li><strong>Entry</strong>: CPU enters SMM via System Management Interrupt (SMI). All logical processors freeze and enter SMM simultaneously</li>
+              <li><strong>SMRAM</strong>: dedicated memory region (typically 8 MB at TSEG) inaccessible from Ring 0. Contains SMI handler code and save state</li>
+              <li><strong>Exit</strong>: <code>RSM</code> instruction restores all CPU state and returns to the interrupted context</li>
+              <li><strong>Trigger</strong>: write to APMC port (0xB2) or hardware events (thermal, chipset errors)</li>
+            </ul>
+
+            <h3>SMRAM Layout</h3>
+            <pre><code class="language-none">TSEG (Top Segment — typical SMRAM region):
+┌──────────────────────────────────────────────┐
+│ SMBASE + 0x00000   SMI Handler Code          │
+│                    (firmware SMM modules)     │
+├──────────────────────────────────────────────┤
+│ SMBASE + 0xFE00    SMM Save State Area       │
+│                    (all register values       │
+│                     saved on SMI entry)       │
+├──────────────────────────────────────────────┤
+│ SMBASE + 0xFFFC    SMM Revision ID           │
+└──────────────────────────────────────────────┘
+
+Default SMBASE = 0x30000 (relocated by firmware to TSEG during init)</code></pre>
+
+            <h3>SMM Security Mechanisms</h3>
+            <table>
+              <tr><th>Protection</th><th>Register</th><th>Purpose</th></tr>
+              <tr><td><strong>D_LCK</strong></td><td>SMRAM Control</td><td>Locks SMRAM configuration — prevents reopening SMRAM from OS</td></tr>
+              <tr><td><strong>SMRR</strong></td><td>IA32_SMRR_PHYSBASE/MASK</td><td>SMM Range Registers — defines cacheable SMRAM region, prevents cache-based SMRAM access attacks</td></tr>
+              <tr><td><strong>SMM_BWP</strong></td><td>BIOS Control (BC)</td><td>SMM BIOS Write Protect — only SMM code can write to BIOS flash region</td></tr>
+              <tr><td><strong>BLE</strong></td><td>BIOS Control (BC)</td><td>BIOS Lock Enable — generates SMI when BIOSWE is set, allowing SMM to clear it</td></tr>
+            </table>
+
+            <h3>SMM Vulnerabilities</h3>
+            <ul>
+              <li><strong>Callout</strong>: SMI handler reads function pointer from memory outside SMRAM → attacker with Ring 0 overwrites it → code execution in SMM</li>
+              <li><strong>TOCTOU</strong>: SMI handler validates a buffer, then uses it later — attacker modifies buffer between check and use</li>
+              <li><strong>Confused Deputy</strong>: SMI handler performs privileged action (flash write) based on unvalidated input from the OS</li>
+              <li><strong>Cache Poisoning</strong> (pre-SMRR): fill cache with malicious code at SMRAM addresses before SMI, CPU executes from cache</li>
+            </ul>
+
+            <pre><code class="language-bash"># CHIPSEC SMM auditing
+python3 chipsec_main.py -m common.smm          # Check SMRAM locks
+python3 chipsec_main.py -m common.smrr          # Verify SMRR is set
+python3 chipsec_main.py -m tools.smm.smm_ptr     # Detect callout vulnerabilities
+python3 chipsec_main.py -m common.bios_smi        # Check SMI suppression</code></pre>
+
+            <!-- ==================== ACPI ==================== -->
+            <h2>ACPI (Advanced Configuration and Power Interface)</h2>
+            <p>ACPI tables are data structures passed from firmware to the OS describing hardware configuration, power management, and device topology.</p>
+
+            <h3>Table Hierarchy</h3>
+            <pre><code class="language-none">RSDP (Root System Description Pointer)
+  │  Found via UEFI System Table or BIOS scan (0xE0000–0xFFFFF)
+  │  Contains pointer to RSDT (32-bit) or XSDT (64-bit)
+  │
+  ├── XSDT (Extended System Description Table)
+  │     Array of 64-bit pointers to all other ACPI tables
+  │
+  ├── FADT (Fixed ACPI Description Table)
+  │     Hardware feature flags, PM timer, GPE registers
+  │     Points to DSDT
+  │
+  ├── DSDT (Differentiated System Description Table)
+  │     Main AML (ACPI Machine Language) bytecode
+  │     Describes devices, methods, thermal zones, power states
+  │
+  ├── SSDT (Secondary System Description Table)
+  │     Additional AML code (CPU P-states, dynamic devices)
+  │
+  ├── MADT / APIC (Multiple APIC Description Table)
+  │     Processor topology: LAPIC IDs, IOAPIC addresses, NMI sources
+  │     Determines CPU count visible to OS
+  │
+  ├── MCFG (Memory Mapped Configuration)
+  │     PCIe ECAM/MMCFG base address (PCIEXBAR)
+  │
+  ├── HPET (High Precision Event Timer)
+  │     HPET register base address and capabilities
+  │
+  ├── DMAR (DMA Remapping Table)
+  │     Intel VT-d / IOMMU configuration
+  │     DRHD (DMA Remapping Hardware Unit Definition)
+  │     Required for Kernel DMA Protection
+  │
+  ├── BGRT (Boot Graphics Resource Table)
+  │     OEM boot splash image
+  │
+  └── SLIT/SRAT (NUMA topology tables)</code></pre>
+
+            <h3>Key Tables for Security</h3>
+            <table>
+              <tr><th>Table</th><th>Security Relevance</th></tr>
+              <tr><td><strong>DMAR</strong></td><td>IOMMU/VT-d config — without it, DMA attacks succeed. Check for DRHD entries covering all PCI segments</td></tr>
+              <tr><td><strong>MADT</strong></td><td>Processor enumeration — a rogue entry could cause crashes or reveal hidden cores</td></tr>
+              <tr><td><strong>DSDT/SSDT</strong></td><td>AML bytecode executed by OS — malicious AML can call SMI, manipulate hardware. Firmware rootkits may modify these</td></tr>
+              <tr><td><strong>MCFG</strong></td><td>PCIe MMCFG base — if wrong/absent, extended PCIe config space is inaccessible</td></tr>
+              <tr><td><strong>WSMT</strong></td><td>Windows SMM Security Mitigations Table — declares SMM is hardened against callouts</td></tr>
+            </table>
+
+            <h3>ACPI Enumeration</h3>
+            <pre><code class="language-bash"># Linux: list all ACPI tables
+ls /sys/firmware/acpi/tables/
+# Common: DSDT, SSDT, APIC, FACP, MCFG, HPET, DMAR
+
+# Dump and disassemble DSDT
+sudo cat /sys/firmware/acpi/tables/DSDT > dsdt.dat
+iasl -d dsdt.dat    # produces dsdt.dsl (human-readable ASL)
+grep -i "Method\|Device\|Name" dsdt.dsl | head -30
+
+# Read MCFG for PCIEXBAR
+sudo hexdump -C /sys/firmware/acpi/tables/MCFG | head -5
+# Base address at offset 44 (0x2C)
+
+# Check DMAR for IOMMU
+sudo hexdump -C /sys/firmware/acpi/tables/DMAR | head -10
+
+# Windows: extract ACPI tables
+# Use AIDA64, RWEverything, or acpidump
+Get-CimInstance -Namespace root\wmi -ClassName MSAcpi_ThermalZoneTemperature</code></pre>
+
+            <!-- ==================== SPI FLASH ==================== -->
+            <h2>SPI Flash &amp; BIOS Regions</h2>
+            <p>System firmware is stored on a SPI (Serial Peripheral Interface) flash chip. The flash is divided into regions controlled by the chipset.</p>
+
+            <h3>Flash Layout</h3>
+            <pre><code class="language-none">SPI Flash (typical 16-32 MB):
+┌──────────────────────────────┐ 0x00000000
+│ Flash Descriptor (4 KB)      │ ← Master region, defines layout + access rules
+├──────────────────────────────┤
+│ Intel ME Region              │ ← Management Engine firmware (off-limits to OS)
+│ (1-8 MB)                     │
+├──────────────────────────────┤
+│ GbE Region (optional)        │ ← Gigabit Ethernet NVM
+│ (8 KB)                       │
+├──────────────────────────────┤
+│ Platform Data                │ ← OEM configuration data
+├──────────────────────────────┤
+│ BIOS Region                  │ ← UEFI firmware (DXE, PEI, SEC volumes)
+│ (4-24 MB)                    │   Contains NVRAM (UEFI variables)
+└──────────────────────────────┘ End of flash</code></pre>
+
+            <h3>Flash Protection Bits</h3>
+            <table>
+              <tr><th>Register/Bit</th><th>Location</th><th>Purpose</th></tr>
+              <tr><td><strong>FLOCKDN</strong></td><td>SPI HSFS</td><td>Flash Lockdown — locks SPI controller config, prevents region access changes</td></tr>
+              <tr><td><strong>BIOSWE</strong></td><td>BIOS Control (BC)</td><td>BIOS Write Enable — 0=BIOS region write-protected, 1=writable from OS</td></tr>
+              <tr><td><strong>BLE</strong></td><td>BIOS Control (BC)</td><td>BIOS Lock Enable — triggers SMI when BIOSWE is set, allowing SMM to block it</td></tr>
+              <tr><td><strong>SMM_BWP</strong></td><td>BIOS Control (BC)</td><td>SMM BIOS Write Protect — only SMM can write BIOS region (even if BIOSWE=1)</td></tr>
+              <tr><td><strong>PR0-PR4</strong></td><td>SPI Protected Range</td><td>Protected Range registers — hardware write-protect specific flash address ranges</td></tr>
+              <tr><td><strong>FDOPSS</strong></td><td>Flash Descriptor</td><td>Flash Descriptor Override Pin-Strap Status — manufacturing mode override</td></tr>
+            </table>
+            <p><strong>Proper configuration</strong>: BIOSWE=0, BLE=1, SMM_BWP=1, FLOCKDN=1, PR registers covering critical regions.</p>
+
+            <pre><code class="language-bash"># CHIPSEC SPI flash checks
+python3 chipsec_main.py -m common.bios_wp       # BIOSWE, BLE, SMM_BWP
+python3 chipsec_main.py -m common.spi_lock       # FLOCKDN
+python3 chipsec_main.py -m common.spi_fdopss     # Flash descriptor override
+python3 chipsec_util.py spi info                  # Flash regions + access permissions
+
+# Read flash
+python3 chipsec_util.py spi dump firmware.bin     # Full SPI dump
+sudo flashrom -p internal -r firmware.bin          # Alternative (Linux)</code></pre>
+
+            <!-- ==================== INTEL ME ==================== -->
+            <h2>Intel ME / CSME</h2>
+            <p>The Intel Management Engine (ME) / Converged Security and Management Engine (CSME) is an independent microcontroller embedded in the PCH that runs its own firmware and OS (MINIX-based), with access to main memory, network, and all platform resources.</p>
+
+            <h3>Architecture</h3>
+            <ul>
+              <li><strong>Processor</strong>: Dedicated x86 core (Minute IA / Sparc core on older platforms) inside the PCH</li>
+              <li><strong>Memory</strong>: Own SRAM + can access system DRAM via UMA (reserved region invisible to OS)</li>
+              <li><strong>Firmware</strong>: Stored in SPI flash (ME region), signed by Intel</li>
+              <li><strong>Communication</strong>: HECI/MEI (Host Embedded Controller Interface) — PCI device, typically 00:16.0</li>
+              <li><strong>Always on</strong>: Runs whenever power is connected (even when OS is off)</li>
+            </ul>
+
+            <h3>ME Components</h3>
+            <table>
+              <tr><th>Component</th><th>Purpose</th></tr>
+              <tr><td><strong>AMT</strong></td><td>Active Management Technology — remote KVM, power control, BIOS access over network (enterprise only)</td></tr>
+              <tr><td><strong>Boot Guard</strong></td><td>Hardware root of trust — verifies IBB (Initial Boot Block) against OTP fuses before CPU executes any code</td></tr>
+              <tr><td><strong>PTT</strong></td><td>Platform Trust Technology — firmware-based TPM 2.0 (fTPM)</td></tr>
+              <tr><td><strong>PAVP</strong></td><td>Protected Audio/Video Path — DRM decryption in isolated environment</td></tr>
+              <tr><td><strong>ICC</strong></td><td>Integrated Clock Controller — manages platform clocking</td></tr>
+            </table>
+
+            <h3>Security Concerns</h3>
+            <ul>
+              <li>Full access to DRAM, network, and USB — a compromised ME is a persistent, invisible backdoor</li>
+              <li>Black-box firmware (Intel-signed, encrypted) — cannot be audited by users</li>
+              <li>Known vulnerabilities: SA-00086 (RCE via JOM), SA-00125 (auth bypass in AMT)</li>
+              <li>Partial mitigation: Intel provides HAP bit (High Assurance Platform) or me_cleaner to disable non-essential ME modules</li>
+            </ul>
+
+            <pre><code class="language-bash"># Enumerate ME/CSME
+lspci -nn | grep -i "management engine\|MEI\|HECI"
+# Typically 00:16.0, VID:DID = 8086:xxxx
+
+# CHIPSEC ME info
+python3 chipsec_util.py me info
+
+# Check ME firmware version
+MEInfoWin64.exe       # Intel ME Info tool (Windows)
+sudo mei-amt-check     # Linux: check AMT status
+
+# Check if ME is disabled (HAP bit)
+python3 chipsec_util.py me state</code></pre>
+
+            <!-- ==================== INTEL BOOT GUARD ==================== -->
+            <h2>Intel Boot Guard</h2>
+            <p>Hardware-based verified boot chain. Cannot be disabled once OEM burns the fuses — provides root of trust that software cannot subvert.</p>
+
+            <h3>Boot Guard Profiles</h3>
+            <table>
+              <tr><th>Profile</th><th>Description</th></tr>
+              <tr><td><strong>Measured Boot</strong></td><td>ME measures IBB into TPM PCRs. Does NOT prevent boot — just records measurements for remote attestation</td></tr>
+              <tr><td><strong>Verified Boot</strong></td><td>ME verifies IBB signature against OTP-fused public key hash. Boot halts if verification fails</td></tr>
+              <tr><td><strong>Verified + Measured</strong></td><td>Both: verify signature AND record measurements</td></tr>
+            </table>
+
+            <h3>Boot Guard Chain</h3>
+            <pre><code class="language-none">1. Power On
+2. ME/CSME runs ACM (Authenticated Code Module) from ROM
+3. ACM reads IBB (Initial Boot Block) from SPI flash
+4. ACM verifies IBB signature against OTP-fused key hash
+   ├── Match → boot continues, SEC phase executes
+   └── Mismatch → platform halts (verified boot) or logs failure
+5. IBB (SEC phase) verifies PEI → PEI verifies DXE → chain continues
+
+Key points:
+- OTP fuses cannot be changed after manufacturing
+- Even reflashing SPI won't bypass it — wrong signature = no boot
+- Different from Secure Boot (UEFI level, key database modifiable)</code></pre>
+
+            <pre><code class="language-bash"># Check Boot Guard status with CHIPSEC
+python3 chipsec_main.py -m common.bios_ts
+python3 chipsec_util.py pci read 0 0 0 0x138 4   # MSR_BOOT_GUARD_SACM_INFO
+# Bits 0-7 indicate Boot Guard profile</code></pre>
+
+            <!-- ==================== IO ACCESS ==================== -->
+            <h2>I/O Access Methods</h2>
+            <p>x86 platforms provide multiple mechanisms for the CPU to communicate with hardware devices. Understanding these is critical for firmware security research and CTF challenges involving hardware interaction.</p>
+
+            <h3>Port I/O (PIO)</h3>
+            <p>Legacy x86 I/O mechanism using a separate 64 KB I/O address space (0x0000–0xFFFF) accessed via <code>IN</code>/<code>OUT</code> instructions.</p>
+            <table>
+              <tr><th>Port Range</th><th>Device</th><th>Usage</th></tr>
+              <tr><td>0x0020-0x0021</td><td>PIC (8259A Master)</td><td>Interrupt controller (legacy, replaced by APIC)</td></tr>
+              <tr><td>0x0040-0x0043</td><td>PIT (8254 Timer)</td><td>Programmable Interval Timer</td></tr>
+              <tr><td>0x0060, 0x0064</td><td>PS/2 Controller</td><td>Keyboard/mouse (also used for A20 gate, system reset)</td></tr>
+              <tr><td>0x0070-0x0071</td><td>CMOS/RTC</td><td>Real-time clock + NVRAM (BIOS settings)</td></tr>
+              <tr><td>0x00B2</td><td><strong>APMC</strong></td><td>Advanced Power Management Control — triggers SMI</td></tr>
+              <tr><td>0x00B3</td><td>APM Status</td><td>SMI data port</td></tr>
+              <tr><td>0x0CF8</td><td><strong>PCI CONFIG_ADDRESS</strong></td><td>Select PCI device/register for config access</td></tr>
+              <tr><td>0x0CFC</td><td><strong>PCI CONFIG_DATA</strong></td><td>Read/write selected PCI config register</td></tr>
+              <tr><td>0x03F8</td><td>COM1 (Serial)</td><td>UART serial port (debug output)</td></tr>
+              <tr><td>0x0080</td><td>POST Code</td><td>Diagnostic port — BIOS writes progress codes during boot</td></tr>
+            </table>
+
+            <h4>PIO Access Instructions</h4>
+            <pre><code class="language-nasm">; Read 1 byte from port 0x64 (PS/2 status)
+mov   dx, 0x64
+in    al, dx          ; AL = byte read from port
+
+; Write 1 byte to port 0xB2 (trigger SMI)
+mov   dx, 0xB2
+mov   al, 0x00        ; SMI command byte
+out   dx, al          ; Triggers System Management Interrupt
+
+; Read 4 bytes (DWORD) from PCI CONFIG_DATA
+mov   dx, 0xCFC
+in    eax, dx          ; EAX = 32-bit PCI config register value
+
+; String I/O (repeat)
+mov   dx, 0x1F0       ; IDE data port
+mov   edi, buffer
+mov   ecx, 256        ; 256 DWORDs = 1 sector
+rep   insd            ; Read 512 bytes from disk controller</code></pre>
+
+            <h4>PIO Access Control</h4>
+            <ul>
+              <li><strong>IOPL</strong> (EFLAGS bits 13:12): if CPL &gt; IOPL, IN/OUT check the TSS I/O Permission Bitmap</li>
+              <li><strong>TSS I/O Bitmap</strong>: 65536 bits (8 KB), one per port. Bit=0 means port accessible, Bit=1 means #GP</li>
+              <li><strong>Linux</strong>: <code>ioperm(port, num, 1)</code> or <code>iopl(3)</code> to grant user-mode port access (requires CAP_SYS_RAWIO)</li>
+              <li><strong>CHIPSEC</strong>: <code>python3 chipsec_util.py io read 0xCF8 4</code></li>
+            </ul>
+
+            <h3>Memory-Mapped I/O (MMIO)</h3>
+            <p>Devices map their registers into the physical address space. CPU accesses them with normal <code>MOV</code> instructions (load/store). No special I/O instructions needed.</p>
+
+            <h4>Key MMIO Regions</h4>
+            <table>
+              <tr><th>Region</th><th>Physical Address (typical)</th><th>Size</th><th>Purpose</th></tr>
+              <tr><td><strong>LAPIC</strong></td><td>0xFEE00000</td><td>4 KB</td><td>Local APIC registers (per-CPU interrupt controller)</td></tr>
+              <tr><td><strong>IOAPIC</strong></td><td>0xFEC00000</td><td>4 KB</td><td>I/O APIC (interrupt routing from devices)</td></tr>
+              <tr><td><strong>HPET</strong></td><td>0xFED00000</td><td>1 KB</td><td>High Precision Event Timer</td></tr>
+              <tr><td><strong>TPM</strong></td><td>0xFED40000</td><td>4 KB</td><td>Trusted Platform Module (FIFO interface)</td></tr>
+              <tr><td><strong>PCIe ECAM (MMCFG)</strong></td><td>0xE0000000 (varies)</td><td>256 MB</td><td>PCIe Extended Configuration Space (all buses/devices)</td></tr>
+              <tr><td><strong>PCI BARs</strong></td><td>Device-specific</td><td>Varies</td><td>Device registers mapped via Base Address Registers</td></tr>
+              <tr><td><strong>Flash (BIOS)</strong></td><td>0xFF000000-0xFFFFFFFF</td><td>16 MB</td><td>SPI flash mapped at top of 4 GB (decode by chipset)</td></tr>
+              <tr><td><strong>GPU Aperture</strong></td><td>Device BAR</td><td>256 MB-16 GB</td><td>Graphics framebuffer / VRAM</td></tr>
+            </table>
+
+            <h4>MMIO vs RAM</h4>
+            <ul>
+              <li><strong>Caching</strong>: MMIO regions must be marked <strong>uncacheable (UC)</strong> or <strong>write-combining (WC)</strong> in MTRRs/PAT — otherwise stale cache values cause incorrect device behavior</li>
+              <li><strong>Side effects</strong>: reads from MMIO can change device state (e.g., reading a status register clears it). Compiler must not optimize away MMIO accesses — use <code>volatile</code> in C or <code>readl()</code>/<code>writel()</code> in Linux</li>
+              <li><strong>MTRR</strong> (Memory Type Range Registers): MSRs that define caching policy for physical address ranges. <code>IA32_MTRR_PHYSBASE0</code>/<code>IA32_MTRR_PHYSMASK0</code>, etc.</li>
+              <li><strong>PAT</strong> (Page Attribute Table): per-page caching control via PTE bits (PWT, PCD, PAT)</li>
+            </ul>
+
+            <pre><code class="language-bash"># Linux: view MMIO regions
+cat /proc/iomem
+# Shows physical address map: RAM vs device MMIO
+
+# Example output:
+# 00000000-00000fff : Reserved
+# 00001000-0009ffff : System RAM
+# fee00000-fee00fff : Local APIC
+# fed00000-fed003ff : HPET
+# e0000000-efffffff : PCI MMCONFIG
+
+# Read MMIO via CHIPSEC
+python3 chipsec_util.py mmio read 0xFEE00000 4   # Read LAPIC ID register
+python3 chipsec_util.py mmio read 0xFED00000 4   # Read HPET capabilities
+
+# Linux: /dev/mem access (if available)
+sudo hexdump -C /dev/mem -s 0xFED00000 -n 16    # Read HPET regs</code></pre>
+
+            <h3>PIO vs MMIO Comparison</h3>
+            <table>
+              <tr><th>Feature</th><th>Port I/O (PIO)</th><th>Memory-Mapped I/O (MMIO)</th></tr>
+              <tr><td>Address Space</td><td>Separate 64 KB I/O space</td><td>Shared physical memory space</td></tr>
+              <tr><td>Instructions</td><td><code>IN</code>/<code>OUT</code> (special)</td><td><code>MOV</code>, <code>read</code>/<code>write</code> (normal loads/stores)</td></tr>
+              <tr><td>Speed</td><td>Slow (serialized, ~1 μs per access)</td><td>Fast (can be burst, pipelined)</td></tr>
+              <tr><td>Size</td><td>64 KB total (limited)</td><td>Entire physical address space (abundant)</td></tr>
+              <tr><td>Protection</td><td>IOPL + TSS I/O bitmap</td><td>Page tables (U/S bit, NX, MMIO pages UC)</td></tr>
+              <tr><td>DMA Capable</td><td>No (CPU-only access)</td><td>Yes (devices can DMA to/from MMIO)</td></tr>
+              <tr><td>Modern Usage</td><td>Legacy: PCI config, CMOS, PS/2, COM</td><td>All modern devices: PCIe BARs, LAPIC, HPET</td></tr>
+              <tr><td>Virtualization</td><td>Trapped by VMX (IO bitmap)</td><td>Trapped via EPT/NPT (no-access pages)</td></tr>
+            </table>
+
+            <h3>DMA (Direct Memory Access)</h3>
+            <p>Devices can read/write physical memory directly without CPU involvement. Critical security concern — a malicious device can compromise the entire system.</p>
+            <ul>
+              <li><strong>Without IOMMU</strong>: any bus-master device can DMA read/write ALL physical memory (kernel code, credentials, page tables)</li>
+              <li><strong>With IOMMU (Intel VT-d / AMD-Vi)</strong>: DMA is restricted to assigned memory regions via second-level page tables</li>
+              <li><strong>Attack tools</strong>: PCILeech (FPGA), Inception (Thunderbolt/PCIe), Thunderclap</li>
+              <li><strong>Defense</strong>: Kernel DMA Protection (Win10 1803+), IOMMU strict mode, Thunderbolt security levels</li>
+            </ul>
+
+            <pre><code class="language-bash"># Check IOMMU status
+dmesg | grep -i "iommu\|dmar\|vt-d"
+
+# Windows: Kernel DMA Protection
+msinfo32  # System Summary → Kernel DMA Protection
+
+# CHIPSEC: check VT-d
+python3 chipsec_main.py -m common.bios_ts</code></pre>
+
+            <div id="pci-express">
+              <h2>PCIe</h2>
           <div id="pci-topology" class="section-container">
             <h3>PCI Topology</h3>
             <ul>
@@ -676,12 +1177,563 @@ out   dx, eax           ; Write 0xFED1C001 to CONFIG_DATA (writes to 0xF0 of 0:3
               </li>
             </ul>
           </div>
+            </div>
+
+          </div>
+
+        <!-- LAB TAB -->
+        <div class="tab-content" id="lab">
+          <h2>Labs</h2>
+
+          <div class="lab-card">
+            <h4>Lab 1: BIOS/UEFI Boot Mode Identification</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Determine your system's firmware type, verify Secure Boot status, and examine UEFI variables.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Linux: Check UEFI vs Legacy BIOS
+ls /sys/firmware/efi/
+# Directory exists → UEFI mode. Missing → Legacy BIOS.
+
+# Detailed boot info
+bootctl status
+efibootmgr -v
+
+# Secure Boot state
+cat /sys/firmware/efi/efivars/SecureBoot-*/data | xxd | head -1
+# Last byte: 01 = enabled, 00 = disabled
+
+# List all UEFI variables
+ls /sys/firmware/efi/efivars/ | head -20</code></pre>
+<pre><code class="language-powershell"># Windows: Check boot mode and Secure Boot
+Confirm-SecureBootUEFI
+bcdedit /enum firmware
+Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State"
+msinfo32  # System Summary → BIOS Mode, Secure Boot State</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Determine if your system boots UEFI or Legacy BIOS. On Linux, check for <code>/sys/firmware/efi/</code>. On Windows, check msinfo32 → BIOS Mode.</li>
+                <li>Verify Secure Boot status. If disabled, explain the security implications (unsigned boot loaders can execute).</li>
+                <li>List 5 UEFI variables and identify their purpose (e.g., <code>BootOrder</code>, <code>SecureBoot</code>, <code>SetupMode</code>).</li>
+                <li>Check <code>SetupMode</code> — if it's 1, Secure Boot keys can be modified without authentication. Why is this dangerous?</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 2: PCI Device Enumeration &amp; Config Space Decoding</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Enumerate PCI devices, dump configuration space headers, and decode key fields (VID/DID, BAR, Command register) using both OS tools and CHIPSEC.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Linux: Enumerate all PCI devices
+lspci -nn          # Show VID:DID
+lspci -vvv -s 00:1f.0   # Verbose dump of LPC controller
+lspci -xxx -s 00:00.0   # Full hex dump of Host Bridge config space
+
+# Direct sysfs access
+xxd /sys/bus/pci/devices/0000:00:1f.0/config | head -4
+
+# CHIPSEC (requires root + kernel module)
+python3 chipsec_util.py pci enumerate
+python3 chipsec_util.py pci dump 0 31 0     # Bus 0, Dev 31, Func 0
+python3 chipsec_util.py pci read 0 0 0 0x00  # Read VID at offset 0x00</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Enumerate all PCI devices. Find your NIC, USB controller, and SATA controller — note their BDF (Bus:Device.Function) addresses.</li>
+                <li>Dump the full 256-byte config header for Bus 0, Device 0 (Host Bridge). Use the PCI Config Header diagram on this page to decode: VID (0x00-0x01), DID (0x02-0x03), Command (0x04-0x05), Class Code (0x0B).</li>
+                <li>Read BAR0-BAR5 for your NIC. Determine if each BAR is Memory-mapped or I/O, 32-bit or 64-bit, and whether it's prefetchable. Use the BAR decoder tool on this page.</li>
+                <li>Check the Command register: are I/O Space (bit 0), Memory Space (bit 1), and Bus Master (bit 2) enabled? What happens if Bus Master is disabled for a NIC?</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 3: Firmware Image Extraction &amp; Analysis</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Extract your system's firmware image, parse UEFI volumes, and identify DXE drivers and potential security-relevant modules.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Extract firmware using flashrom (Linux, requires root)
+sudo flashrom -p internal -r firmware.bin
+
+# Alternative: CHIPSEC SPI dump
+python3 chipsec_util.py spi dump firmware.bin
+
+# Analyze with binwalk
+binwalk firmware.bin
+binwalk -e firmware.bin  # Extract embedded files
+
+# Parse UEFI structure with UEFITool
+# Download: https://github.com/LongSoft/UEFITool
+# Open firmware.bin → browse firmware volumes, DXE drivers, PEI modules
+
+# Search for interesting strings
+strings firmware.bin | grep -iE 'secure.?boot|password|backdoor|debug'
+strings firmware.bin | grep -i 'AMI\|Phoenix\|Insyde'  # Identify vendor
+
+# CHIPSEC security checks
+python3 chipsec_main.py -m common.bios_wp     # BIOS write protection
+python3 chipsec_main.py -m common.spi_lock     # SPI flash lock
+python3 chipsec_main.py -m common.smm           # SMM protections</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Extract your firmware and identify the vendor (AMI, Phoenix/Insyde, Intel). How large is the image? Typical SPI flash is 8-32 MB.</li>
+                <li>Use binwalk to identify embedded PE executables, compressed volumes, and GUID-identified UEFI modules.</li>
+                <li>Run CHIPSEC's <code>common.bios_wp</code> module — is BIOS Write Protection enabled? If not, the firmware can be reflashed from the OS (firmware rootkit risk).</li>
+                <li>Search for DXE drivers related to Secure Boot (look for GUIDs associated with <code>SecureBootConfigDxe</code>). Are they properly signed?</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 4: ACPI Table Exploration</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Read and interpret ACPI tables provided by firmware — understand how the OS discovers hardware configuration at boot.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Linux: List all ACPI tables
+ls /sys/firmware/acpi/tables/
+# Common: DSDT, SSDT*, MADT, FADT, HPET, MCFG, DMAR
+
+# Dump and disassemble DSDT (main hardware description)
+sudo cat /sys/firmware/acpi/tables/DSDT > /tmp/dsdt.dat
+iasl -d /tmp/dsdt.dat
+less /tmp/dsdt.dsl
+
+# Check MADT for processor topology
+sudo cat /sys/firmware/acpi/tables/APIC > /tmp/madt.dat
+hexdump -C /tmp/madt.dat | head -20
+
+# Check MCFG for PCIe MMCFG base address
+sudo cat /sys/firmware/acpi/tables/MCFG > /tmp/mcfg.dat
+hexdump -C /tmp/mcfg.dat
+
+# Check DMAR for IOMMU/VT-d configuration
+sudo cat /sys/firmware/acpi/tables/DMAR > /tmp/dmar.dat
+hexdump -C /tmp/dmar.dat | head -20</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>List all ACPI tables on your system. Identify DSDT (main device tree), MADT (interrupt/processor info), FADT (fixed hardware), MCFG (PCIe config base).</li>
+                <li>Disassemble DSDT with <code>iasl</code>. Find the <code>_SB</code> (System Bus) scope and identify PCI root bridge and processor objects.</li>
+                <li>Parse MCFG to find the PCIEXBAR (PCIe MMCFG base address). Use the MMIO converter on this page to verify you can decode BDF from MMIO addresses using that base.</li>
+                <li>Check DMAR table — does your system have VT-d/IOMMU configured? Are there DRHD (DMA Remapping Hardware Unit) entries? This determines whether Kernel DMA Protection is possible.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 5: SPI Flash Protection Auditing</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Use CHIPSEC to audit SPI flash write protections and determine if the firmware can be reflashed from the OS.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Run CHIPSEC firmware security audit
+python3 chipsec_main.py -m common.bios_wp       # BIOS write protection
+python3 chipsec_main.py -m common.spi_lock       # SPI controller lock
+python3 chipsec_main.py -m common.spi_fdopss     # Flash descriptor override
+python3 chipsec_main.py -m common.bios_smi        # SMI suppression
+
+# Read SPI flash regions
+python3 chipsec_util.py spi info
+
+# Check Protected Range registers
+python3 chipsec_util.py mmio read SPIBAR 0x84 4   # PR0
+python3 chipsec_util.py mmio read SPIBAR 0x88 4   # PR1</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Run <code>common.bios_wp</code> and check BIOSWE, BLE, and SMM_BWP bits. All three must be correctly set.</li>
+                <li>Run <code>common.spi_lock</code> and verify FLOCKDN is set.</li>
+                <li>Check Protected Range registers (PR0-PR4) — do they cover the BIOS region?</li>
+                <li>If any check fails, describe how a Ring 0 attacker could reflash the firmware.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 6: PCIe Extended Config Space (MMCFG)</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Read PCIe extended configuration space via MMCFG to access PCIe capabilities beyond the legacy 256-byte limit.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Read extended config space (offsets 0x100+)
+lspci -s 00:02.0 -xxxx | head -30   # Full 4K dump
+
+# CHIPSEC: read extended config
+python3 chipsec_util.py pci xread 0 2 0 0x100 4
+
+# PCIe Extended Capabilities start at 0x100
+# Each: Capability ID (16b) | Version (4b) | Next Ptr (12b)
+# ID 0x0001 = AER, 0x0003 = Serial Number, 0x000D = ACS</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Find PCIEXBAR from MCFG ACPI table. Use the MMIO converter on this page to verify.</li>
+                <li>Walk the extended capability linked list for your GPU starting at offset 0x100.</li>
+                <li>Find the AER capability and identify what error conditions are logged.</li>
+                <li>Calculate the MMIO address for Bus 0, Dev 31, Func 0, Offset 0x100 using the converter.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 7: Secure Boot Key Inspection</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Examine the Secure Boot key database (PK, KEK, db, dbx) and understand the trust chain.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Linux: Read Secure Boot key databases
+efi-readvar -v PK       # Platform Key
+efi-readvar -v KEK      # Key Exchange Keys
+efi-readvar -v db       # Allowed signatures
+efi-readvar -v dbx      # Revoked signatures
+
+# Windows:
+Get-SecureBootUEFI -Name PK
+Get-SecureBootUEFI -Name db</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Examine PK — who issued it? (Typically the OEM.)</li>
+                <li>List all certs in KEK and db. Identify the Microsoft UEFI CA.</li>
+                <li>Check dbx entry count — these are revoked boot loaders.</li>
+                <li>Explain: what happens if an attacker replaces PK while in Setup Mode?</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 8: DMA and IOMMU Verification</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Verify IOMMU/VT-d protection against DMA attacks from external PCIe/Thunderbolt devices.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Linux: Check IOMMU
+dmesg | grep -i iommu
+dmesg | grep -i dmar
+
+# List IOMMU groups
+for g in /sys/kernel/iommu_groups/*/devices/*; do
+    echo "Group $(basename $(dirname $(dirname $g))): $(lspci -s $(basename $g))"
+done
+
+# Windows:
+msinfo32  # System Summary → Kernel DMA Protection
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard |
+    Select-Object *DMA*</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Verify IOMMU is enabled in kernel logs. Look for "DMAR: IOMMU enabled".</li>
+                <li>List IOMMU groups — devices in the same group can DMA to each other.</li>
+                <li>Check Kernel DMA Protection on Windows (Win10 1803+ with IOMMU).</li>
+                <li>Explain: why is Thunderbolt dangerous without IOMMU? (PCIe tunneling = direct DMA.)</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 9: SMM Inspection</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">Objective: Examine SMRAM configuration and verify SMM protections are properly locked.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># CHIPSEC SMM checks
+python3 chipsec_main.py -m common.smm          # SMM range registers
+python3 chipsec_main.py -m common.smrr          # SMRR check
+python3 chipsec_main.py -m tools.smm.smm_ptr     # Callout vulnerabilities
+
+# Read SMRAM config register from Host Bridge
+python3 chipsec_util.py pci read 0 0 0 0x88 1    # SMRAM register
+python3 chipsec_util.py pci read 0 0 0 0xB8 4    # TSEGMB</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Verify SMRR registers are set and locked (prevents cache-based SMRAM access).</li>
+                <li>Find TSEG base/limit and calculate SMRAM size (typically 8 MB).</li>
+                <li>Check D_LCK (SMRAM Lock) bit. If unset, SMRAM can be unlocked from Ring 0.</li>
+                <li>Explain: what is an SMM callout and why is it the most dangerous firmware bug class?</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 10: Intel ME/CSME Enumeration</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Objective: Identify and examine the Intel Management Engine on your system.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Find ME PCI device
+lspci -nn | grep -i "management engine\|MEI\|HECI"
+
+# CHIPSEC ME info
+python3 chipsec_util.py me info
+
+# Linux MEI driver
+ls /dev/mei*
+dmesg | grep -i mei
+
+# Windows
+Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -like '*Management Engine*' }</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Find the ME PCI device BDF and decode VID:DID.</li>
+                <li>Check if MEI/HECI interface is accessible from user mode.</li>
+                <li>Research: what remote access does Intel AMT provide if enabled?</li>
+                <li>Check if your ME firmware version is vulnerable (SA-00086, SA-00125).</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 11: PCI BAR Memory Mapping</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Read BAR values, decode Memory vs I/O type, and understand how MMIO regions map to physical address space.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># List BARs for a device
+lspci -v -s 00:02.0 | grep -i "memory\|I/O"
+
+# Read raw BAR values
+lspci -xxx -s 00:02.0 | sed -n '2,3p'  # Offsets 0x10-0x27
+
+# CHIPSEC: Read BAR
+python3 chipsec_util.py pci read 0 2 0 0x10 4  # BAR0
+python3 chipsec_util.py pci read 0 2 0 0x14 4  # BAR1</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Read BAR0/BAR1 for your GPU. Use the BAR decoder on this page to determine type and size.</li>
+                <li>For 64-bit BARs, combine BAR0 (lower) and BAR1 (upper) for the full address.</li>
+                <li>Compare BAR addresses with <code>cat /proc/iomem</code> — verify they appear.</li>
+                <li>Explain: who assigns BAR addresses — firmware or OS?</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="lab-card">
+            <h4>Lab 12: UEFI Shell Exploration</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Objective: Boot into UEFI Shell and explore variables, device mappings, and firmware services interactively.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># UEFI Shell commands:
+map -b                    # List device mappings
+devices                   # List all devices
+drivers                   # List loaded UEFI drivers
+dh -d -v                  # Dump handles with protocols
+setvar SecureBoot          # Display variable
+fs0:                       # Switch to file system
+ls                         # List files
+mem 0xFED00000 0x100       # Read HPET registers</code></pre>
+              <p><strong>Tasks:</strong></p>
+              <ol>
+                <li>Boot into UEFI Shell. Run <code>map</code> to list all block devices.</li>
+                <li>Run <code>drivers</code> to identify DXE drivers for storage, network, USB.</li>
+                <li>Read SecureBoot and SetupMode variables — compare with OS-level findings.</li>
+                <li>Use <code>mem</code> to read HPET registers at 0xFED00000.</li>
+              </ol>
+            </div>
+          </div>
         </div>
-        
-        
 
-      
+        <!-- CTF TAB -->
+        <div class="tab-content" id="ctf">
+          <h2>CTF Challenges</h2>
 
+          <div class="ctf-card">
+            <h4>Challenge 1: Decode the PCI Config Dump</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Given a PCI configuration space hex dump, identify the device vendor, device ID, and what type of device it is. Flag format: <code>FLAG{vendor_devicetype}</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># PCI config header dump (first 16 bytes):
+# 00: 86 80 A2 09 06 04 10 00 05 00 00 06 00 00 00 00
+#
+# Decode:
+# Bytes 0x00-0x01 (little-endian): VID = 0x8086 → ???
+# Bytes 0x02-0x03 (little-endian): DID = 0x09A2 → ???
+# Byte 0x0B: Class Code = 0x06 → ???
+# Byte 0x0A: Subclass = 0x00 → ???
+#
+# Use the VID/DID decoder on this page to look up the device.</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>VID 0x8086 = Intel Corporation. Class 0x06 = Bridge Device. Subclass 0x00 = Host Bridge. This is the CPU's PCI Host Bridge (DRAM Controller). Use the VID/DID decoder tool on this page to identify the specific product name from DID 0x09A2.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 2: Find the Unlocked SPI Flash</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">You're auditing a system's firmware security. Given CHIPSEC output, determine if the SPI flash is write-protected. If not, explain the attack surface. Flag: <code>FLAG{unprotected_register_name}</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># CHIPSEC output:
+# [*] Running module common.bios_wp
+# [*] BIOS Region Write Protection:
+#     BIOS Control Register (BC) = 0x00000089
+#       BIOSWE (BIOS Write Enable)          = 1   ← !!!
+#       BLE (BIOS Lock Enable)              = 0   ← !!!
+#       SMM_BWP (SMM BIOS Write Protection) = 0   ← !!!
+#       TSS (Top Swap Status)               = 0
+# [-] FAILED: BIOS region write protection is not enabled!
+#
+# What registers need to be set to protect the BIOS region?
+# What attack is possible with BIOSWE=1 and BLE=0?</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>BIOSWE=1 means the BIOS region of SPI flash is writable from the OS. BLE=0 means the chipset won't generate an SMI when someone tries to set BIOSWE — so there's no SMM protection. SMM_BWP=0 means even SMM doesn't enforce write protection. This means any Ring 0 code (kernel driver, rootkit) can reflash the BIOS with a firmware implant that survives OS reinstallation. Properly secured systems have BIOSWE=0, BLE=1, SMM_BWP=1. <code>FLAG{BIOSWE}</code>.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 3: PCIe DMA Attack Simulation</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">A malicious PCIe device has DMA access to physical memory. Given the system has no IOMMU protection, describe the attack chain to read kernel memory. What register/table would you target first?</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Scenario: System with DMA protection DISABLED
+# Attacker has a PCILeech-compatible FPGA board in a Thunderbolt/M.2 slot
+#
+# Attack steps:
+# 1. Device issues DMA read to physical address range
+# 2. Without IOMMU, the DMA controller grants access to ALL physical memory
+# 3. Scan physical memory for known signatures:
+#    - NT kernel header ("MZ" + "PE" at known offsets)
+#    - EPROCESS structures (scan for known field patterns)
+#    - Page tables (CR3 values from interrupt frames)
+#
+# Tools: pcileech, inception, thunderclap
+# pcileech.exe dump -min 0x1000 -max 0x10000000 -out memdump.raw
+#
+# Defense: Enable IOMMU (VT-d on Intel, AMD-Vi on AMD)
+# Check: msinfo32 → Kernel DMA Protection
+#
+# What would you target first?
+# FLAG{IDT_or_GDT_physical_address}</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>The IDT (Interrupt Descriptor Table) is at a fixed physical address per boot and contains function pointers for every interrupt handler. Reading it gives you kernel code addresses (defeating KASLR). From there, find ntoskrnl base, locate EPROCESS list, read/modify tokens. Defenses: (1) IOMMU/VT-d restricts DMA to assigned memory regions, (2) Kernel DMA Protection (Win10 1803+) enables IOMMU by default for external devices, (3) Thunderbolt security levels can block unauthorized devices.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 4: SMM Callout Vulnerability</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">An SMI handler in the firmware has a callout vulnerability — it calls a function pointer stored outside SMRAM. Describe how to exploit this for persistent firmware compromise.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># CHIPSEC detected an SMM callout:
+# [*] Running module common.smm
+# [-] SMI handler at SMRAM+0x4200 reads function pointer from
+#     physical address 0xBFF00100 (outside SMRAM!)
+#
+# Attack chain:
+# 1. From Ring 0 (kernel driver): write controlled address to 0xBFF00100
+# 2. Trigger SMI (e.g., write to APMC port 0xB2)
+# 3. SMI handler enters SMM (Ring -2), reads 0xBFF00100, calls it
+# 4. Attacker code now executes in SMM context — full platform access
+# 5. Modify SPI flash to install persistent firmware implant
+#
+# Why is this worse than kernel compromise?
+# SMM survives OS reinstall and runs below the hypervisor
+#
+# CHIPSEC module: chipsec_main.py -m tools.smm.smm_ptr
+# FLAG{SMM_callout_persistent_implant}</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>SMM (System Management Mode) runs at "Ring -2" — below the OS kernel and hypervisor. SMRAM is supposed to be locked (SMRAM Lock bit in chipset config), but if an SMI handler reads a function pointer from memory outside SMRAM, an attacker with kernel access can control that pointer. When the SMI fires, the handler calls the attacker's code in SMM context, giving access to: SPI flash (firmware reflashing), chipset configuration registers, and all physical memory. This is the most persistent implant possible — it survives OS reinstall, disk wipe, and even hypervisor-based security.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 5: MMCFG Address Calculation</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Given PCIEXBAR = 0xE0000000, calculate the MMIO address for Bus 0, Dev 31, Func 0, Offset 0x100. Flag: <code>FLAG{mmio_address}</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># MMIO = PCIEXBAR + (Bus &lt;&lt; 20) + (Dev &lt;&lt; 15) + (Func &lt;&lt; 12) + Offset
+# = 0xE0000000 + (0 &lt;&lt; 20) + (31 &lt;&lt; 15) + (0 &lt;&lt; 12) + 0x100
+# = 0xE0000000 + 0x000F8000 + 0x100 = ???
+# Use the converter tool on this page to verify!</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>0xE0000000 + 0x000F8000 + 0x100 = 0xE00F8100. <code>FLAG{0xE00F8100}</code>.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 6: Identify the Secure Boot Bypass</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">Given: SecureBoot=1, SetupMode=0, PK set to OEM cert, dbx has 50 entries. Attacker has physical access. Find the most practical bypass. Flag: <code>FLAG{bypass_technique}</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Options:
+# A) Replace PK (requires Setup Mode)
+# B) Boot unsigned USB (blocked by Secure Boot)
+# C) Use vulnerable signed boot loader not in dbx
+# D) Disable Secure Boot in BIOS setup
+# E) Clear CMOS to reset all BIOS settings</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>With physical access: clear CMOS (E) resets everything including BIOS password and Secure Boot. Software-only: use a known-vulnerable but signed boot loader not yet in dbx (C), like BlackLotus used CVE-2022-21894. <code>FLAG{CMOS_clear_or_vulnerable_signed_loader}</code>.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 7: Decode CONFIG_ADDRESS Register</h4>
+            <span class="difficulty difficulty-easy">Easy</span>
+            <p class="objective">Given CONFIG_ADDRESS = <code>0x800F8F0</code> written to port 0xCF8, decode the BDF and offset. Flag: <code>FLAG{Bus:Dev.Func_Offset}</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-nasm">; 0x800F8F0 → Enable=1, Bus=0x00, Dev=0x1F, Func=0x0, Offset=0xF0
+; Use the CONFIG_ADDRESS decoder tool on this page!</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>Bus=0, Dev=31 (0x1F), Func=0, Offset=0xF0. This accesses the LPC/eSPI controller. <code>FLAG{00:1F.0_0xF0}</code>.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 8: Firmware Rootkit Detection</h4>
+            <span class="difficulty difficulty-hard">Hard</span>
+            <p class="objective">You suspect a firmware rootkit. Identify the most reliable detection method that can't be fooled by OS-level compromise. Flag: <code>FLAG{most_reliable_method}</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Methods:
+# 1. Hash comparison (flashrom dump vs vendor hash)
+# 2. CHIPSEC whitelist (tools.uefi.whitelist)
+# 3. Intel Boot Guard (hardware ACM verification)
+# 4. Secure Boot violation detection
+#
+# Which can't be fooled by a rootkit controlling the OS?</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>Intel Boot Guard uses hardware (ACM in PCH) to verify firmware before any software runs. A rootkit can intercept flashrom SPI reads (method 1) or tamper with CHIPSEC (method 2), but can't modify fuse-burned Boot Guard values. <code>FLAG{hardware_boot_guard}</code>.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 9: UEFI Variable Tampering</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">An attacker with root wants to disable Secure Boot via UEFI variable modification. What protects the variables? Flag: <code>FLAG{protection_mechanism}</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># Attempt:
+efivar --name 8be4df61-...-SecureBoot --write --data=0x00
+# Result: Permission denied (authenticated variable)
+#
+# Secure Boot variables use authenticated writes:
+#   EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS
+#   Requires valid PKCS#7 signature rooting to PK/KEK</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>Writes must include a valid PKCS#7 signature chain. Without the PK/KEK private key, you can't forge signatures. <code>FLAG{authenticated_variables}</code>. However, entering Setup Mode (deleting PK) disables authentication.</p>
+            </div>
+          </div>
+
+          <div class="ctf-card">
+            <h4>Challenge 10: BAR Size Determination</h4>
+            <span class="difficulty difficulty-medium">Medium</span>
+            <p class="objective">After writing 0xFFFFFFFF to BAR0 and reading back <code>0xFFF00000</code>, calculate the memory region size. Flag: <code>FLAG{size_in_MB}</code>.</p>
+            <div class="setup-code">
+<pre><code class="language-bash"># BAR sizing: write all 1s, read back, invert, add 1
+# Readback = 0xFFF00000
+# Mask type bits: 0xFFF00000 &amp; ~0xF = 0xFFF00000
+# Invert: ~0xFFF00000 = 0x000FFFFF
+# Add 1:  0x000FFFFF + 1 = 0x00100000 = ??? bytes</code></pre>
+            </div>
+            <button class="hint-toggle">Show Hint</button>
+            <div class="hint-content">
+              <p>0x00100000 = 1,048,576 bytes = 1 MB. The lowest set bit in the readback mask determines alignment and size. <code>FLAG{1}</code>.</p>
+            </div>
+          </div>
+        </div>
+        </div>
 
     </div>
   </body>
