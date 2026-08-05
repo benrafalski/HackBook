@@ -894,6 +894,11 @@ reg save HKLM\SYSTEM C:\temp\SYSTEM
 reg save HKLM\SECURITY C:\temp\SECURITY
 reg save HKLM\SOFTWARE C:\temp\SOFTWARE
 
+# Export per-user hives
+reg save HKCU C:\temp\NTUSER.DAT
+# MUICache moved to USRCLASS.DAT on Vista+ (HKCU\Software\Classes)
+copy "%LocalAppData%\Microsoft\Windows\UsrClass.dat" C:\temp\USRCLASS.DAT
+
 # Part 2: Query interesting keys live
 # Autoruns
 reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
@@ -907,21 +912,23 @@ reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI
 <pre><code class="language-bash"># Part 3: Offline parsing with impacket
 impacket-secretsdump -sam SAM -system SYSTEM -security SECURITY LOCAL
 
-# Parse SOFTWARE hive for installed programs
-python3 -c "
-import struct
-# Registry hive format: 'regf' signature, bins, cells
-# Each cell has a key node, value node, or other record
-# Key nodes contain: name, class, subkey count, value count, timestamps
-print('Registry hives use a B-tree structure with key cells and value cells')
-print('The SYSTEM hive ControlSet00X maps to CurrentControlSet at boot')
-"</code></pre>
+# Parse user hive for usage artifacts (UserAssist, MUICache)
+# UserAssist — value names are ROT13-encoded
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist" /s
+
+# MUICache — plaintext exe path → display name mappings
+reg query "HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
+
+# Offline parsing with RegRipper
+# rip.exe -r C:\temp\NTUSER.DAT -p userassist
+# MUICache is in USRCLASS.DAT on modern Windows, NOT NTUSER.DAT
+# rip.exe -r C:\temp\USRCLASS.DAT -p muicache</code></pre>
             <p><strong>Tasks:</strong></p>
             <ol>
               <li>Export all four hives and extract local account hashes with <code>impacket-secretsdump</code>.</li>
               <li>Identify all autorun entries across HKLM and HKCU Run/RunOnce keys.</li>
               <li>Find the boot key from the SYSTEM hive — it's derived from the JD, Skew1, GBG, Data class values under <code>HKLM\SYSTEM\CurrentControlSet\Control\Lsa</code>.</li>
-              <li>Parse the SOFTWARE hive to find recently used applications (UserAssist, MUICache).</li>
+              <li>Export per-user hives and parse for recently used applications: UserAssist (ROT13-encoded, in NTUSER.DAT under <code>HKCU\...\Explorer\UserAssist</code>) and MUICache (in USRCLASS.DAT at <code>HKCU\Software\Classes\...\Shell\MuiCache</code> on Vista+). Use <code>rip.exe -p userassist</code> on NTUSER.DAT and <code>rip.exe -p muicache</code> on USRCLASS.DAT.</li>
             </ol>
           </div>
         </div>
